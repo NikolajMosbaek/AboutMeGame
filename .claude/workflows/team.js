@@ -219,11 +219,22 @@ for (let round = 1; round <= VERIFY_MAX_ROUNDS; round++) {
   log(`Verify round ${round}: tests=${verify && verify.testsPass} review=${verify && verify.reviewPass} ux=${ux && ux.uxPass}`)
   if (allPass) break
   if (round === VERIFY_MAX_ROUNDS) break
-  const failures = [...((verify && verify.failures) || []), ...((ux && ux.gaps) || [])]
-  await agent(
-    `Verification failed. Fix these specific issues, test-first, and commit:\n${failures.map(f => `- ${f}`).join('\n')}\n\n${designBlock}\nRead docs/team/charter.md for the stack and test command.`,
-    { agentType: 'senior-eng-frontend', label: `fix:r${round}`, phase: 'Implement' }
-  )
+  const testFailures = (verify && verify.failures) || []
+  const uxGaps = (ux && ux.gaps) || []
+  const fixes = []
+  if (testFailures.length) {
+    fixes.push(() => agent(
+      `Tests/review failed. Fix these specific issues, test-first, and commit:\n${testFailures.map(f => `- ${f}`).join('\n')}\n\n${designBlock}\nRead docs/team/charter.md for the stack and test command.`,
+      { agentType: 'senior-eng-quality', label: `fix:tests:r${round}`, phase: 'Implement' }
+    ))
+  }
+  if (uxGaps.length) {
+    fixes.push(() => agent(
+      `The UX review found gaps against the agreed design. Fix these specific issues, test-first, and commit:\n${uxGaps.map(f => `- ${f}`).join('\n')}\n\n${designBlock}\nRead docs/team/charter.md for the stack and test command.`,
+      { agentType: 'senior-eng-frontend', label: `fix:ux:r${round}`, phase: 'Implement' }
+    ))
+  }
+  for (const f of fixes) { await f() }
 }
 
 const gatesGreen = !!(verify && verify.testsPass && verify.reviewPass && ux && ux.uxPass)
