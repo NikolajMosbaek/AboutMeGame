@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "CMD=$(cat | jq -r '.tool_input.command // empty') && if echo \"$CMD\" | grep -qE 'git[^&;|\"]*[[:space:]]push[^&;|]*(--force|[[:space:]]-[A-Za-z]*f|[[:space:]]\\+)'; then echo 'BLOCKED: git force-push is not allowed — regular pushes are fine; do not rewrite published history' >&2; exit 2; fi"
+          }
+        ]
+      }
+    ]
+  }
+}
