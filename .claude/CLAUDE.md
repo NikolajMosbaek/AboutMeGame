@@ -1,17 +1,21 @@
 # AboutMeGame
 
-<!-- One-paragraph description of what this project is and its tech stack. Fill in. -->
+AboutMeGame is a lightweight, browser-based social party game (answer prompts about yourself, guess each other's answers). Stack: TypeScript + React 18 + Vite 5, tested with Vitest + React Testing Library, on Node 20+.
 
 ## Build & Test
 
-<!-- Replace with the real commands once the stack is chosen. -->
-
 ```bash
-# Build
-# <build command>
+# Install (first time / clean checkout)
+npm install
 
-# Test
-# <test command>
+# Build (typecheck + production bundle)
+npm run build
+
+# Run (dev server with the title screen at http://localhost:5173)
+npm run dev
+
+# Test (smoke tests, exits zero on pass)
+npm test
 ```
 
 ## Workflow Principles
