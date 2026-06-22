@@ -57,23 +57,10 @@ body {
   max-width: 28rem;
 }
 
-.cta {
-  background: var(--color-accent);
-  color: var(--color-accent-fg);
-  border: none;
-  border-radius: 0.5rem;
-  padding: var(--space-1) var(--space-3);
-  font-size: 1rem;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.cta:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.cta:focus-visible {
+/* Preserve the keyboard focus ring for any future interactive control —
+   never strip :focus-visible. Accent tokens above are the styling seam for
+   the deferred CTA (see backlog). */
+:focus-visible {
   outline: 3px solid var(--color-fg);
   outline-offset: 3px;
 }

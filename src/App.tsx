@@ -9,9 +9,6 @@ export function App() {
     <main className="title-screen">
       <h1>AboutMeGame</h1>
       <p className="tagline">{VISION}</p>
-      <button className="cta" type="button" disabled>
-        Start
-      </button>
       <p className="version-marker">v{APP_VERSION}</p>
     </main>
   );

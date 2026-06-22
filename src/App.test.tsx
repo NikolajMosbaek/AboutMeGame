@@ -3,9 +3,10 @@ import { App } from "./App.tsx";
 import { VISION } from "./version.ts";
 
 // Behavioral smoke test: renders the real App and asserts the user-visible
-// title, the actual vision tagline, and the CTA exist. This exercises the
-// full React render path (the medium the product lives in), not a hardcoded
-// snapshot — proving the stack is wired end-to-end.
+// title and the actual vision tagline exist. This exercises the full React
+// render path (the medium the product lives in), not a hardcoded snapshot —
+// proving the stack is wired end-to-end. The slice is strictly read-only, so
+// it also asserts no interactive control is present.
 describe("App title screen", () => {
   it("renders the game title as the page heading", () => {
     render(<App />);
@@ -19,8 +20,8 @@ describe("App title screen", () => {
     expect(screen.getByText(VISION)).toBeInTheDocument();
   });
 
-  it("presents a Start call-to-action", () => {
+  it("renders no interactive control (read-only slice)", () => {
     render(<App />);
-    expect(screen.getByRole("button", { name: "Start" })).toBeInTheDocument();
+    expect(screen.queryByRole("button")).toBeNull();
   });
 });
