@@ -196,6 +196,53 @@ describe("POI placement binding (#36)", () => {
   it("resolves every real anchor without throwing", () => {
     expect(() => buildDiscoverablePois(() => new THREE.Vector3())).not.toThrow();
   });
+
+  it("carries each POI's interaction from its content (always populated)", () => {
+    const pois = buildDiscoverablePois(() => new THREE.Vector3());
+    const byId = contentById();
+    for (const p of pois) {
+      // The field is typed optional, but the producer always populates it,
+      // and it equals the content's resolved interaction (slice 3 switches on it).
+      expect(p.interaction).toBeDefined();
+      expect(p.interaction).toEqual(byId.get(p.id)!.interaction);
+    }
+  });
+
+  it("carries a guess interaction when the content has one", async () => {
+    // Stub content so the producer must thread a non-plain interaction through.
+    vi.resetModules();
+    const guess: PoiInteraction = {
+      type: "guess",
+      prompt: "How?",
+      options: [
+        { text: "a", correct: true },
+        { text: "b", correct: false },
+      ],
+    };
+    const guessId = POI_ANCHORS[0].poiId;
+    vi.doMock("./contentModel.ts", () => ({
+      contentById: () =>
+        new Map(
+          POI_ANCHORS.map((a, i) => [
+            a.poiId,
+            {
+              id: a.poiId,
+              order: i + 1,
+              title: "T",
+              teaser: "x",
+              body: "y",
+              tags: [],
+              interaction: a.poiId === guessId ? guess : { type: "plain" },
+            },
+          ]),
+        ),
+    }));
+    const { buildDiscoverablePois: bind } = await import("./discoverablePois.ts");
+    const pois = bind(() => new THREE.Vector3());
+    expect(pois.find((p) => p.id === guessId)?.interaction).toEqual(guess);
+    vi.doUnmock("./contentModel.ts");
+    vi.resetModules();
+  });
 });
 
 // Exercise the safety net: if content is missing for an anchor, binding throws

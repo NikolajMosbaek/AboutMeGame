@@ -359,3 +359,93 @@ the biggest wow-per-byte/ms win on the largest surface at near-zero cost. G2 is 
 biggest single perceived-quality jump and unlocks G3/G4's emissive treatments. G3 is
 free perf-wise and makes every visit feel alive. G4 is the largest and benefits from
 bloom existing first.
+
+## Sound  — *technically led by the sound-engineer agent; scope owned by the PO*
+
+> Added 2026-06-22 (research + definition run, no code). The audio layer
+> (`src/audio/`, shipped under Epic 7 #51/#52) is a clean procedural Web Audio
+> engine — 3 one-shot SFX (chime/whoosh/boost) + a two-pad ambient drone, gated by
+> a **binary mute**. **Hard constraints on every epic:** stay procedural (**0 asset
+> bytes** — the only justified file is S4's silent-switch loop, ideally a data-URI =
+> 0 download bytes); keep the DI / no-singleton / headless-testable pattern;
+> click-free (anchor then ramp, never exponential-to-0); no per-frame allocation in
+> `update()`; never autoplay before a gesture; audio is never the sole channel for
+> critical info. GitHub epics carry the authoritative detail; slices are sub-issues.
+
+### S1 — Mix Backbone: buses, limiter, volume & ducking  *(do first — #86)*
+
+- **Goal / value:** Every sound funnels into one master gain with only a binary
+  mute — no level control, no clip protection, no way to balance the bed against the
+  discovery chime. Build the backbone the rest of the track needs: a 2-bus graph
+  (SFX + music), a soft limiter so stacked voices never clip, a real 0–100% volume,
+  and music-ducking under the chime. Cheapest, 0-byte, zero-dependency; unblocks S2/S3.
+- **Scope — in:** `sfxBus`/`musicBus` GainNodes; `DynamicsCompressorNode` limiter last
+  before destination; a `volume` setting scaling master (read live like mute);
+  ducking around `chime()`; extend `AudioContextLike` + fake with `createDynamicsCompressor`.
+- **Scope — out:** audio files, spatial, speed sound, UI sounds, S4's silent-switch fix,
+  the sound-on-by-default policy (ux-lead, #91), **per-bus UI sliders** (one master volume).
+- **Slices:** #92 volume setting · #93 2-bus graph · #94 limiter + AudioContextLike ·
+  #95 live volume + chime ducking · #96 slider spec (frontend builds it).
+- **Decision:** default stays `muted:false` (sound ON); no WCAG 1.4.2 issue (suspended
+  until gesture; mute + new volume control the bed). Policy call is ux-lead's (#91).
+
+### S2 — Reward & UI Feedback: completion sting + interaction cues  *(do second — #87)*
+
+- **Goal / value:** The two biggest *moments* under-sound: reaching 13/13 (M1,
+  shipped) replays the ordinary chime, and the shell (toggle, panel close, M2 guess)
+  is silent. Give the journey an audible payoff and make the shell feel responsive.
+- **Scope — in:** a procedural completion sting on the `discovery.completed` rising
+  edge; 2–3 tiny UI cues behind a thin injected `UiSounds` API the shell calls.
+- **Scope — out:** audio files, spatial, music changes, any sole-feedback cue,
+  elaborate UI sound (hard-capped at 2–3 cues).
+- **Slices:** #97 sting synth *(M1-ready)* · #98 fire on rising edge *(M1-ready)* ·
+  #99 UI-cue methods + injected `UiSounds` · #100 wire the shell *(gated on M2)*.
+- **Sequencing:** sting (slices 1–2) ships the moment **S1** lands (depends on shipped
+  **M1**); UI/guess cues gate on **queued M2** + frontend's shell — don't block the
+  completion payoff on M2.
+
+### S3 — World in Motion: speed-reactive engine/wind layer  *(feel; needs device profiling — #88)*
+
+- **Goal / value:** The world is silent in motion except at the mode-switch whoosh. A
+  subtle speed-reactive wind/engine layer is the biggest *immersion* win — but highest
+  tuning/profiling risk, so it follows the safe backbone.
+- **Scope — in:** one continuous, quiet, oscillator-based voice whose cutoff+gain
+  track `vehicle.state.speed`, quantised (allocation-free), reduced-motion gated,
+  silent at rest, respects mute/volume.
+- **Scope — out:** audio files, white-noise buffer sources, per-surface variation, spatial.
+- **Slices:** #101 pure `speedToTone()` · #102 wind voice via `setTargetAtTime` ·
+  #103 AudioSystem wiring (quantise + reduced-motion gate) · #104 profile & tune on device.
+- **PO ship rule:** if it can't be made pleasant on device, ship the silent floor-gate
+  and reassess — a bad engine drone is a regression, not a feature.
+
+### S4 — Mobile-Safari Survival: silent-switch & interrupt recovery  *(correctness; parallel — #89)*
+
+- **Goal / value:** On the target phone, opted-in sound dies silently three ways: the
+  iOS silent switch mutes all Web Audio; an interrupt leaves the context suspended with
+  only a **one-shot** resume handler (confirmed in `buildGame.ts`); `visibilitychange`
+  resumes the loop but not the context. Make sound survive the phone.
+- **Scope — in:** inline silent-element media-channel unlock (data-URI, 0 bytes); a
+  **persistent** resume net replacing the one-shot unbind; surface context `state` for
+  `interrupted` recovery.
+- **Scope — out:** the sound-on-by-default policy, the mix backbone, non-correctness work.
+- **Slices:** #105 persistent resume net · #106 silent-element unlock · #107 consume
+  context state. Independent of S1–S3 — **runs in parallel.** On-device behaviour is
+  **"needs verification"** (iOS-version-sensitive).
+
+### S5 — Spatial landmark wayfinding audio  *(DEFERRED — backlog stub #90, do not pull)*
+
+- Per-landmark proximity hum that grows + pans as you approach (audio as wayfinding).
+  **Deferred:** the only feature with genuine audio-thread risk (`PannerNode` per
+  source on mobile), depends on the graphics-3d `THREE.AudioListener` camera seam, and
+  has unproven value over existing nav markers. Cheaper first step if revived: a
+  `StereoPannerNode` + distance-gain off `PlacedLandmark.position` (no listener needed).
+  **Revisit when** S1–S4 land and there's evidence directional audio aids discovery. No
+  sub-issues by design.
+
+**Sound sequencing:** S1 → S2 → S3, with S4 in parallel; S5 deferred. S1 is the 0-byte
+foundation everything leans on. S2's completion sting pairs with shipped M1 and is
+buildable the moment S1 lands; its UI/guess cues gate on M2. S4 is independent
+correctness. S3 has the highest feel-payoff but highest risk, so it follows the
+backbone. **Cross-role:** frontend owns the `SettingsMenu` volume slider + shell cue
+calls; ux-lead owns the sound-on-by-default policy (#91, no WCAG issue today);
+graphics-3d owns the camera/`AudioListener` seam (S5 only).

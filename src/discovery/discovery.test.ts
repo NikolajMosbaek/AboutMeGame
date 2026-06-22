@@ -85,6 +85,45 @@ describe("DiscoverySystem (#37, #39)", () => {
     expect(session.paused).toBe(false);
   });
 
+  it("carries the POI's interaction into the open snapshot end-to-end (#T7)", () => {
+    const pois: DiscoverablePoi[] = [
+      {
+        id: "g",
+        order: 1,
+        title: "Guess",
+        teaser: "tg",
+        body: "bg",
+        color: 0,
+        position: new THREE.Vector3(0, 0, 0),
+        interaction: {
+          type: "guess",
+          prompt: "Pick one",
+          options: [
+            { text: "x", correct: true },
+            { text: "y", correct: false },
+          ],
+        },
+      },
+    ];
+    const input = fakeInput();
+    const store = createDiscoveryStore(pois.length);
+    const sys = new DiscoverySystem(input.snap, fakeVehicle(new THREE.Vector3(8, 1, 0)), pois, store, mem(), createSession());
+    input.press();
+    sys.update(ctx);
+    expect(store.getSnapshot().open?.interaction.type).toBe("guess");
+    expect(store.getSnapshot().open?.bodyUnlocked).toBe(false);
+  });
+
+  it("reveals a POI with no interaction as plain (#T7)", () => {
+    const input = fakeInput();
+    const store = createDiscoveryStore(POIS.length);
+    const sys = new DiscoverySystem(input.snap, fakeVehicle(new THREE.Vector3(8, 1, 0)), POIS, store, mem(), createSession());
+    input.press();
+    sys.update(ctx);
+    expect(store.getSnapshot().open?.interaction.type).toBe("plain");
+    expect(store.getSnapshot().open?.bodyUnlocked).toBe(true);
+  });
+
   it("restores discovered count from persistence", () => {
     const persist = mem();
     persist.save(new Set(["a"]));
