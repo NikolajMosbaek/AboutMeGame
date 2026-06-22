@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="AboutMeGame">
+  <!-- Brand mark (#54): an amber sky-beacon rising from a low-poly island base,
+       on the deep-indigo brand background. Colours are the design tokens:
+       bg #14121f, accent #ffcb47, plus the cool fill used in the 3D world. -->
+  <rect width="64" height="64" rx="14" fill="#14121f"/>
+  <!-- Island base -->
+  <path d="M14 46 L24 40 L40 40 L50 46 Z" fill="#5b8f4a"/>
+  <path d="M14 46 L50 46 L46 50 L18 50 Z" fill="#49753c"/>
+  <!-- Beacon glow column -->
+  <rect x="29" y="10" width="6" height="32" rx="3" fill="#ffcb47" opacity="0.35"/>
+  <!-- Beacon core + lamp -->
+  <rect x="30.5" y="22" width="3" height="20" fill="#ffcb47"/>
+  <circle cx="32" cy="18" r="7" fill="#ffcb47"/>
+  <circle cx="32" cy="18" r="3.2" fill="#fff3d4"/>
+</svg>

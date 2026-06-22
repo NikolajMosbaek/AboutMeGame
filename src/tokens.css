@@ -12,6 +12,19 @@
   --color-accent: #ffcb47; /* warm amber CTA — AA on --color-bg (12.2:1) */
   --color-accent-fg: #14121f; /* text on the accent CTA — AA on accent (12.2:1) */
 
+  /* HUD mode hues (#54): the two drive modes have signature colours so the
+     telemetry reads at a glance. Tokenised here (not ad-hoc hex in the HUD) per
+     the art direction; both are light mints/blues that clear AA on the dark HUD
+     panel (rgba black) the same way --color-fg does. */
+  --color-drive: #b7f7c2; /* cool mint — DRIVE */
+  --color-fly: #9fd0ff; /* sky blue — FLY */
+
+  /* Shared overlay surfaces (#54): one panel/scrim recipe so the HUD chips,
+     reveal prompt, menus and progress badge all read from the same palette
+     rather than each picking its own rgba. */
+  --surface-panel: rgba(20, 18, 31, 0.78); /* a translucent --color-bg */
+  --surface-chip: rgba(0, 0, 0, 0.45); /* small HUD chips/badges */
+
   --space-1: 0.5rem;
   --space-2: 1rem;
   --space-3: 1.5rem;
@@ -85,6 +98,27 @@ body {
   outline: 3px solid var(--color-accent);
   outline-offset: 6px;
   border-radius: 0.25rem;
+}
+
+/* Wordmark (#54). A deliberate brand treatment built only from the tokens: a
+   tight, heavy set with the personal "Me" in the amber accent and a short accent
+   rule beneath, so the title reads as a designed mark rather than default text.
+   The accent text stays AA on --color-bg (12.2:1, see token notes). */
+.wordmark {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0;
+  font-weight: 800;
+  line-height: 1;
+  padding-bottom: var(--space-1);
+  border-bottom: 3px solid var(--color-accent);
+}
+.wordmark__about,
+.wordmark__game {
+  color: var(--color-fg);
+}
+.wordmark__me {
+  color: var(--color-accent);
 }
 
 .title-screen .tagline {
@@ -182,6 +216,35 @@ body {
   height: 100%;
 }
 
+/* ----- Speed vignette (#53 movement feedback) ----- */
+/* A purely decorative edge-darkening overlay whose opacity is driven inline from
+   the hud speed (fx/SpeedVignette.tsx). Pointer-events off so it never eats the
+   world's input; a radial gradient so only the corners darken and the centre
+   stays clear. Non-essential motion: hidden under the OS reduced-motion query
+   (the in-game setting zeroes its opacity in JS), so both gates apply. */
+.speed-vignette {
+  position: fixed;
+  inset: 0;
+  z-index: 11; /* above the canvas, below the HUD/markers */
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse at center,
+    transparent 52%,
+    rgba(10, 9, 16, 0.9) 100%
+  );
+  transition: opacity 200ms ease;
+  will-change: opacity;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .speed-vignette {
+    display: none;
+  }
+}
+:root[data-reduced-motion="true"] .speed-vignette {
+  display: none;
+}
+
 /* ----- Runtime stats overlay (#14) ----- */
 .stats-overlay {
   position: fixed;
@@ -192,7 +255,7 @@ body {
   padding: 0.25rem 0.6rem;
   font:
     600 0.8rem / 1.4 ui-monospace, "SF Mono", Menlo, monospace;
-  color: #b7f7c2;
+  color: var(--color-drive);
   background: rgba(0, 0, 0, 0.55);
   border-radius: 0.4rem;
   pointer-events: none;
@@ -271,7 +334,7 @@ body {
   padding: 0.3rem 0.7rem;
   font: 700 0.85rem var(--font-ui);
   color: var(--color-fg);
-  background: rgba(0, 0, 0, 0.45);
+  background: var(--surface-chip);
   border-radius: 0.5rem;
   z-index: 15;
   pointer-events: none;
@@ -289,7 +352,7 @@ body {
   gap: 0.25rem;
   text-align: center;
   padding: var(--space-2) var(--space-3);
-  background: rgba(20, 18, 31, 0.78);
+  background: var(--surface-panel);
   border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 0.75rem;
   z-index: 15;
@@ -363,7 +426,7 @@ body {
   align-items: baseline;
   gap: var(--space-2);
   padding: 0.3rem 0.8rem;
-  background: rgba(0, 0, 0, 0.45);
+  background: var(--surface-chip);
   border-radius: 0.5rem;
   z-index: 15;
   pointer-events: none;
@@ -373,10 +436,10 @@ body {
 .hud-mode {
   font: 700 0.8rem var(--font-ui);
   letter-spacing: 0.08em;
-  color: #b7f7c2;
+  color: var(--color-drive);
 }
 .hud-mode--fly {
-  color: #9fd0ff;
+  color: var(--color-fly);
 }
 
 .hud-stat {
@@ -416,7 +479,7 @@ body {
   display: grid;
   place-items: center;
   border: 1px solid rgba(255, 255, 255, 0.25);
-  background: rgba(0, 0, 0, 0.45);
+  background: var(--surface-chip);
   color: var(--color-fg);
   border-radius: 0.5rem;
   font-size: 1.2rem;

@@ -1,4 +1,5 @@
 import type { Engine } from "./engine/Engine.ts";
+import type { System } from "./engine/types.ts";
 import { buildWorld, type World } from "./world/buildWorld.ts";
 import { buildMovement, type Movement } from "./movement/buildMovement.ts";
 import { buildDiscovery, type Discovery } from "./discovery/buildDiscovery.ts";
@@ -9,6 +10,9 @@ import { createNavStore, type NavStore } from "./ui/navStore.ts";
 import { NavSystem } from "./ui/NavSystem.ts";
 import { createSettingsStore, type SettingsStore } from "./settings/settingsStore.ts";
 import { QUALITY_TIERS, type QualityConfig } from "./perf/quality.ts";
+import { AudioEngine, type AudioContextFactory } from "./audio/AudioEngine.ts";
+import { AudioSystem } from "./audio/AudioSystem.ts";
+import { DiscoveryBurstSystem } from "./fx/DiscoveryBurstSystem.ts";
 
 export interface Game {
   world: World;
@@ -42,11 +46,18 @@ export interface Game {
  * `quality` is the resolved render tier (#47); GameCanvas resolves it from the
  * settings store at mount and threads it here so the world is built at the right
  * cost (prop density, shadow map, fog). Defaults to full quality.
+ *
+ * `ctxFactory` (#51/#52) builds the Web Audio context the AudioEngine drives.
+ * Injected so a test passes a fake; the default constructs a real `AudioContext`
+ * when the browser has one, and resolves to `undefined` where it doesn't (jsdom,
+ * SSR), in which case audio is simply skipped — the game runs silently rather
+ * than throwing.
  */
 export function buildGame(
   engine: Engine,
   overlay: HTMLElement,
   quality: QualityConfig = QUALITY_TIERS.high,
+  ctxFactory: AudioContextFactory | undefined = defaultAudioContextFactory(),
 ): Game {
   const session = createSession();
   // Settings come first now: the world's beacon pulse reads `reducedMotion` from
@@ -66,6 +77,30 @@ export function buildGame(
     new NavSystem(engine, movement.vehicle, discovery.pois, nav, discovery.store),
   );
 
+  // Visual juice (#53): a particle pop at a landmark the instant it's revealed.
+  // It listens to the same discovery-store event the chime does, and is gated by
+  // reduced motion inside the system. Registered after discovery so the store is
+  // populated. The speed-cue half of #53 is a DOM overlay (SpeedVignette) mounted
+  // by GameCanvas, so it isn't a system here.
+  engine.addSystem(
+    new DiscoveryBurstSystem(engine.scene, discovery.store, world.landmarks.placed, settings),
+  );
+
+  // Audio (#51 SFX, #52 ambient bed). Only when a context factory is available
+  // (skipped headless). The AudioSystem is a System, so engine.dispose() tears
+  // down the AudioEngine (stop oscillators, close the context) on unmount.
+  if (ctxFactory) {
+    const audio = new AudioEngine(ctxFactory);
+    engine.addSystem(
+      new AudioSystem(audio, discovery.store, movement.vehicle, movement.input, settings),
+    );
+    // Autoplay fallback: browsers may keep the context suspended until a real
+    // user gesture even though GameCanvas mounts post-click. Resume on the first
+    // pointer/key event, then unbind (the listeners live with the audio and are
+    // torn down via this disposer system on engine.dispose()).
+    engine.addSystem(installAudioResume(audio));
+  }
+
   return {
     world,
     movement,
@@ -78,4 +113,44 @@ export function buildGame(
       world.sky.sun.castShadow = enabled;
     },
   };
+}
+
+/** A no-op `System` whose only job is to own the one-shot "resume audio on first
+ *  user gesture" listeners and unbind them on dispose. It self-removes after the
+ *  first event so it never adds per-frame cost. Lives here (the composition root,
+ *  which already touches the DOM) rather than in the unit-tested AudioSystem. */
+function installAudioResume(audio: AudioEngine): System {
+  let unbind = () => {};
+  if (typeof window !== "undefined") {
+    const onGesture = () => {
+      audio.resume();
+      unbind();
+    };
+    window.addEventListener("pointerdown", onGesture, { once: true });
+    window.addEventListener("keydown", onGesture, { once: true });
+    unbind = () => {
+      window.removeEventListener("pointerdown", onGesture);
+      window.removeEventListener("keydown", onGesture);
+    };
+  }
+  return {
+    id: "audio-resume",
+    update() {},
+    dispose() {
+      unbind();
+    },
+  };
+}
+
+/** Build a real-`AudioContext` factory when the browser has Web Audio, else
+ *  `undefined` so audio is skipped (jsdom, SSR). Falls back to the webkit-prefixed
+ *  constructor for older Safari. Kept here so `buildGame`'s default stays a pure
+ *  capability check with no side effects until the factory is actually called. */
+function defaultAudioContextFactory(): AudioContextFactory | undefined {
+  const Ctor =
+    typeof window !== "undefined"
+      ? window.AudioContext ??
+        (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+      : undefined;
+  return Ctor ? () => new Ctor() : undefined;
 }
