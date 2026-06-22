@@ -125,3 +125,36 @@ body {
   font-size: 0.85rem;
   opacity: 0.75;
 }
+
+/* Reveal screen — echoes the prompt and the player's answer. Additive to the
+ * title/prompt styles; reuses the same layout width, spacing scale, and .cta. */
+.reveal-screen {
+  max-width: var(--layout-max-width);
+  margin: 0 auto;
+  padding: var(--space-4) var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.reveal-screen h1 {
+  font-size: 1.75rem;
+  margin: 0;
+}
+
+.reveal-prompt {
+  margin: 0;
+  font-weight: 600;
+  opacity: 0.85;
+}
+
+/* D6: pre-wrap so the answer's leading/trailing/internal whitespace and
+ * newlines render exactly as the player typed them. */
+.answer-echo {
+  margin: 0;
+  white-space: pre-wrap;
+  padding: var(--space-2);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 0.5rem;
+}
