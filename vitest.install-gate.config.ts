@@ -9,7 +9,7 @@ export default defineConfig({
   test: {
     globals: true,
     environment: "node",
-    include: ["test/**/*.{test,spec}.ts"],
+    include: ["test/install-gate.test.ts"],
     testTimeout: 300_000,
     hookTimeout: 120_000,
   },
