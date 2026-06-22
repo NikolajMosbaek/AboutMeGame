@@ -47,8 +47,14 @@ export function TitleScreen({ onStart, onReadText, progress = readProgress() }: 
 
   return (
     <main className="title-screen">
-      <h1 ref={headingRef} tabIndex={-1}>
-        AboutMeGame
+      {/* Wordmark (#54): a tokenised treatment that reads as intentional — "Me"
+          carries the amber accent so the brand's personal note lands, with a
+          short accent rule beneath. Split into spans for the visual emphasis;
+          aria-label keeps the accessible name a single clean "AboutMeGame". */}
+      <h1 ref={headingRef} tabIndex={-1} className="wordmark" aria-label="AboutMeGame">
+        <span className="wordmark__about">About</span>
+        <span className="wordmark__me">Me</span>
+        <span className="wordmark__game">Game</span>
       </h1>
       <p className="tagline">{VISION}</p>
 

@@ -92,8 +92,18 @@ and a semantic no-WebGL **text view** of all 13 landmarks linked from the title
 screenshots confirm the text view (13 sections) and the mobile portrait layout
 with touch controls. **Review** pending.
 
-### M7 — pending
-Polish — audio, VFX, personal brand.
+### M7 — Epic 7: Polish — PR #_ (closes #51–#54, #7)
+Implemented by `senior-eng-frontend` to spec: a procedural Web Audio engine
+(injected context factory, no asset downloads) — discovery chime, mode-switch
+whoosh, boost cue (#51) + a seamless ambient pad bed (#52), all mute-gated and
+resume-on-gesture; VFX (#53) — a pooled Points discovery burst on reveal + a
+speed vignette, both reduced-motion-gated; brand pass (#54) — an SVG beacon
+favicon, OG/Twitter meta, and a tokenised "About**Me**Game" wordmark with shared
+palette tokens. **Verify:** 172 tests (33 new, audio unit-tested with a fake
+context), build ~190 KB gz, screenshots confirm the branded title and the
+in-world speed vignette; no console errors. **Review** pending.
+
+### Final — charter/README + full verification — pending
 
 ## Notes / for the user
 - One-time repo setting needed for live deploy: **Settings → Pages → Source =

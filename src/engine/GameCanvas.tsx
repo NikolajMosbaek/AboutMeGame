@@ -13,6 +13,7 @@ import { NavMarkers } from "../ui/NavMarkers.tsx";
 import { Onboarding } from "../ui/Onboarding.tsx";
 import { SettingsMenu } from "../ui/SettingsMenu.tsx";
 import { DiscoveryAnnouncer } from "../ui/DiscoveryAnnouncer.tsx";
+import { SpeedVignette } from "../fx/SpeedVignette.tsx";
 import type { DiscoveryStore } from "../discovery/discoveryStore.ts";
 import type { HudStore } from "../ui/hudStore.ts";
 import type { NavStore } from "../ui/navStore.ts";
@@ -218,6 +219,7 @@ export function GameCanvas({
       {showStats && engine && <StatsOverlay engine={engine} />}
       {game && (
         <>
+          <SpeedVignette hud={game.hud} settings={game.settings} />
           <Hud hud={game.hud} discovery={game.discovery.store} onOpenMenu={() => setMenuOpen(true)} />
           <DiscoveryAnnouncer store={game.discovery.store} />
           <NavMarkers nav={game.nav} />
