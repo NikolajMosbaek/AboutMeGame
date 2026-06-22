@@ -307,6 +307,111 @@ describe("RevealPanel close affordances (t4)", () => {
   });
 });
 
+describe("RevealPanel focus management (t7)", () => {
+  it("focuses the first option button when a guess opens", () => {
+    const store = createDiscoveryStore(13);
+    openGuess(store);
+    render(<RevealPanel store={store} />);
+
+    const firstOption = screen.getByRole("button", { name: GUESS.options[0].text });
+    expect(document.activeElement).toBe(firstOption);
+  });
+
+  it("focuses the close button when a plain reveal opens", () => {
+    const store = createDiscoveryStore(13);
+    openPlain(store);
+    render(<RevealPanel store={store} />);
+
+    const close = screen.getByRole("button", { name: "Drive on" });
+    expect(document.activeElement).toBe(close);
+  });
+
+  it("focuses the close button when a highlight reveal opens", () => {
+    const store = createDiscoveryStore(13);
+    openHighlight(store);
+    render(<RevealPanel store={store} />);
+
+    const close = screen.getByRole("button", { name: "Drive on" });
+    expect(document.activeElement).toBe(close);
+  });
+
+  it("does not yank focus off the active element when a guess is committed", () => {
+    const store = createDiscoveryStore(13);
+    openGuess(store);
+    render(<RevealPanel store={store} />);
+
+    // Move focus to the second option, as a keyboard user would, then commit it.
+    // answerGuess produces a NEW `open` object; a focus effect keyed on the whole
+    // `open` reference would re-fire and snap focus back to the first option.
+    const secondOption = screen.getByRole("button", { name: GUESS.options[1].text });
+    act(() => {
+      secondOption.focus();
+      secondOption.click();
+    });
+
+    // Focus stays on the committed option — the focus effect is gated on open.id,
+    // which is unchanged across the commit, so it does not re-fire.
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: GUESS.options[1].text }),
+    );
+  });
+
+  it("keeps the close button reachable after the body unlocks (it is never removed by the body gate)", () => {
+    const store = createDiscoveryStore(13);
+    openGuess(store);
+    render(<RevealPanel store={store} />);
+
+    act(() => {
+      screen.getByRole("button", { name: GUESS.options[0].text }).click();
+    });
+
+    const close = screen.getByRole("button", { name: "Drive on" });
+    expect(close.tagName).toBe("BUTTON");
+    // Tab order reaches it (native button, not aria-hidden / disabled).
+    expect(close.hasAttribute("disabled")).toBe(false);
+  });
+});
+
+describe("RevealPanel close affordances per type (t7)", () => {
+  const open = {
+    plain: openPlain,
+    highlight: openHighlight,
+    guess: openGuess,
+  } as const;
+
+  for (const type of ["plain", "highlight", "guess"] as const) {
+    it(`Escape, backdrop-click, and the close button each close an un-answered ${type} reveal`, () => {
+      // Close button.
+      const s1 = createDiscoveryStore(13);
+      open[type](s1);
+      render(<RevealPanel store={s1} />);
+      expect(s1.getSnapshot().open?.guessChoice ?? null).toBeNull();
+      act(() => {
+        screen.getByRole("button", { name: "Drive on" }).click();
+      });
+      expect(s1.getSnapshot().open).toBeNull();
+
+      // Escape.
+      const s2 = createDiscoveryStore(13);
+      open[type](s2);
+      render(<RevealPanel store={s2} />);
+      act(() => {
+        fireEvent.keyDown(window, { key: "Escape" });
+      });
+      expect(s2.getSnapshot().open).toBeNull();
+
+      // Backdrop click.
+      const s3 = createDiscoveryStore(13);
+      open[type](s3);
+      const { container } = render(<RevealPanel store={s3} />);
+      act(() => {
+        fireEvent.click(container.querySelector(".reveal-panel-backdrop")!);
+      });
+      expect(s3.getSnapshot().open).toBeNull();
+    });
+  }
+});
+
 describe("RevealPanel keyboard accessibility (t4)", () => {
   it("renders guess options as native buttons (Tab-reachable) that activate on click", () => {
     const store = createDiscoveryStore(13);
