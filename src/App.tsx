@@ -1,18 +1,50 @@
-import { APP_VERSION, VISION } from "./version.ts";
+import { useReducer } from "react";
+import { gameReducer } from "./game.ts";
+import { TitleScreen } from "./screens/TitleScreen.tsx";
+import { PromptScreen } from "./screens/PromptScreen.tsx";
+import { RevealScreen } from "./screens/RevealScreen.tsx";
 
 /**
- * Landing/Title screen — the only screen built in the bootstrap. The next
- * vertical slices (Lobby, Prompt, Guess, Scoreboard) hang off this shell.
+ * App — the one stateful coordinator of the local Title -> Prompt -> Reveal
+ * slice (D2). It owns the screen state via a single pure `useReducer`
+ * (`gameReducer`) and dispatches domain commands; each screen is a pure
+ * presentational component receiving props + callbacks. The reducer is the seam
+ * where networked actions will later dispatch the same commands.
+ *
+ * App is a switchboard (D3): it switches on `screen.kind` and renders exactly
+ * one screen. Rendering is conditional, not CSS-hidden, so the off-screen
+ * components are removed from the DOM entirely. The `default` branch's
+ * `const _exhaustive: never = screen` makes adding a future GameScreen variant
+ * without a render case a compile error (`tsc --noEmit`).
  */
 export function App() {
-  return (
-    <main className="title-screen">
-      <h1>AboutMeGame</h1>
-      <p className="tagline">{VISION}</p>
-      <button className="cta" type="button" disabled>
-        Start
-      </button>
-      <p className="version-marker">v{APP_VERSION}</p>
-    </main>
-  );
+  const [screen, dispatch] = useReducer(gameReducer, { kind: "title" });
+
+  switch (screen.kind) {
+    case "title":
+      return <TitleScreen onStart={() => dispatch({ type: "start" })} />;
+
+    case "prompt":
+      return (
+        <PromptScreen
+          onSubmit={(answer) => dispatch({ type: "submitAnswer", answer })}
+        />
+      );
+
+    case "reveal":
+      return (
+        <RevealScreen
+          prompt={screen.prompt}
+          answer={screen.answer}
+          onPlayAgain={() => dispatch({ type: "playAgain" })}
+        />
+      );
+
+    default: {
+      // Exhaustiveness guard: a future GameScreen variant added without a
+      // render case above becomes a compile error here.
+      const _exhaustive: never = screen;
+      return _exhaustive;
+    }
+  }
 }
