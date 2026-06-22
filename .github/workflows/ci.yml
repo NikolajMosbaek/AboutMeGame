@@ -17,6 +17,8 @@ jobs:
           node-version: "20"
           cache: npm
       - run: npm ci
+      - name: Lint
+        run: npm run lint
       - name: Build (tsc --noEmit + vite build)
         run: npm run build
       - name: Test

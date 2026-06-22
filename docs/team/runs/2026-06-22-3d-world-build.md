@@ -103,9 +103,31 @@ palette tokens. **Verify:** 172 tests (33 new, audio unit-tested with a fake
 context), build ~190 KB gz, screenshots confirm the branded title and the
 in-world speed vignette; no console errors. **Review** pending.
 
-### Final — charter/README + full verification — pending
+### Final — docs + full verification — PR #_
+README.md written; a real (lenient) ESLint added and made green (94 files /
+~7.2k LOC lint-clean) + wired into the CI PR gate; `vite preview` fixed to serve
+under the Pages base via `isPreview`. **Full verification (all green):** lint
+exit 0, **172 unit tests**, `npm run build` ~190 KB gz, and an integrated
+Playwright playthrough — title → drive → reveal → **persisted across reload**
+(title shows "Continue · 1/13") → fly (alt 57) — plus the **production bundle**
+running in a real browser at `/AboutMeGame/` (VERIFY OK, 47 draws, no console
+errors).
 
-## Notes / for the user
-- One-time repo setting needed for live deploy: **Settings → Pages → Source =
-  GitHub Actions** (documented in `deploy.yml`). The build is otherwise fully
-  green and deployable.
+## Outcome
+
+**All 7 epics and 40 stories shipped; 0 open issues.** AboutMeGame is a complete,
+playable, responsive, accessible, deployable 3D world: drive/fly an island,
+discover 13 landmarks revealing how I work with Claude, with a text fallback for
+non-players. Every milestone went through the team's gates — branch → PR →
+green-only merge (tests + adversarial `senior-eng-quality` review + UX/visual
+verification) → close. No commits to `main`; no force-pushes.
+
+## Notes / for the user (the one thing the team can't do itself)
+- **Go live:** the deploy workflow is built and green, but publishing requires a
+  one-time repo setting — **Settings → Pages → Build and deployment → Source =
+  GitHub Actions** — which publishes the site publicly, so the team left that
+  decision to you (it's outward-facing). Once set, every merge to `main`
+  auto-deploys to `https://<owner>.github.io/AboutMeGame/`.
+- **Optional polish:** no `og:image` share card (no committed image asset); audio
+  is procedural and unit-tested but its *mix* was never heard (headless has no
+  Web Audio) — worth a listen in a real browser.
