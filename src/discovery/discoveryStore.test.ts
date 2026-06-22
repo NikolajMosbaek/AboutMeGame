@@ -148,3 +148,47 @@ describe("discoveryStore bodyUnlocked is derived in set() (T4)", () => {
     expect(store.getSnapshot().open?.bodyUnlocked).toBe(true);
   });
 });
+
+describe("discoveryStore answerGuess records the committed index (T5)", () => {
+  const guess = {
+    type: "guess" as const,
+    prompt: "?",
+    options: [
+      { text: "a", correct: false },
+      { text: "b", correct: false },
+      { text: "c", correct: true },
+    ],
+  };
+
+  it("records the committed index and unlocks the body (AC2)", () => {
+    const store = createDiscoveryStore(13);
+    store.openPoi({ id: "poi-0", order: 0, title: "First", body: "...", interaction: guess });
+
+    store.answerGuess(2);
+    const open = store.getSnapshot().open;
+    expect(open?.guessChoice).toBe(2);
+    expect(open?.bodyUnlocked).toBe(true);
+  });
+
+  it("is a no-op on a non-guess open and keeps the snapshot reference stable (AC4)", () => {
+    const store = createDiscoveryStore(13);
+    store.openPoi({ id: "poi-0", order: 0, title: "First", body: "...", interaction: { type: "plain" } });
+    const before = store.getSnapshot();
+
+    expect(() => store.answerGuess(1)).not.toThrow();
+    const after = store.getSnapshot();
+    expect(Object.is(before, after)).toBe(true);
+    expect(after.open?.guessChoice).toBeNull();
+    expect(after.open?.bodyUnlocked).toBe(true);
+  });
+
+  it("is a no-op when nothing is open and keeps the snapshot reference stable (AC4)", () => {
+    const store = createDiscoveryStore(13);
+    const before = store.getSnapshot();
+
+    expect(() => store.answerGuess(0)).not.toThrow();
+    const after = store.getSnapshot();
+    expect(Object.is(before, after)).toBe(true);
+    expect(after.open).toBeNull();
+  });
+});
