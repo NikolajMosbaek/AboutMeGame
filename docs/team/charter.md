@@ -54,6 +54,7 @@ via a URL.
 - `src/movement/` — vehicle, flight, camera, input (Epic 3).
 - `src/content/`, `src/discovery/` — content model, POI binding, reveal (Epic 4).
 - `src/ui/` — React shell: title, HUD, menus, reveal panel, text view (Epic 5/6).
+- `src/audio/` — procedural Web Audio engine + the audio `System` (Epic 7, #51/#52).
 
 ## Conventions
 
