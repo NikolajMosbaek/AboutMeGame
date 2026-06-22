@@ -654,6 +654,28 @@ describe("RevealPanel Next landmark affordance (t4)", () => {
     expect(store.getSnapshot().discoveredIds).toBe(discoveredBefore);
   });
 
+  it("seats Next and Drive on together in the .reveal-panel__actions footer, both as .cta", () => {
+    // T5 footer structure (token-driven sizing/focus ring is asserted by the CSS
+    // tokens, not the DOM): both controls share the .cta recipe and live inside
+    // one .reveal-panel__actions row so they read as the panel's trailing pair.
+    const store = createDiscoveryStore(13);
+    openPlain(store); // unlocked plain reveal -> Next present alongside Drive on
+    render(<RevealPanel store={store} pois={SELECTOR_POIS} />);
+
+    const driveOn = screen.getByRole("button", { name: "Drive on" });
+    const next = screen.getByRole("button", { name: /^Next:/ });
+
+    // Both carry the shared CTA token class (>=44px hit target + focus ring).
+    expect(driveOn.classList.contains("cta")).toBe(true);
+    expect(next.classList.contains("cta")).toBe(true);
+
+    // Both sit inside the same .reveal-panel__actions footer element.
+    const footer = driveOn.closest(".reveal-panel__actions");
+    expect(footer).not.toBeNull();
+    expect(footer!.contains(next)).toBe(true);
+    expect(next.closest(".reveal-panel__actions")).toBe(footer);
+  });
+
   it("renders Next on a committed guess (body unlocked) and is absent before the pick", () => {
     const store = createDiscoveryStore(13);
     openGuess(store); // order 4, guess -> locked until a pick
