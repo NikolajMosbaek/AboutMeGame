@@ -129,6 +129,7 @@ const intake = await agent(
   `Intake for the AboutMeGame team. ${feature ? `The requested feature is: "${feature}".` : 'No explicit feature was given — pull the top unchecked backlog item, or propose the most valuable next item if the backlog is empty.'} Read docs/team/charter.md and docs/team/backlog.md. Produce the problem statement, testable acceptance criteria, and whether this is the bootstrap run.`,
   { agentType: 'product-owner', phase: 'Intake', schema: INTAKE_SCHEMA }
 )
+if (!intake) { log('HALT in Intake: the product-owner agent returned no result (likely an API/session limit). Stopping the run.'); return { halted: true, phase: 'Intake', reason: 'intake agent returned null' } }
 
 const problemBlock = `PROBLEM:\n${intake.problemStatement}\n\nACCEPTANCE CRITERIA:\n${(intake.acceptanceCriteria || []).map(c => `- ${c}`).join('\n')}\n\nBOOTSTRAP RUN: ${intake.isBootstrap}`
 
@@ -159,10 +160,12 @@ for (let round = 1; round <= CONVERGE_MAX_ROUNDS; round++) {
     `Synthesize ONE design from these roundtable positions.\n\n${problemBlock}\n\nPOSITIONS:\n${positionsBlock}${priorFlaw}`,
     { agentType: 'tech-lead', label: `synthesize:r${round}`, phase: 'Converge', schema: CONSENSUS_SCHEMA }
   )
+  if (!consensus) { log(`HALT in Converge: the tech-lead synthesize agent returned no result on round ${round} (likely an API/session limit). Stopping the run.`); return { halted: true, phase: 'Converge', reason: 'synthesize agent returned null' } }
   critique = await agent(
     `Adversarially critique this design. Try to refute it; default to materialFlaw=true if genuinely uncertain.\n\n${problemBlock}\n\nDESIGN:\n${consensus.summary}\nDECISIONS:\n${(consensus.decisions || []).map(d => `- ${d}`).join('\n')}`,
     { agentType: 'senior-eng-quality', label: `critique:r${round}`, phase: 'Converge', schema: CRITIQUE_SCHEMA }
   )
+  if (!critique) { log(`Converge round ${round}: the critique agent returned no result — accepting the current design without further critique.`); break }
   log(`Converge round ${round}: materialFlaw=${critique.materialFlaw}`)
   if (!critique.materialFlaw) break
 }
@@ -175,6 +178,7 @@ const plan = await agent(
   `Decompose the agreed design into atomic, ordered, independently verifiable tasks. Each task needs id, title, owner (frontend|backend|quality|junior|ux), dependsOn (task ids), and the first test to write.\n\n${designBlock}`,
   { agentType: 'tech-lead', phase: 'Plan', schema: PLAN_SCHEMA }
 )
+if (!plan) { log('HALT in Plan: the tech-lead planning agent returned no result (likely an API/session limit). Stopping the run.'); return { halted: true, phase: 'Plan', reason: 'plan agent returned null' } }
 
 // ---- Implement (sequential, dependency order; each agent commits) ----
 phase('Implement')
@@ -266,4 +270,5 @@ const runLog = await agent(
   { agentType: 'tech-lead', label: 'scribe', phase: 'Ship' }
 )
 
-return { prUrl: ship.prUrl, merged: ship.merged, branch: ship.branch, runLogPath: (runLog || '').trim(), gatesGreen }
+if (!ship) log('Ship: the ship agent returned no result (likely an API/session limit) — the run log was still written; no PR was opened.')
+return { prUrl: ship && ship.prUrl, merged: ship ? ship.merged : false, branch: ship && ship.branch, runLogPath: (runLog || '').trim(), gatesGreen, halted: !ship }
