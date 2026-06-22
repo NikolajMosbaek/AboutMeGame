@@ -1,8 +1,34 @@
 import { describe, expect, it, vi } from "vitest";
 import { loadContent, contentById } from "./contentModel.ts";
+import type { PoiInteraction } from "./contentModel.ts";
 import { buildDiscoverablePois } from "./discoverablePois.ts";
 import { POI_ANCHORS } from "../world/worldConfig.ts";
 import * as THREE from "three";
+
+describe("PoiInteraction union (#34, M2)", () => {
+  // Exhaustive switch over the full union: each arm narrows, and the `never`
+  // default is a compile-time guard that fails to typecheck if a variant is
+  // left unhandled (catches discriminant-vs-consumer drift).
+  function describeInteraction(i: PoiInteraction): string {
+    switch (i.type) {
+      case "plain":
+        return "plain";
+      case "guess":
+        return `guess:${i.prompt}:${i.options.length}`;
+      case "highlight":
+        return `highlight:${i.emphasis}`;
+      default: {
+        const _exhaustive: never = i;
+        return _exhaustive;
+      }
+    }
+  }
+
+  it("accepts { type: 'plain' } without a cast and narrows exhaustively", () => {
+    const i: PoiInteraction = { type: "plain" };
+    expect(describeInteraction(i)).toBe("plain");
+  });
+});
 
 describe("content model (#34)", () => {
   it("loads 13 validated POIs with required string fields", () => {
@@ -13,6 +39,9 @@ describe("content model (#34)", () => {
       expect(p.title).toBeTruthy();
       expect(p.teaser.length).toBeGreaterThan(0);
       expect(p.body.length).toBeGreaterThan(0);
+      // The current dataset carries no interaction, so every POI resolves to
+      // the default `plain` variant — guards against silent content drift.
+      expect(p.interaction).toEqual({ type: "plain" });
     }
   });
 
