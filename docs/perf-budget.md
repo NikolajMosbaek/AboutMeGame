@@ -28,6 +28,39 @@ connection. If it is smooth there, desktop is comfortable.
 | Total initial download | **≤ 6 MB** | Textures + models + audio before the world is interactive, over 4G. |
 | Time to interactive | **≤ 4 s** on 4G | The "just a link" promise dies if the first load drags. |
 
+## Quality tiers (Epic 6, #47/#48)
+
+The quality scaler resolves an effective render config from the player's
+`quality` setting and a detected device tier (`src/perf/deviceCapability.ts` →
+`src/perf/quality.ts`). `"auto"` follows the device; `"low"`/`"high"` force a
+tier. The detected tier is conservative: missing signals land on `medium`, and
+any touch/coarse-pointer device caps at `medium` no matter how many cores it
+reports. The table is the single source of truth (`QUALITY_TIERS`), asserted in
+`src/perf/quality.test.ts`.
+
+| Knob | low | medium | high | Why it scales |
+|------|-----|--------|------|---------------|
+| `maxPixelRatio` | **1** | 1.5 | 2 | Fill rate is the dominant mobile cost; capping DPR at 1 is the single biggest lever for the target phone. |
+| `shadows` | **off** | on | on | The shadow map is the costliest single feature; off on low. |
+| `shadowMapSize` | 1024 | 1024 | 2048 | Smaller map ⇒ cheaper shadow pass on medium. |
+| `propDensity` | **0.4** | 0.7 | 1.0 | Multiplier on the 540 trees / 150 rocks — fewer instances ⇒ fewer triangles. |
+| `fog` | **off** | on | on | Cheap, but low drops it so the shorter draw distance reads cleanly. |
+
+**Low tier vs the mobile budget.** Low is tuned to comfortably clear the
+mid-range-phone bar: pixelRatio 1 (no super-sampling), no real-time shadows, and
+~40% of the set dressing. Props are `InstancedMesh` (3 draw calls regardless of
+count), so the draw-call budget is unaffected by density; the win is in
+triangles and the dropped shadow pass. The cheap knobs (`maxPixelRatio`,
+`shadows`) re-apply live when the setting changes in the pause menu
+(`applyRendererQuality`); the build-time knobs (`propDensity`, `shadowMapSize`,
+`fog`) bake at mount, so the menu notes "Detail level applies on reload."
+
+**Bundle impact.** Epic 6 added the scaler, the text view, the a11y announcer
+and the responsive/reduced-motion CSS without regressing the budget. Latest
+`vite build` (gzip): main JS **66.7 KB**, `three` vendor chunk **120.1 KB**
+(split, unchanged) ⇒ **~187 KB** total JS, well inside the 400 KB cap; CSS
+**3.0 KB**.
+
 ## How it is enforced
 
 - **Live:** `StatsOverlay` polls `Engine.getState()` and runs `checkFrame`

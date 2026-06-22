@@ -8,8 +8,8 @@ export interface Props {
   dispose(): void;
 }
 
-const TREE_COUNT = 540;
-const ROCK_COUNT = 150;
+export const TREE_COUNT = 540;
+export const ROCK_COUNT = 150;
 const POI_CLEARANCE = 16; // keep props from crowding landmarks
 
 /**
@@ -19,11 +19,22 @@ const POI_CLEARANCE = 16; // keep props from crowding landmarks
  * Placement is deterministic (seeded), skips water/peaks/steep ground and the
  * area around each landmark, so it reads as natural cover that frames the POIs
  * rather than hiding them.
+ *
+ * `density` (0..1, from the quality scaler #47) thins the counts on weaker
+ * devices — the same seeded layout, just fewer of the first-placed instances,
+ * so the world stays recognisable. Triangles drop with it, keeping the low tier
+ * inside the mobile budget. Defaults to full density.
  */
-export function buildProps(terrain: Terrain): Props {
+export function buildProps(terrain: Terrain, density = 1): Props {
   const group = new THREE.Group();
   group.name = "props";
   const rng = makeNoise2D(WORLD.seed ^ 0x9e3779b9);
+
+  // Scale the instance budget by density (at least one of each so the buffers
+  // and draw calls stay valid), clamped to the full count.
+  const d = Math.max(0, Math.min(1, density));
+  const treeBudget = Math.max(1, Math.round(TREE_COUNT * d));
+  const rockBudget = Math.max(1, Math.round(ROCK_COUNT * d));
 
   // Pseudo-random sample in [-half, half], decorrelated per index/channel.
   const half = WORLD.size / 2;
@@ -52,8 +63,8 @@ export function buildProps(terrain: Terrain): Props {
   const foliageGeo = new THREE.ConeGeometry(2.2, 5, 6);
   const foliageMat = new THREE.MeshStandardMaterial({ color: 0x3f6f3a, flatShading: true, roughness: 1 });
 
-  const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, TREE_COUNT);
-  const foliage = new THREE.InstancedMesh(foliageGeo, foliageMat, TREE_COUNT);
+  const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, treeBudget);
+  const foliage = new THREE.InstancedMesh(foliageGeo, foliageMat, treeBudget);
   trunks.castShadow = foliage.castShadow = true;
   trunks.receiveShadow = foliage.receiveShadow = true;
 
@@ -62,7 +73,7 @@ export function buildProps(terrain: Terrain): Props {
   const sc = new THREE.Vector3();
   const pos = new THREE.Vector3();
   let trees = 0;
-  for (let i = 0; trees < TREE_COUNT && i < TREE_COUNT * 6; i++) {
+  for (let i = 0; trees < treeBudget && i < TREE_COUNT * 6; i++) {
     const x = sample(i, 0);
     const z = sample(i, 1);
     const y = onGoodGround(x, z);
@@ -88,10 +99,10 @@ export function buildProps(terrain: Terrain): Props {
   // ---- Rocks: one instanced low-poly boulder ----
   const rockGeo = new THREE.DodecahedronGeometry(1, 0);
   const rockMat = new THREE.MeshStandardMaterial({ color: 0x8a8278, flatShading: true, roughness: 1 });
-  const rocks = new THREE.InstancedMesh(rockGeo, rockMat, ROCK_COUNT);
+  const rocks = new THREE.InstancedMesh(rockGeo, rockMat, rockBudget);
   rocks.castShadow = rocks.receiveShadow = true;
   let placedRocks = 0;
-  for (let i = 0; placedRocks < ROCK_COUNT && i < ROCK_COUNT * 8; i++) {
+  for (let i = 0; placedRocks < rockBudget && i < ROCK_COUNT * 8; i++) {
     const x = sample(i + 9999, 0);
     const z = sample(i + 9999, 1);
     if (Math.hypot(x, z) > WORLD.boundaryRadius - 4) continue;

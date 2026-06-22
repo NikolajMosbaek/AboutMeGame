@@ -14,14 +14,30 @@ export interface Sky {
 const SKY_TOP = new THREE.Color(0x3a78c2); // upper sky blue
 const SKY_BOTTOM = new THREE.Color(0xcfe4f2); // pale horizon haze
 
+/** Quality knobs the sky/lighting reads from the scaler (#47). Defaults to full
+ *  quality so callers that don't scale (tests, previews) get the old behaviour. */
+export interface SkyQuality {
+  /** Whether the sun casts real-time shadows (off on the low tier). */
+  shadows: boolean;
+  /** Shadow-map resolution when `shadows` is on. */
+  shadowMapSize: number;
+  /** Whether to draw atmospheric fog. */
+  fog: boolean;
+}
+
+const DEFAULT_SKY_QUALITY: SkyQuality = { shadows: true, shadowMapSize: 2048, fog: true };
+
 /**
  * Sky, lighting and atmosphere (#19): a gradient sky dome, a warm key sun that
  * casts the world's shadows, a hemisphere fill so shadowed faces aren't black,
  * and exponential fog tuned to the horizon colour so distant land dissolves
  * into the sky (depth cue + draw-distance cover). Returns the `sun` so later
  * epics can animate light; configures its shadow camera to frame the island.
+ *
+ * The quality scaler (#47) passes `quality` to drop shadows + fog on the low
+ * tier and shrink the shadow map on medium, keeping the mobile budget.
  */
-export function buildSky(scene: THREE.Scene): Sky {
+export function buildSky(scene: THREE.Scene, quality: SkyQuality = DEFAULT_SKY_QUALITY): Sky {
   const group = new THREE.Group();
   group.name = "sky";
 
@@ -63,8 +79,8 @@ export function buildSky(scene: THREE.Scene): Sky {
 
   const sun = new THREE.DirectionalLight(0xfff1d6, 1.6);
   sun.position.set(0.6, 1, 0.4).multiplyScalar(WORLD.islandRadius);
-  sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
+  sun.castShadow = quality.shadows;
+  sun.shadow.mapSize.set(quality.shadowMapSize, quality.shadowMapSize);
   const s = WORLD.islandRadius * 1.1;
   sun.shadow.camera.left = -s;
   sun.shadow.camera.right = s;
@@ -78,7 +94,7 @@ export function buildSky(scene: THREE.Scene): Sky {
   group.add(sun.target);
 
   const horizon = SKY_BOTTOM.clone();
-  scene.fog = new THREE.FogExp2(horizon.getHex(), 0.0022);
+  if (quality.fog) scene.fog = new THREE.FogExp2(horizon.getHex(), 0.0022);
 
   return {
     group,

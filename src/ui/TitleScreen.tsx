@@ -13,6 +13,10 @@ export interface TitleProgress {
 export interface TitleScreenProps {
   /** Enter the world. Wired by `App` to dispatch `{ type: "start" }`. */
   onStart: () => void;
+  /** Open the no-WebGL text view (#50). Wired by `App` to dispatch
+   *  `{ type: "openTextView" }`. Optional so existing callers/tests need not
+   *  pass it; the link is hidden when absent. */
+  onReadText?: () => void;
   /** Saved progress, so the CTA reads "Continue" when some exists. Injected so
    *  tests don't touch real storage; defaults to reading the discovery store. */
   progress?: TitleProgress;
@@ -27,11 +31,11 @@ function readProgress(): TitleProgress {
 /**
  * The landing screen (#40): the wordmark, the one-line pitch, a short controls
  * hint, and a single CTA. With saved progress it shows "N / total discovered"
- * and the CTA reads "Continue"; otherwise "Drive in". Kept presentational — it
- * owns no game state, only the focus-on-mount affordance. (The text-only view
- * link is Epic 6.)
+ * and the CTA reads "Continue"; otherwise "Drive in". A secondary link opens the
+ * no-WebGL text view (#50) for anyone who can't or won't play. Kept
+ * presentational — it owns no game state, only the focus-on-mount affordance.
  */
-export function TitleScreen({ onStart, progress = readProgress() }: TitleScreenProps) {
+export function TitleScreen({ onStart, onReadText, progress = readProgress() }: TitleScreenProps) {
   const headingRef = useRef<HTMLHeadingElement>(null);
   const hasProgress = progress.discovered > 0;
 
@@ -57,6 +61,12 @@ export function TitleScreen({ onStart, progress = readProgress() }: TitleScreenP
       <button type="button" className="cta" onClick={onStart}>
         {hasProgress ? "Continue" : "Drive in"}
       </button>
+
+      {onReadText && (
+        <button type="button" className="title-textlink" onClick={onReadText}>
+          Read it without playing
+        </button>
+      )}
 
       <p className="title-controls">
         WASD to drive · F to fly · E to reveal a landmark

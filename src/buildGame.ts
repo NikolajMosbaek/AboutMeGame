@@ -8,6 +8,7 @@ import { HudSystem } from "./ui/HudSystem.ts";
 import { createNavStore, type NavStore } from "./ui/navStore.ts";
 import { NavSystem } from "./ui/NavSystem.ts";
 import { createSettingsStore, type SettingsStore } from "./settings/settingsStore.ts";
+import { QUALITY_TIERS, type QualityConfig } from "./perf/quality.ts";
 
 export interface Game {
   world: World;
@@ -20,6 +21,10 @@ export interface Game {
   nav: NavStore;
   /** Persisted player settings (#41), read/written by the pause menu. */
   settings: SettingsStore;
+  /** Toggle the sun's shadow casting live (#47), so a quality change in the menu
+   *  re-applies shadows in BOTH directions — the renderer's shadowMap.enabled
+   *  flag alone can't turn shadows back on once the caster was built without it. */
+  setShadowsEnabled(enabled: boolean): void;
 }
 
 /**
@@ -33,10 +38,21 @@ export interface Game {
  * after the camera (both established by `buildMovement`). The returned stores are
  * what the React overlays subscribe to; `session` is the shared pause flag (set
  * while a reveal panel or the menu is open).
+ *
+ * `quality` is the resolved render tier (#47); GameCanvas resolves it from the
+ * settings store at mount and threads it here so the world is built at the right
+ * cost (prop density, shadow map, fog). Defaults to full quality.
  */
-export function buildGame(engine: Engine, overlay: HTMLElement): Game {
+export function buildGame(
+  engine: Engine,
+  overlay: HTMLElement,
+  quality: QualityConfig = QUALITY_TIERS.high,
+): Game {
   const session = createSession();
-  const world = buildWorld(engine);
+  // Settings come first now: the world's beacon pulse reads `reducedMotion` from
+  // it live (#49), so non-essential motion is gated by the in-game toggle too.
+  const settings = createSettingsStore();
+  const world = buildWorld(engine, quality, settings);
   const movement = buildMovement(engine, world, overlay, session);
   const discovery = buildDiscovery(engine, world, movement, session);
 
@@ -50,7 +66,16 @@ export function buildGame(engine: Engine, overlay: HTMLElement): Game {
     new NavSystem(engine, movement.vehicle, discovery.pois, nav, discovery.store),
   );
 
-  const settings = createSettingsStore();
-
-  return { world, movement, discovery, session, hud, nav, settings };
+  return {
+    world,
+    movement,
+    discovery,
+    session,
+    hud,
+    nav,
+    settings,
+    setShadowsEnabled(enabled) {
+      world.sky.sun.castShadow = enabled;
+    },
+  };
 }

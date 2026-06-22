@@ -83,6 +83,9 @@ export function SettingsMenu({ settings, onClose, onExit, onResetProgress }: Set
             ))}
           </div>
         </div>
+        {/* Resolution + shadows re-apply instantly; the scenery detail level is
+            baked at load, so a change there only fully takes effect next time. */}
+        <p className="menu__note">Detail level applies on reload.</p>
 
         <label className="menu__row">
           <span>Reduced motion</span>
