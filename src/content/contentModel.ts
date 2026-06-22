@@ -41,6 +41,98 @@ export type PoiInteraction =
       emphasis: string;
     };
 
+/** The single, uniform failure rule for interactions: COERCE-TO-PLAIN, never
+ *  throw. A link-shared party game must not let one author's typo break the
+ *  world for every player, so a malformed interaction degrades to `plain`
+ *  rather than aborting the load. (The `throw` path stays reserved for missing
+ *  required identity/text fields — id/title/teaser/body — in `loadContent`.)
+ *
+ *  - Absent (`undefined`) → `plain`, SILENTLY (the common, valid case today).
+ *  - Present but invalid (unknown `type`, non-object, or a structurally invalid
+ *    variant) → `plain`, with a dev-time `console.warn` so the authoring
+ *    mistake is visible without being fatal.
+ *
+ *  Pure: no I/O, no module state. Exported so M2 reveal slices and their tests
+ *  import the parser directly (the loader reads a static JSON import that this
+ *  slice may not edit, so this is the testability seam). */
+export function parseInteraction(raw: unknown): PoiInteraction {
+  if (raw === undefined) return { type: "plain" };
+
+  const coerce = (reason: string): PoiInteraction => {
+    console.warn(`content: invalid interaction (${reason}); coercing to plain`);
+    return { type: "plain" };
+  };
+
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    return coerce("not an object");
+  }
+  const obj = raw as { type?: unknown };
+  if (typeof obj.type !== "string") return coerce("missing type");
+
+  // Narrow the raw tag to the union's discriminant. An unrecognized tag falls
+  // through to the `never` default below, which fails to typecheck if a future
+  // variant is added to `PoiInteraction` without a matching arm here — this is
+  // the guard against discriminant-vs-validation drift.
+  const tag = obj.type as PoiInteraction["type"];
+  switch (tag) {
+    case "plain":
+      return { type: "plain" };
+
+    case "guess": {
+      const g = obj as { prompt?: unknown; options?: unknown; answerReveal?: unknown };
+      if (typeof g.prompt !== "string" || g.prompt.length === 0) {
+        return coerce("guess prompt must be a non-empty string");
+      }
+      if (
+        !Array.isArray(g.options) ||
+        g.options.length < GUESS_MIN_OPTIONS ||
+        g.options.length > GUESS_MAX_OPTIONS
+      ) {
+        return coerce(`guess must have ${GUESS_MIN_OPTIONS}-${GUESS_MAX_OPTIONS} options`);
+      }
+      const options: GuessOption[] = [];
+      for (const o of g.options) {
+        if (typeof o !== "object" || o === null) {
+          return coerce("guess option must be an object");
+        }
+        const { text, correct } = o as { text?: unknown; correct?: unknown };
+        if (typeof text !== "string" || text.length === 0) {
+          return coerce("guess option text must be a non-empty string");
+        }
+        if (typeof correct !== "boolean") {
+          return coerce("guess option correct must be a boolean");
+        }
+        options.push({ text, correct });
+      }
+      // Exactly one correct answer — never partial-repair or truncate, which
+      // could silently drop the right answer and ship a broken-but-passing quiz.
+      if (options.filter((o) => o.correct).length !== 1) {
+        return coerce("guess must have exactly one correct option");
+      }
+      const result: PoiInteraction = { type: "guess", prompt: g.prompt, options };
+      if (typeof g.answerReveal === "string") result.answerReveal = g.answerReveal;
+      return result;
+    }
+
+    case "highlight": {
+      const h = obj as { emphasis?: unknown };
+      if (typeof h.emphasis !== "string" || h.emphasis.length === 0) {
+        return coerce("highlight emphasis must be a non-empty string");
+      }
+      return { type: "highlight", emphasis: h.emphasis };
+    }
+
+    default: {
+      // Compile-time exhaustiveness: if a variant is added to the union, `tag`
+      // is no longer narrowed to `never` here and this fails to typecheck.
+      // At runtime this also catches an unrecognized raw tag (e.g. "quiz").
+      const _exhaustive: never = tag;
+      void _exhaustive;
+      return coerce(`unknown type "${obj.type as string}"`);
+    }
+  }
+}
+
 export interface PoiContent {
   /** Stable id, joined to a world anchor by `worldConfig.POI_ANCHORS.poiId`. */
   id: string;
@@ -88,10 +180,10 @@ export function loadContent(): ContentSet {
       teaser: p.teaser!,
       body: p.body!,
       tags: Array.isArray(p.tags) ? p.tags : [],
-      // T1 wires the field as required + non-null. Full parsing/validation of
-      // the raw `interaction` lands in the next M2 slice (parseInteraction);
-      // until then every POI defaults to the `plain` variant.
-      interaction: { type: "plain" },
+      // Normalize at the loader boundary: every POI resolves to a concrete,
+      // non-nullable variant so downstream consumers do one exhaustive switch
+      // and never guard for undefined. Missing/invalid input → `plain`.
+      interaction: parseInteraction(p.interaction),
     };
   });
   return {
