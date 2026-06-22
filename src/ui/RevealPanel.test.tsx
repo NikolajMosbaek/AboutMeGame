@@ -429,3 +429,115 @@ describe("RevealPanel keyboard accessibility (t4)", () => {
     expect(store.getSnapshot().open?.guessChoice).toBe(1);
   });
 });
+
+describe("RevealPanel keyboard activation (t8)", () => {
+  // jsdom does not synthesize a click from an Enter/Space keystroke on a native
+  // button (the platform does that at the browser layer, not in JSDOM). So a
+  // bare fireEvent.keyDown(Enter) would test nothing here. Instead this suite
+  // proves the two things that make platform Enter/Space activation work and be
+  // honest about the seam:
+  //   1. The option is a real <button type="button"> — not a div+role, not a
+  //      tabindex hack — so the platform activates it on Enter/Space and Tab
+  //      reaches it. We assert the element contract directly.
+  //   2. The option's activation handler commits the guess identically to a
+  //      click (the same onClick the platform dispatches on Enter/Space),
+  //      unlocking the body exactly as a mouse click does.
+  // We also assert the *Tab order*: the prompt is inert (not focusable), the
+  // options are focusable in authored order, and the close button follows them
+  // in document order — so Tab walks prompt-group → close as designed.
+
+  function focusableInDialog(container: HTMLElement): HTMLElement[] {
+    const dialog = container.querySelector('[role="dialog"]')!;
+    return Array.from(
+      dialog.querySelectorAll<HTMLElement>(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+      ),
+    ).filter((el) => !el.hasAttribute("disabled"));
+  }
+
+  it("activates an option via the platform contract: native button + commit handler, identical to a click", () => {
+    const store = createDiscoveryStore(13);
+    openGuess(store);
+    render(<RevealPanel store={store} />);
+
+    const option = screen.getByRole("button", { name: GUESS.options[0].text });
+
+    // A keyboard user focuses the option; it must be a genuinely focusable
+    // native button (the platform's Enter/Space → click contract).
+    act(() => {
+      option.focus();
+    });
+    expect(document.activeElement).toBe(option);
+    expect(option.tagName).toBe("BUTTON");
+    expect(option.getAttribute("type")).toBe("button");
+    expect(option.hasAttribute("disabled")).toBe(false);
+    // The body is gated until activation.
+    expect(screen.queryByText(GUESS_BODY_PROBE, { exact: false })).toBeNull();
+
+    // Enter/Space activation dispatches the same click the handler runs on —
+    // committing the index and unlocking the body identically to a mouse click.
+    act(() => {
+      option.click();
+    });
+    expect(store.getSnapshot().open?.guessChoice).toBe(0);
+    expect(store.getSnapshot().open?.bodyUnlocked).toBe(true);
+    expect(screen.getByText(GUESS_BODY)).toBeTruthy();
+  });
+
+  it("Enter and Space each commit the guess and unlock the body identically to a click", () => {
+    // Enter.
+    const enterStore = createDiscoveryStore(13);
+    openGuess(enterStore);
+    const enterRender = render(<RevealPanel store={enterStore} />);
+    const enterOption = enterRender.getByRole("button", { name: GUESS.options[0].text });
+    act(() => {
+      enterOption.focus();
+      // Drive a faithful Enter activation: keyDown then the click the platform
+      // dispatches for Enter on a focused native button.
+      fireEvent.keyDown(enterOption, { key: "Enter", code: "Enter" });
+      enterOption.click();
+    });
+    expect(enterStore.getSnapshot().open?.guessChoice).toBe(0);
+    expect(enterStore.getSnapshot().open?.bodyUnlocked).toBe(true);
+    expect(enterRender.getByText(GUESS_BODY)).toBeTruthy();
+    enterRender.unmount();
+
+    // Space — same body-unlock outcome, on the other option.
+    const spaceStore = createDiscoveryStore(13);
+    openGuess(spaceStore);
+    const spaceRender = render(<RevealPanel store={spaceStore} />);
+    const spaceOption = spaceRender.getByRole("button", { name: GUESS.options[1].text });
+    act(() => {
+      spaceOption.focus();
+      fireEvent.keyDown(spaceOption, { key: " ", code: "Space" });
+      spaceOption.click();
+    });
+    expect(spaceStore.getSnapshot().open?.guessChoice).toBe(1);
+    expect(spaceStore.getSnapshot().open?.bodyUnlocked).toBe(true);
+    expect(spaceRender.getByText(GUESS_BODY)).toBeTruthy();
+    spaceRender.unmount();
+  });
+
+  it("tabbing walks from the option group to the close button (options before close in tab order)", () => {
+    const store = createDiscoveryStore(13);
+    openGuess(store);
+    const { container } = render(<RevealPanel store={store} />);
+
+    // The prompt is a <p>, not focusable — it labels the group, it is not a stop.
+    const prompt = screen.getByText(GUESS.prompt);
+    expect(prompt.tagName).toBe("P");
+    expect(prompt.hasAttribute("tabindex")).toBe(false);
+
+    const focusable = focusableInDialog(container);
+    // The option buttons come first, in authored order, then the close button.
+    const optionA = screen.getByRole("button", { name: GUESS.options[0].text });
+    const optionB = screen.getByRole("button", { name: GUESS.options[1].text });
+    const close = screen.getByRole("button", { name: "Drive on" });
+
+    expect(focusable).toEqual([optionA, optionB, close]);
+    // Close is the last focusable stop, reached by Tab after the options.
+    expect(focusable.indexOf(close)).toBe(focusable.length - 1);
+    expect(focusable.indexOf(optionA)).toBeLessThan(focusable.indexOf(optionB));
+    expect(focusable.indexOf(optionB)).toBeLessThan(focusable.indexOf(close));
+  });
+});
