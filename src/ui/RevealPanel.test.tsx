@@ -148,6 +148,47 @@ describe("RevealPanel guess interaction (t4)", () => {
   });
 });
 
+describe("RevealPanel polite announce (t6)", () => {
+  // The announce region is local to the guess body — a plain or highlight
+  // reveal carries no spurious announcer and therefore makes no sound on mount.
+  it("makes no spurious announce on mount for a plain reveal", () => {
+    const store = createDiscoveryStore(13);
+    openPlain(store);
+    const { container } = render(<RevealPanel store={store} />);
+    const status = container.querySelector(".sr-only[role=status]");
+    expect(status?.textContent ?? "").toBe("");
+  });
+
+  it("makes no spurious announce on mount for a highlight reveal", () => {
+    const store = createDiscoveryStore(13);
+    openHighlight(store);
+    const { container } = render(<RevealPanel store={store} />);
+    const status = container.querySelector(".sr-only[role=status]");
+    expect(status?.textContent ?? "").toBe("");
+  });
+
+  it("announces once on commit and not again on a re-click no-op", () => {
+    const store = createDiscoveryStore(13);
+    openGuess(store);
+    const { container } = render(<RevealPanel store={store} />);
+    const status = container.querySelector(".sr-only[role=status]")!;
+    expect(status.textContent).toBe("");
+
+    const chosenText = GUESS.options[0].text;
+    act(() => {
+      screen.getByRole("button", { name: chosenText }).click();
+    });
+    expect(status.textContent).toBe("Answer revealed.");
+
+    act(() => {
+      screen.getByRole("button", { name: chosenText }).click();
+    });
+    // Idempotent re-click: still committed, announced exactly once.
+    expect(store.getSnapshot().open?.guessChoice).toBe(0);
+    expect(status.textContent).toBe("Answer revealed.");
+  });
+});
+
 describe("RevealPanel styling hooks (t3)", () => {
   it("marks the committed guess option with the reveal-panel__option--chosen class", () => {
     const store = createDiscoveryStore(13);
