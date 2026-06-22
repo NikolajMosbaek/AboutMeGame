@@ -11,8 +11,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "test": "vitest run",
-    "lint": "eslint ."
+    "test": "vitest run"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.4.6",
