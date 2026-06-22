@@ -14,7 +14,12 @@ export interface Noise2D {
 
 export function makeNoise2D(seed = 1337): Noise2D {
   const hash = (xi: number, yi: number): number => {
-    let h = (xi | 0) * 374761393 + (yi | 0) * 668265263 + seed * 975313579;
+    // 32-bit mixes (Math.imul) keep every term integer-exact regardless of seed
+    // magnitude, so mixing isn't weakened by exceeding 2^53.
+    let h =
+      Math.imul(xi | 0, 374761393) +
+      Math.imul(yi | 0, 668265263) +
+      Math.imul(seed | 0, 975313579);
     h = Math.imul(h ^ (h >>> 13), 1274126177);
     return ((h ^ (h >>> 16)) >>> 0) / 4294967295;
   };

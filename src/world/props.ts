@@ -115,6 +115,9 @@ export function buildProps(terrain: Terrain): Props {
   return {
     group,
     dispose() {
+      // InstancedMesh.dispose frees the per-instance matrix GPU buffer — needed
+      // so a StrictMode/remount doesn't leak it.
+      for (const im of [trunks, foliage, rocks]) im.dispose();
       for (const geo of [trunkGeo, foliageGeo, rockGeo]) geo.dispose();
       for (const mt of [trunkMat, foliageMat, rockMat]) mt.dispose();
     },
