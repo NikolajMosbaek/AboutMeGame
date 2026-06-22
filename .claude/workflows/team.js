@@ -71,7 +71,7 @@ const PLAN_SCHEMA = {
         properties: {
           id: { type: 'string' },
           title: { type: 'string' },
-          owner: { type: 'string', enum: ['frontend', 'backend', 'quality', 'junior', 'ux'] },
+          owner: { type: 'string', enum: ['frontend', 'backend', 'graphics', 'quality', 'junior', 'ux'] },
           dependsOn: { type: 'array', items: { type: 'string' } },
           testFirst: { type: 'string' },
         },
@@ -109,6 +109,7 @@ const SHIP_SCHEMA = {
 const OWNER_TO_AGENT = {
   frontend: 'senior-eng-frontend',
   backend: 'senior-eng-backend',
+  graphics: 'graphics-3d',
   quality: 'senior-eng-quality',
   junior: 'junior-eng',
   ux: 'ux-lead',
@@ -119,6 +120,7 @@ const ROUNDTABLE = [
   'tech-lead',
   'senior-eng-frontend',
   'senior-eng-backend',
+  'graphics-3d',
   'senior-eng-quality',
   'ux-lead',
 ]
@@ -175,7 +177,7 @@ const designBlock = `DESIGN:\n${consensus.summary}\nDECISIONS:\n${(consensus.dec
 // ---- Plan ----
 phase('Plan')
 const plan = await agent(
-  `Decompose the agreed design into atomic, ordered, independently verifiable tasks. Each task needs id, title, owner (frontend|backend|quality|junior|ux), dependsOn (task ids), and the first test to write.\n\n${designBlock}`,
+  `Decompose the agreed design into atomic, ordered, independently verifiable tasks. Each task needs id, title, owner (frontend|backend|graphics|quality|junior|ux), dependsOn (task ids), and the first test to write. Use the graphics owner for Three.js/WebGL/GLSL/rendering work.\n\n${designBlock}`,
   { agentType: 'tech-lead', phase: 'Plan', schema: PLAN_SCHEMA }
 )
 if (!plan) { log('HALT in Plan: the tech-lead planning agent returned no result (likely an API/session limit). Stopping the run.'); return { halted: true, phase: 'Plan', reason: 'plan agent returned null' } }
