@@ -1,0 +1,160 @@
+/*
+ * Minimal design-token seam. The first real screen establishes the colors and
+ * spacing scale that later screens (Lobby, Prompt, Guess, Scoreboard) inherit,
+ * so they do not each invent their own. Contrast pairs meet WCAG AA.
+ */
+:root {
+  --color-bg: #14121f; /* deep indigo */
+  --color-fg: #f5f4fb; /* near-white body text — AA on --color-bg */
+  --color-accent: #ffcb47; /* warm amber CTA — AA-large on --color-bg */
+  --color-accent-fg: #14121f; /* text on the accent CTA — AA on accent */
+
+  --space-1: 0.5rem;
+  --space-2: 1rem;
+  --space-3: 1.5rem;
+  --space-4: 2.5rem;
+
+  --layout-max-width: 32rem;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-fg);
+  font-family:
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
+  line-height: 1.5;
+}
+
+.title-screen {
+  max-width: var(--layout-max-width);
+  margin: 0 auto;
+  padding: var(--space-4) var(--space-2);
+  text-align: center;
+}
+
+.title-screen h1 {
+  font-size: 2.5rem;
+  margin: 0 0 var(--space-2);
+}
+
+.title-screen .tagline {
+  font-size: 1.05rem;
+  margin: 0 auto var(--space-4);
+  max-width: 28rem;
+}
+
+.cta {
+  background: var(--color-accent);
+  color: var(--color-accent-fg);
+  border: none;
+  border-radius: 0.5rem;
+  padding: var(--space-1) var(--space-3);
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.cta:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.cta:focus-visible {
+  outline: 3px solid var(--color-fg);
+  outline-offset: 3px;
+}
+
+.version-marker {
+  margin-top: var(--space-4);
+  font-size: 0.8rem;
+  opacity: 0.7;
+}
+
+/* Prompt screen — the answer-collection step. Additive to the title styles;
+ * reuses the same layout width, spacing scale, and .cta classes. */
+.prompt-screen {
+  max-width: var(--layout-max-width);
+  margin: 0 auto;
+  padding: var(--space-4) var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.prompt-screen h1 {
+  font-size: 1.75rem;
+  margin: 0;
+}
+
+.answer-label {
+  font-weight: 600;
+}
+
+.answer-input {
+  width: 100%;
+  resize: vertical;
+  padding: var(--space-1);
+  font: inherit;
+  color: var(--color-fg);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 0.5rem;
+}
+
+.answer-input:focus-visible {
+  outline: 3px solid var(--color-fg);
+  outline-offset: 2px;
+}
+
+.answer-hint {
+  margin: 0;
+  font-size: 0.85rem;
+  opacity: 0.75;
+}
+
+/* Reveal screen — echoes the prompt and the player's answer. Additive to the
+ * title/prompt styles; reuses the same layout width, spacing scale, and .cta. */
+.reveal-screen {
+  max-width: var(--layout-max-width);
+  margin: 0 auto;
+  padding: var(--space-4) var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.reveal-screen h1 {
+  font-size: 1.75rem;
+  margin: 0;
+}
+
+.reveal-prompt {
+  margin: 0;
+  font-weight: 600;
+  opacity: 0.85;
+}
+
+/* D6: pre-wrap so the answer's leading/trailing/internal whitespace and
+ * newlines render exactly as the player typed them. */
+.answer-echo {
+  margin: 0;
+  white-space: pre-wrap;
+  padding: var(--space-2);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 0.5rem;
+}
