@@ -54,8 +54,15 @@ try {
     timeout: 15_000,
   });
 
+  // Optionally hold keys (e.g. --keys w,d or --keys Space) while stepping, so a
+  // screenshot can capture the craft actually driving/flying.
+  const keysArg = argVal("--keys");
+  const heldKeys = keysArg ? keysArg.split(",").map((k) => k.trim()) : [];
+  for (const k of heldKeys) await page.keyboard.down(k);
+
   // Step the simulation deterministically, then read state.
   await page.evaluate((ms) => window.advanceTime(ms), advanceMs);
+  for (const k of heldKeys) await page.keyboard.up(k);
   const stateJson = await page.evaluate(() =>
     window.render_game_to_text ? window.render_game_to_text() : "null",
   );

@@ -149,6 +149,61 @@ body {
   color: #ff5c5c;
 }
 
+/* ----- Touch controls (#32) — created lazily by movement/input.ts ----- */
+.touch-joystick {
+  position: fixed;
+  left: 5vw;
+  bottom: 6vh;
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  touch-action: none;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+}
+
+.touch-knob {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: rgba(255, 203, 71, 0.85);
+  pointer-events: none;
+}
+
+.touch-btn {
+  position: fixed;
+  z-index: 20;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  background: rgba(0, 0, 0, 0.4);
+  color: var(--color-fg);
+  font: 700 0.85rem var(--font-ui);
+  border-radius: 50%;
+  width: 72px;
+  height: 72px;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.touch-thrust {
+  right: 6vw;
+  bottom: 18vh;
+  font-size: 1.4rem;
+}
+.touch-fly {
+  right: 22vw;
+  bottom: 7vh;
+}
+.touch-use {
+  right: 6vw;
+  bottom: 7vh;
+  background: rgba(255, 203, 71, 0.85);
+  color: var(--color-accent-fg);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .cta {
     transition: none;

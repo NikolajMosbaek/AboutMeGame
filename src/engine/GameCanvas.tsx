@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { Engine } from "./Engine.ts";
 import { createRenderer } from "./createRenderer.ts";
-import { buildWorld } from "../world/buildWorld.ts";
+import { buildGame } from "../buildGame.ts";
 import { StatsOverlay } from "../perf/StatsOverlay.tsx";
 
 export interface GameCanvasProps {
-  /** Populate the engine with the world's systems. Defaults to the real world
-   *  builder; injected so a preview/test can build a minimal scene instead. */
-  buildWorld?: (engine: Engine) => void;
+  /** Populate the engine with the game's systems (world + movement). `overlay`
+   *  is the canvas container that touch controls mount into. Defaults to the
+   *  real game; injected so a preview/test can build a minimal scene instead. */
+  build?: (engine: Engine, overlay: HTMLElement) => void;
   /** Show the runtime stats overlay (#14). Defaults to dev-only. */
   showStats?: boolean;
 }
@@ -20,7 +21,7 @@ export interface GameCanvasProps {
  * (and any test) gets a clean engine each time.
  */
 export function GameCanvas({
-  buildWorld: buildWorldFn = buildWorld,
+  build = buildGame,
   showStats = import.meta.env.DEV,
 }: GameCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -34,7 +35,7 @@ export function GameCanvas({
 
     const renderer = createRenderer({ canvas });
     const eng = new Engine({ renderer });
-    buildWorldFn(eng);
+    build(eng, container);
 
     const resize = () => {
       const { clientWidth, clientHeight } = container;
@@ -65,7 +66,7 @@ export function GameCanvas({
       eng.dispose();
       setEngine(null);
     };
-  }, [buildWorldFn]);
+  }, [build]);
 
   return (
     <div ref={containerRef} className="game-canvas-container">

@@ -36,17 +36,29 @@ GitHub Pages base + CI/deploy workflows, Playwright smoke verifier.
 (advanceTime/live-loop decoupling, fps-EMA, dropped uncalled `exitToTitle`,
 fixed stale package description). **Verify:** 23 tests, 165 KB gz, cube renders.
 
-### M2 — Epic 2: World & Environment — PR #_ (closes #15–#22, #2)
+### M2 — Epic 2: World & Environment — PR #62 ✅ merged (closes #15–#22, #2)
 One small island (520u tile, plateau-to-shore terrain that keeps all 13 POIs on
 land), flat-shaded vertex-coloured terrain (`heightAt` is the contract Epic 3
 follows), gradient sky + warm sun + fog, 13 distinct procedural landmarks each
 with a colour-coded sky-beacon (guides exploration), water + boundary maths,
 instanced trees/rocks (3 draw calls). Docs: world-design, art-direction; charter
 pivoted. **Verify:** 39 tests, 80 draw calls / ~105k tris / 60 fps, screenshot
-shows the lush island with beacons.
+shows the lush island with beacons. **Review** (`senior-eng-quality`) → SHIP;
+applied its fixes (InstancedMesh dispose, landmark-contract test, noise imul).
 
-### M3–M7 — pending
-Movement & controls → content & discovery → shell & UX → reach → polish.
+### M3 — Epic 3: Movement & Controls — PR #_ (closes #23–#33, #3)
+One hover-craft, two modes on a real physics boundary: **drive** (terrain-
+following, slope-tilt, speed-scaled steering, boost) and **fly** (cruise + pitch/
+bank/banked-yaw, climb thrust, ground floor + ceiling), toggled with F, carrying
+momentum across. Input layer feeds one normalised `ControlState` from keyboard
+(#31), touch (#32, lazy virtual joystick + buttons) and gamepad (#33). Follow
+camera trails behind/above, smoothed, terrain-collision-clamped (#29/#30).
+buildGame = world + movement; the temporary orbit-preview was removed in favour
+of the follow camera. **Verify:** 51 tests, screenshots show spawn / driving to
+the gate / boosted (92) / flight to altitude 102. Docs: controls.md.
+
+### M4–M7 — pending
+Content & discovery → shell & UX → reach → polish.
 
 ## Notes / for the user
 - One-time repo setting needed for live deploy: **Settings → Pages → Source =
