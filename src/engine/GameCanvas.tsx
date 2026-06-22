@@ -60,6 +60,7 @@ export function GameCanvas({
   const [engine, setEngine] = useState<Engine | null>(null);
   const [game, setGame] = useState<GameHandle | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [onboardingOpen, setOnboardingOpen] = useState(false);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -119,12 +120,13 @@ export function GameCanvas({
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       if (menuOpen) return; // SettingsMenu handles closing.
+      if (onboardingOpen) return; // don't open a hidden menu behind onboarding.
       if (game.discovery.store.getSnapshot().open) return; // RevealPanel owns it.
       setMenuOpen(true);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [game, menuOpen]);
+  }, [game, menuOpen, onboardingOpen]);
 
   const closeMenu = useCallback(() => setMenuOpen(false), []);
   const resetProgress = useCallback(() => game?.discovery.reset(), [game]);
@@ -138,7 +140,7 @@ export function GameCanvas({
           <Hud hud={game.hud} discovery={game.discovery.store} onOpenMenu={() => setMenuOpen(true)} />
           <NavMarkers nav={game.nav} />
           <RevealPanel store={game.discovery.store} />
-          <Onboarding />
+          <Onboarding onOpenChange={setOnboardingOpen} />
           {menuOpen && (
             <SettingsMenu
               settings={game.settings}

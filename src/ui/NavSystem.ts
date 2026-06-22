@@ -33,6 +33,10 @@ export class NavSystem implements System {
   update(_ctx: FrameContext): void {
     const discovered = new Set(this.discovery.getSnapshot().discoveredIds);
     const camera = this.engine.camera;
+    // Refresh the camera's world/inverse matrices so projection is exact for
+    // THIS frame (the renderer otherwise only updates them at render time, one
+    // step later).
+    camera.updateMatrixWorld();
     const eye = this.vehicle.state.position;
 
     type Pending = { marker: NavMarker; dist: number };
@@ -88,8 +92,11 @@ export class NavSystem implements System {
   }
 }
 
+// Whole-percent screen position: a slowly-moving camera then changes the
+// rounded layout far less often, so navStore's `sameLayout` no-op keeps the
+// cached snapshot and React doesn't re-render markers every frame.
 function round1(n: number): number {
-  return Math.round(n * 10) / 10;
+  return Math.round(n);
 }
 function round3(n: number): number {
   return Math.round(n * 1000) / 1000;

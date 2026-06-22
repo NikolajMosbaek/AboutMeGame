@@ -50,6 +50,10 @@ export class DiscoverySystem implements System {
       return;
     }
 
+    // Paused by something else (e.g. the menu): the interact edge is already
+    // drained above, so we just bail — no reveal opens behind the menu.
+    if (this.session.paused) return;
+
     const p = this.vehicle.state.position;
     let nearest: DiscoverablePoi | null = null;
     let nearestDist = Infinity;

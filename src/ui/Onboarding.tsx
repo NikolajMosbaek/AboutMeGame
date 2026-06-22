@@ -7,6 +7,9 @@ import {
 export interface OnboardingProps {
   /** Persistence seam — injected so tests/previews substitute their own. */
   persistence?: OnboardingPersistence;
+  /** Notified when the overlay opens/closes, so the shell can suppress other
+   *  Escape handling (e.g. opening the menu) while onboarding is up. */
+  onOpenChange?: (open: boolean) => void;
 }
 
 /** The controls taught on first run, mirrored by the HUD reminder line. */
@@ -26,7 +29,7 @@ const CONTROLS: ReadonlyArray<{ keys: string; action: string }> = [
  * it never returns). Degrades gracefully if storage is blocked (it may re-show,
  * which is harmless). Respects reduced motion via the tokens.css animation rule.
  */
-export function Onboarding({ persistence }: OnboardingProps) {
+export function Onboarding({ persistence, onOpenChange }: OnboardingProps) {
   // Resolve persistence once (default reads real localStorage). Memoised in a
   // ref so a re-render never rebuilds it or re-reads the flag.
   const persistRef = useRef<OnboardingPersistence>(persistence ?? createOnboardingPersistence());
@@ -37,6 +40,11 @@ export function Onboarding({ persistence }: OnboardingProps) {
   useEffect(() => {
     if (open) dismissRef.current?.focus();
   }, [open]);
+
+  // Let the shell know whether the overlay is up (to gate its Escape handler).
+  useEffect(() => {
+    onOpenChange?.(open);
+  }, [open, onOpenChange]);
 
   if (!open) return null;
 
