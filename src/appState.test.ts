@@ -27,4 +27,26 @@ describe("appReducer", () => {
     const title = { kind: "title" } as const;
     expect(appReducer(title, { type: "exitToTitle" })).toBe(title);
   });
+
+  it("openTextView moves title → textView", () => {
+    expect(appReducer({ kind: "title" }, { type: "openTextView" })).toEqual({
+      kind: "textView",
+    });
+  });
+
+  it("openTextView is a no-op when not on the title", () => {
+    const playing = { kind: "playing" } as const;
+    expect(appReducer(playing, { type: "openTextView" })).toBe(playing);
+  });
+
+  it("exitToTitle moves textView → title", () => {
+    expect(appReducer({ kind: "textView" }, { type: "exitToTitle" })).toEqual({
+      kind: "title",
+    });
+  });
+
+  it("start is a no-op from the text view (only the title starts the world)", () => {
+    const textView = { kind: "textView" } as const;
+    expect(appReducer(textView, { type: "start" })).toBe(textView);
+  });
 });

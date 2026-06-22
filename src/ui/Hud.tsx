@@ -44,7 +44,10 @@ export function Hud({ hud, discovery, onOpenMenu }: HudProps) {
       </div>
 
       <div className="hud-top-right">
-        <div className="discovery-progress" role="status" aria-live="polite">
+        {/* Static visual progress. The spoken update lives in DiscoveryAnnouncer
+            (a single polite live region that names the landmark), so this badge
+            is not a live region — that avoids a bare "N / 13" double-announce. */}
+        <div className="discovery-progress" aria-label={`Discovered ${d.discoveredCount} of ${d.total} landmarks`}>
           Discovered {d.discoveredCount} / {d.total}
         </div>
         <button

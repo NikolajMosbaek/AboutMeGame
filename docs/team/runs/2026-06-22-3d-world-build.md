@@ -79,8 +79,21 @@ with controls hint + Continue/Drive-in by saved progress (#40). Generalised
 onboarding, HUD, nav markers, the reveal teaser, and the pause menu — no console
 errors. **Review** pending.
 
-### M6–M7 — pending
-Reach (responsive, perf, a11y, text fallback) → polish.
+### M6 — Epic 6: Reach — PR #_ (closes #46–#50, #6)
+Implemented by `senior-eng-frontend` to spec: device capability detection +
+quality tiers (low/med/high → pixelRatio, shadows, shadow-map size, prop
+density, fog) threaded through buildGame→createRenderer/buildWorld, resolved at
+mount from settings with cheap knobs applied live (#47/#48); responsive media
+queries for title/HUD/nav/panels/menu + ≥44px tap targets (#46); accessibility
+pass — aria-live discovery announcer, reduced-motion gating (data attribute +
+prefers-reduced-motion), AA-verified token contrasts, canvas aria-hidden (#49);
+and a semantic no-WebGL **text view** of all 13 landmarks linked from the title
+(#50). **Verify:** 139 tests (35 new), build ~187 KB gz (no regression),
+screenshots confirm the text view (13 sections) and the mobile portrait layout
+with touch controls. **Review** pending.
+
+### M7 — pending
+Polish — audio, VFX, personal brand.
 
 ## Notes / for the user
 - One-time repo setting needed for live deploy: **Settings → Pages → Source =

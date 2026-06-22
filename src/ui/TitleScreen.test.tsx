@@ -39,4 +39,18 @@ describe("TitleScreen", () => {
     expect(screen.getByRole("button", { name: "Continue" })).toBeInTheDocument();
     expect(screen.getByText("4 / 13 discovered")).toBeInTheDocument();
   });
+
+  it("offers a text-view link that calls onReadText", () => {
+    const onReadText = vi.fn();
+    render(
+      <TitleScreen onStart={() => {}} onReadText={onReadText} progress={{ discovered: 0, total: 13 }} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /read it without playing/i }));
+    expect(onReadText).toHaveBeenCalledOnce();
+  });
+
+  it("hides the text-view link when onReadText is not provided", () => {
+    render(<TitleScreen onStart={() => {}} progress={{ discovered: 0, total: 13 }} />);
+    expect(screen.queryByRole("button", { name: /read it without playing/i })).not.toBeInTheDocument();
+  });
 });

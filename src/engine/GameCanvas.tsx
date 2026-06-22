@@ -1,13 +1,18 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Engine } from "./Engine.ts";
-import { createRenderer } from "./createRenderer.ts";
+import { createRenderer, applyRendererQuality } from "./createRenderer.ts";
 import { buildGame } from "../buildGame.ts";
+import { detectDeviceTier } from "../perf/deviceCapability.ts";
+import { resolveQuality, type QualityConfig } from "../perf/quality.ts";
+import { createSettingsStore } from "../settings/settingsStore.ts";
+import { useReducedMotion } from "../settings/reducedMotion.ts";
 import { StatsOverlay } from "../perf/StatsOverlay.tsx";
 import { RevealPanel } from "../ui/RevealPanel.tsx";
 import { Hud } from "../ui/Hud.tsx";
 import { NavMarkers } from "../ui/NavMarkers.tsx";
 import { Onboarding } from "../ui/Onboarding.tsx";
 import { SettingsMenu } from "../ui/SettingsMenu.tsx";
+import { DiscoveryAnnouncer } from "../ui/DiscoveryAnnouncer.tsx";
 import type { DiscoveryStore } from "../discovery/discoveryStore.ts";
 import type { HudStore } from "../ui/hudStore.ts";
 import type { NavStore } from "../ui/navStore.ts";
@@ -26,10 +31,12 @@ export interface GameHandle {
 
 export interface GameCanvasProps {
   /** Populate the engine with the game's systems (world + movement + discovery +
-   *  shell). `overlay` is the canvas container touch controls mount into. Returns
-   *  the game handle (its stores drive the overlays). Defaults to the real game;
-   *  injected so a preview/test can build a minimal scene instead. */
-  build?: (engine: Engine, overlay: HTMLElement) => GameHandle | void;
+   *  shell). `overlay` is the canvas container touch controls mount into;
+   *  `quality` is the resolved render tier (#47), so the world is built at the
+   *  right cost. Returns the game handle (its stores drive the overlays).
+   *  Defaults to the real game; injected so a preview/test can build a minimal
+   *  scene instead. */
+  build?: (engine: Engine, overlay: HTMLElement, quality: QualityConfig) => GameHandle | void;
   /** Show the runtime stats overlay (#14). Defaults to dev-only. */
   showStats?: boolean;
   /** Return to the title screen (App dispatches `exitToTitle`). The engine is
@@ -57,19 +64,35 @@ export function GameCanvas({
 }: GameCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const rendererRef = useRef<ReturnType<typeof createRenderer> | null>(null);
   const [engine, setEngine] = useState<Engine | null>(null);
   const [game, setGame] = useState<GameHandle | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
+
+  // Resolve the device tier once for this mount — `detectDeviceTier` reads real
+  // hardware signals, so it's stable for the session and cheap to memoise.
+  const deviceTier = useMemo(() => detectDeviceTier(), []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     const container = containerRef.current;
     if (!canvas || !container) return;
 
-    const renderer = createRenderer({ canvas });
+    // Resolve quality from the persisted setting + detected tier, *before* the
+    // renderer and world are built, so the expensive build-time knobs (prop
+    // count, shadow-map size, fog) bake in at the right cost. This reads the
+    // same persisted store the menu writes, so the two agree at mount.
+    const quality = resolveQuality(createSettingsStore().getSnapshot().quality, deviceTier);
+
+    const renderer = createRenderer({
+      canvas,
+      maxPixelRatio: quality.maxPixelRatio,
+      shadows: quality.shadows,
+    });
+    rendererRef.current = renderer;
     const eng = new Engine({ renderer });
-    const built = build(eng, container);
+    const built = build(eng, container, quality);
     if (built) setGame(built);
 
     const resize = () => {
@@ -99,11 +122,37 @@ export function GameCanvas({
       delete window.render_game_to_text;
       delete window.__ENGINE_STATE__;
       eng.dispose();
+      rendererRef.current = null;
       setEngine(null);
       setGame(null);
       setMenuOpen(false);
     };
-  }, [build]);
+  }, [build, deviceTier]);
+
+  // Apply the *cheap* quality knobs live when the player changes the graphics
+  // setting in the menu (#47): the pixel-ratio cap and the shadow-map enable
+  // take effect on the next frame via the live renderer. The expensive parts
+  // (prop count, shadow-map size, fog) are baked at build time, so the menu
+  // surfaces an "applies on reload" note for those. Subscribed to the same store
+  // the menu writes; the unsubscribe runs on teardown so no listener leaks.
+  useEffect(() => {
+    const settings = game?.settings;
+    const renderer = rendererRef.current;
+    if (!settings || !renderer) return;
+    const apply = () => {
+      const quality = resolveQuality(settings.getSnapshot().quality, deviceTier);
+      applyRendererQuality(renderer, {
+        maxPixelRatio: quality.maxPixelRatio,
+        shadows: quality.shadows,
+      });
+    };
+    apply(); // sync once in case the store changed between build and subscribe
+    return settings.subscribe(apply);
+  }, [game, deviceTier]);
+
+  // Reflect the reduced-motion setting onto <html> so tokens.css can suppress UI
+  // motion (the OS media query is the other gate). No-op until the game exists.
+  useReducedMotion(game?.settings);
 
   // Reflect the menu's open state onto the shared pause flag so the sim holds
   // while the menu is up (and resumes when it closes, unless a panel still pauses
@@ -138,6 +187,7 @@ export function GameCanvas({
       {game && (
         <>
           <Hud hud={game.hud} discovery={game.discovery.store} onOpenMenu={() => setMenuOpen(true)} />
+          <DiscoveryAnnouncer store={game.discovery.store} />
           <NavMarkers nav={game.nav} />
           <RevealPanel store={game.discovery.store} />
           <Onboarding onOpenChange={setOnboardingOpen} />
