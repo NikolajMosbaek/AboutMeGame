@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { RevealPanel } from "./RevealPanel.tsx";
 import { createDiscoveryStore } from "../discovery/discoveryStore.ts";
+import { nextUndiscovered } from "../discovery/nextUndiscovered.ts";
 import type { PoiInteraction } from "../content/contentModel.ts";
 
 const GUESS: PoiInteraction = {
@@ -72,22 +73,22 @@ function openPlain(store: ReturnType<typeof createDiscoveryStore>) {
   });
 }
 
-describe("RevealPanel pois prop no-regression (t2)", () => {
-  // T2 widens RevealPanelProps with an immutable `pois` projection consumed by
-  // the later "Next landmark" wiring. This task only threads the prop through
-  // the signature, so the existing reveal/teaser/guess behaviour must be
-  // unchanged and NO `Next:` button renders yet for any interaction type.
-  it("renders the plain reveal unchanged and shows no Next button", () => {
+describe("RevealPanel pois prop wiring (t4)", () => {
+  // The `pois` projection feeds the "Next landmark" selector. The existing
+  // reveal/teaser/guess body behaviour stays unchanged; Next now renders for an
+  // unlocked POI with a concrete next-by-order target, and is gated off until a
+  // guess is committed.
+  it("renders the plain reveal unchanged and shows Next (unlocked)", () => {
     const store = createDiscoveryStore(13);
     openPlain(store);
     render(<RevealPanel store={store} pois={POIS} />);
 
     expect(screen.getByText("The Arrivals Gate")).toBeTruthy();
     expect(screen.getByText("Welcome to the spawn point.")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /^Next:/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /^Next:/ })).toBeTruthy();
   });
 
-  it("renders the highlight reveal unchanged and shows no Next button", () => {
+  it("renders the highlight reveal unchanged and shows Next (unlocked)", () => {
     const store = createDiscoveryStore(13);
     openHighlight(store);
     render(<RevealPanel store={store} pois={POIS} />);
@@ -95,10 +96,10 @@ describe("RevealPanel pois prop no-regression (t2)", () => {
     expect(screen.getByText("The One-Sentence Overlook")).toBeTruthy();
     expect(screen.getByText(HIGHLIGHT.emphasis as string)).toBeTruthy();
     expect(screen.getByText(HIGHLIGHT_BODY)).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /^Next:/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /^Next:/ })).toBeTruthy();
   });
 
-  it("renders the guess reveal unchanged and shows no Next button (pre- and post-pick)", () => {
+  it("renders the guess reveal unchanged: Next absent pre-pick, present post-pick", () => {
     const store = createDiscoveryStore(13);
     openGuess(store);
     render(<RevealPanel store={store} pois={POIS} />);
@@ -106,15 +107,16 @@ describe("RevealPanel pois prop no-regression (t2)", () => {
     expect(screen.getByText("The Staff-Engineer Gate")).toBeTruthy();
     expect(screen.getByText(GUESS.prompt)).toBeTruthy();
     expect(screen.queryByText(GUESS_BODY_PROBE, { exact: false })).toBeNull();
+    // Body locked -> Next is gated off, so forward-nav cannot skip the payload.
     expect(screen.queryByRole("button", { name: /^Next:/ })).toBeNull();
 
     act(() => {
       store.answerGuess(0);
     });
 
-    // Body unlocks as before; still no Next button while the prop is unwired.
+    // Body unlocks as before; Next now appears for the committed guess.
     expect(screen.getByText(GUESS_BODY)).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /^Next:/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /^Next:/ })).toBeTruthy();
   });
 });
 
@@ -283,11 +285,14 @@ describe("RevealPanel plain regression (t4)", () => {
     const body = screen.getByText("Welcome to the spawn point.");
     expect(body.className).toContain("reveal-panel__body");
 
-    // The only button on a plain reveal is the close CTA — no guess group.
+    // No guess group on a plain reveal. The footer carries the always-present
+    // "Drive on" first, then the named "Next: <title> →" (M2 slice 4) since this
+    // unlocked POI has a concrete next-by-order target.
     expect(screen.queryByRole("group")).toBeNull();
     const buttons = screen.getAllByRole("button");
-    expect(buttons).toHaveLength(1);
+    expect(buttons).toHaveLength(2);
     expect(buttons[0].textContent).toBe("Drive on");
+    expect(buttons[1].textContent).toMatch(/^Next:/);
   });
 });
 
@@ -573,7 +578,7 @@ describe("RevealPanel keyboard activation (t8)", () => {
     spaceRender.unmount();
   });
 
-  it("tabbing walks from the option group to the close button (options before close in tab order)", () => {
+  it("tabbing walks options → close → next once the body is unlocked (Next after Drive on)", () => {
     const store = createDiscoveryStore(13);
     openGuess(store);
     const { container } = render(<RevealPanel store={store} pois={POIS} />);
@@ -583,16 +588,140 @@ describe("RevealPanel keyboard activation (t8)", () => {
     expect(prompt.tagName).toBe("P");
     expect(prompt.hasAttribute("tabindex")).toBe(false);
 
+    // Commit a pick so the body unlocks and the Next affordance appears. M2
+    // slice 4: Next is rendered ONLY when bodyUnlocked is true and the selector
+    // returns non-null; for this open (a non-last guess) both hold.
+    act(() => {
+      screen.getByRole("button", { name: GUESS.options[0].text }).click();
+    });
+
     const focusable = focusableInDialog(container);
-    // The option buttons come first, in authored order, then the close button.
+    // The option buttons come first, in authored order, then the close button,
+    // then Next placed AFTER Drive on in DOM/tab order.
     const optionA = screen.getByRole("button", { name: GUESS.options[0].text });
     const optionB = screen.getByRole("button", { name: GUESS.options[1].text });
     const close = screen.getByRole("button", { name: "Drive on" });
+    const next = screen.getByRole("button", { name: /^Next:/ });
 
-    expect(focusable).toEqual([optionA, optionB, close]);
-    // Close is the last focusable stop, reached by Tab after the options.
-    expect(focusable.indexOf(close)).toBe(focusable.length - 1);
+    expect(focusable).toEqual([optionA, optionB, close, next]);
+    // Next is the last focusable stop, reached by Tab after Drive on.
+    expect(focusable.indexOf(next)).toBe(focusable.length - 1);
     expect(focusable.indexOf(optionA)).toBeLessThan(focusable.indexOf(optionB));
     expect(focusable.indexOf(optionB)).toBeLessThan(focusable.indexOf(close));
+    expect(focusable.indexOf(close)).toBeLessThan(focusable.indexOf(next));
+  });
+});
+
+describe("RevealPanel Next landmark affordance (t4)", () => {
+  // The full ordered POI set for the selector. POI orders 1, 2, 4 mirror the
+  // openPlain / openHighlight / openGuess fixtures so every opened POI has a
+  // concrete next-by-order target under the cyclic-successor rule.
+  const SELECTOR_POIS = POIS;
+
+  it("renders Next: <next-by-order title> for an unlocked plain reveal; activating it only closes", () => {
+    const store = createDiscoveryStore(13);
+    openPlain(store); // order 1, plain -> bodyUnlocked immediately
+    render(<RevealPanel store={store} pois={SELECTOR_POIS} />);
+
+    // The selector names the next-by-order undiscovered POI (cyclic successor):
+    // current order 1, nothing else discovered -> order 2.
+    const expected = nextUndiscovered(
+      SELECTOR_POIS,
+      store.getSnapshot().discoveredIds,
+      "poi-arrivals-gate",
+      1,
+    );
+    expect(expected).toEqual({
+      id: "poi-end-state-overlook",
+      order: 2,
+      title: "The One-Sentence Overlook",
+    });
+
+    // The only assertable "steer": a native button whose text contains that
+    // POI's title.
+    const next = screen.getByRole("button", { name: /^Next:/ });
+    expect(next.tagName).toBe("BUTTON");
+    expect(next.getAttribute("type")).toBe("button");
+    expect(next.textContent).toContain(expected!.title);
+
+    // Activating Next calls store.closePoi() and nothing else: the panel closes,
+    // the discovered set is untouched, and no body is revealed.
+    const discoveredBefore = store.getSnapshot().discoveredIds;
+    act(() => {
+      next.click();
+    });
+    expect(store.getSnapshot().open).toBeNull();
+    expect(store.getSnapshot().discoveredIds).toBe(discoveredBefore);
+  });
+
+  it("renders Next on a committed guess (body unlocked) and is absent before the pick", () => {
+    const store = createDiscoveryStore(13);
+    openGuess(store); // order 4, guess -> locked until a pick
+    render(<RevealPanel store={store} pois={SELECTOR_POIS} />);
+
+    // Unanswered guess: bodyUnlocked false -> Next not rendered.
+    expect(screen.queryByRole("button", { name: /^Next:/ })).toBeNull();
+
+    act(() => {
+      screen.getByRole("button", { name: GUESS.options[0].text }).click();
+    });
+
+    // Post-pick: bodyUnlocked true, selector for order 4 (highest open) wraps to
+    // the lowest-order remaining (order 1).
+    const expected = nextUndiscovered(
+      SELECTOR_POIS,
+      store.getSnapshot().discoveredIds,
+      "poi-staff-engineer-gate",
+      4,
+    );
+    expect(expected).toEqual({
+      id: "poi-arrivals-gate",
+      order: 1,
+      title: "The Arrivals Gate",
+    });
+    const next = screen.getByRole("button", { name: /^Next:/ });
+    expect(next.textContent).toContain(expected!.title);
+  });
+
+  it("hides Next on the last undiscovered landmark — only Drive on remains", () => {
+    const store = createDiscoveryStore(13);
+    // Only ONE POI exists in the candidate set, and it is the open one: the
+    // selector returns null, so Next is absent and Drive on is the lone CTA.
+    const lone = [{ id: "poi-arrivals-gate", order: 1, title: "The Arrivals Gate" }];
+    openPlain(store);
+    render(<RevealPanel store={store} pois={lone} />);
+
+    expect(
+      nextUndiscovered(lone, store.getSnapshot().discoveredIds, "poi-arrivals-gate", 1),
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Next:/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "Drive on" })).toBeTruthy();
+  });
+
+  it("hides Next for an unanswered guess for BOTH reasons: last-only, and not-last", () => {
+    // Unanswered guess that is also the last undiscovered: Next absent because
+    // the body is locked AND because the selector returns null.
+    const lastStore = createDiscoveryStore(13);
+    const loneGuess = [{ id: "poi-staff-engineer-gate", order: 4, title: "The Staff-Engineer Gate" }];
+    openGuess(lastStore);
+    const lastRender = render(<RevealPanel store={lastStore} pois={loneGuess} />);
+    expect(lastStore.getSnapshot().open?.bodyUnlocked).toBe(false);
+    expect(
+      nextUndiscovered(loneGuess, lastStore.getSnapshot().discoveredIds, "poi-staff-engineer-gate", 4),
+    ).toBeNull();
+    expect(lastRender.queryByRole("button", { name: /^Next:/ })).toBeNull();
+    lastRender.unmount();
+
+    // Unanswered guess that is NOT last: a valid next exists, but Next is still
+    // absent because the body is locked — forward-nav cannot bypass the unread
+    // payload until a pick commits.
+    const notLastStore = createDiscoveryStore(13);
+    openGuess(notLastStore);
+    const notLastRender = render(<RevealPanel store={notLastStore} pois={POIS} />);
+    expect(notLastStore.getSnapshot().open?.bodyUnlocked).toBe(false);
+    expect(
+      nextUndiscovered(POIS, notLastStore.getSnapshot().discoveredIds, "poi-staff-engineer-gate", 4),
+    ).not.toBeNull();
+    expect(notLastRender.queryByRole("button", { name: /^Next:/ })).toBeNull();
   });
 });
