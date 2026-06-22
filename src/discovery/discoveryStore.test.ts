@@ -54,3 +54,54 @@ describe("discoveryStore openPoi interaction default", () => {
     expect(open?.interaction).toEqual({ type: "plain" });
   });
 });
+
+describe("discoveryStore openPoi per-open guess state", () => {
+  it("opens a guess locked: guessChoice null, bodyUnlocked false (AC2)", () => {
+    const store = createDiscoveryStore(13);
+    store.openPoi({
+      id: "poi-0",
+      order: 0,
+      title: "First",
+      body: "...",
+      interaction: {
+        type: "guess",
+        prompt: "?",
+        options: [
+          { text: "a", correct: true },
+          { text: "b", correct: false },
+        ],
+      },
+    });
+    const open = store.getSnapshot().open;
+    expect(open?.guessChoice).toBeNull();
+    expect(open?.bodyUnlocked).toBe(false);
+  });
+
+  it("opens a plain interaction unlocked: bodyUnlocked true, guessChoice null (AC2)", () => {
+    const store = createDiscoveryStore(13);
+    store.openPoi({
+      id: "poi-0",
+      order: 0,
+      title: "First",
+      body: "...",
+      interaction: { type: "plain" },
+    });
+    const open = store.getSnapshot().open;
+    expect(open?.bodyUnlocked).toBe(true);
+    expect(open?.guessChoice).toBeNull();
+  });
+
+  it("opens a highlight interaction unlocked: bodyUnlocked true, guessChoice null (AC2)", () => {
+    const store = createDiscoveryStore(13);
+    store.openPoi({
+      id: "poi-0",
+      order: 0,
+      title: "First",
+      body: "...",
+      interaction: { type: "highlight", emphasis: "lede" },
+    });
+    const open = store.getSnapshot().open;
+    expect(open?.bodyUnlocked).toBe(true);
+    expect(open?.guessChoice).toBeNull();
+  });
+});
