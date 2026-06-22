@@ -50,7 +50,12 @@ no replay incentive, and the reveal is a passive wall of text**. These epics clo
 that gap. They build only on existing stores/systems and decompose into
 headless-testable pure logic plus thin React panels — no rendering work.
 
-### M1 — Journey & Completion Arc  *(highest priority)*
+### M1 — Journey & Completion Arc  — ✅ SHIPPED (PRs #80 + #81, 2026-06-22)
+
+> **Done — do not pull.** Completion discovery state + accessible CompletionPanel
+> with replay/re-arm + "start here" cue + TextView summary (#80); HUD "N to go"
+> momentum line (#81, slice 4). Issue #73 closed. **Top unfinished mechanics item
+> is now M2.**
 
 - **Goal / value:** The world has 13 landmarks but no beginning, middle, or end —
   players discover in random order and nothing happens at 13/13. Give the
@@ -87,7 +92,7 @@ headless-testable pure logic plus thin React panels — no rendering work.
   reload — mitigated by rising-edge derivation (never on initial snapshot,
   mirroring `announcementFor`'s `prev === null` guard).
 
-### M2 — Make the Reveal Interactive, Not a Wall of Text
+### M2 — Make the Reveal Interactive, Not a Wall of Text  *(top unfinished mechanics item)*
 
 - **Goal / value:** Every landmark resolves to "press E, read a paragraph" —
   passive and uniform. Turn each reveal into a small, varied interaction (a
