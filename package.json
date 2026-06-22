@@ -14,7 +14,8 @@
     "test": "vitest run",
     "test:install-gate": "vitest run --config vitest.install-gate.config.ts",
     "test:build-gate": "vitest run --config vitest.build-gate.config.ts",
-    "test:dev-gate": "vitest run --config vitest.dev-gate.config.ts"
+    "test:dev-gate": "vitest run --config vitest.dev-gate.config.ts",
+    "test:ship-gate": "vitest run --config vitest.ship-gate.config.ts"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.4.6",
