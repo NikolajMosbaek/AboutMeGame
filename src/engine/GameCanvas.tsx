@@ -13,6 +13,7 @@ import { NavMarkers } from "../ui/NavMarkers.tsx";
 import { Onboarding } from "../ui/Onboarding.tsx";
 import { SettingsMenu } from "../ui/SettingsMenu.tsx";
 import { DiscoveryAnnouncer } from "../ui/DiscoveryAnnouncer.tsx";
+import { CompletionPanel } from "../ui/CompletionPanel.tsx";
 import { SpeedVignette } from "../fx/SpeedVignette.tsx";
 import type { DiscoveryStore } from "../discovery/discoveryStore.ts";
 import type { HudStore } from "../ui/hudStore.ts";
@@ -23,7 +24,7 @@ import type { GameSession } from "../gameSession.ts";
 /** The slice of the built game the React shell needs. A subset of `Game`, so the
  *  default `buildGame` satisfies it and a preview/test can return a minimal one. */
 export interface GameHandle {
-  discovery: { store: DiscoveryStore; reset(): void };
+  discovery: { store: DiscoveryStore; reset(): void; pois: { order: number; title: string }[] };
   hud: HudStore;
   nav: NavStore;
   settings: SettingsStore;
@@ -72,6 +73,7 @@ export function GameCanvas({
   const [game, setGame] = useState<GameHandle | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
+  const [completionOpen, setCompletionOpen] = useState(false);
   const [webglError, setWebglError] = useState(false);
 
   // Resolve the device tier once for this mount — `detectDeviceTier` reads real
@@ -187,12 +189,13 @@ export function GameCanvas({
       if (e.key !== "Escape") return;
       if (menuOpen) return; // SettingsMenu handles closing.
       if (onboardingOpen) return; // don't open a hidden menu behind onboarding.
+      if (completionOpen) return; // CompletionPanel owns Escape while it's up.
       if (game.discovery.store.getSnapshot().open) return; // RevealPanel owns it.
       setMenuOpen(true);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [game, menuOpen, onboardingOpen]);
+  }, [game, menuOpen, onboardingOpen, completionOpen]);
 
   const closeMenu = useCallback(() => setMenuOpen(false), []);
   const resetProgress = useCallback(() => game?.discovery.reset(), [game]);
@@ -224,6 +227,13 @@ export function GameCanvas({
           <DiscoveryAnnouncer store={game.discovery.store} />
           <NavMarkers nav={game.nav} />
           <RevealPanel store={game.discovery.store} />
+          <CompletionPanel
+            store={game.discovery.store}
+            pois={game.discovery.pois}
+            onReplay={resetProgress}
+            containerRef={containerRef}
+            onOpenChange={setCompletionOpen}
+          />
           <Onboarding onOpenChange={setOnboardingOpen} />
           {menuOpen && (
             <SettingsMenu

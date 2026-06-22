@@ -416,6 +416,56 @@ body {
   margin-left: auto;
 }
 
+/* ----- Completion panel (the "you found everything" moment) ----- */
+.completion-panel-backdrop {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: var(--space-2);
+  background: rgba(10, 9, 16, 0.55);
+  z-index: 30;
+}
+.completion-panel {
+  max-width: min(40rem, 92vw);
+  max-height: 86vh;
+  overflow-y: auto;
+  background: var(--color-bg);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 1rem;
+  padding: var(--space-4) var(--space-3);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+.completion-panel__title {
+  margin: 0 0 var(--space-3);
+  font-size: clamp(1.4rem, 4vw, 2rem);
+}
+.completion-panel__list {
+  list-style: none;
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  display: grid;
+  gap: var(--space-1);
+}
+.completion-panel__item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1);
+}
+.completion-panel__check {
+  flex: none;
+  color: var(--color-accent);
+}
+.completion-panel__item-title {
+  flex: 1;
+}
+.completion-panel__item-status {
+  font-size: 0.8rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.6;
+}
+
 /* ----- In-game HUD (#42) + progress (#45) ----- */
 .hud-telemetry {
   position: fixed;
