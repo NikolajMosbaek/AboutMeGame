@@ -62,6 +62,16 @@ describe("createInput — keyboard mapping & edge events", () => {
     expect(input.consumeInteract()).toBe(false);
   });
 
+  it("ignores OS key-repeat so a held F toggles only once", () => {
+    make();
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "f" }));
+    // auto-repeat keydowns while F stays held must NOT re-queue the toggle
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "f", repeat: true }));
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "f", repeat: true }));
+    expect(input.consumeToggleMode()).toBe(true);
+    expect(input.consumeToggleMode()).toBe(false);
+  });
+
   it("stops responding after dispose", () => {
     make();
     input.dispose();

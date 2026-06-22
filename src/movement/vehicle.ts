@@ -93,6 +93,14 @@ export class VehicleSystem implements System {
 
     // Keep the player on the map (horizontal only; height handled per-mode).
     this.boundaries.clampToBounds(this.pos);
+    // If the bounds clamp slid us over higher terrain, re-seat above the ground
+    // so neither mode dips below it for a frame at the world edge.
+    if (this.mode === "fly") {
+      const floor = this.terrain.heightAt(this.pos.x, this.pos.z) + TUNE.flyFloorClearance;
+      if (this.pos.y < floor) this.pos.y = floor;
+    } else {
+      this.pos.y = this.terrain.heightAt(this.pos.x, this.pos.z) + TUNE.rideHeight;
+    }
     this.object.position.copy(this.pos);
     this.nose.copy(BASE_FORWARD).applyQuaternion(this.object.quaternion);
   }
@@ -100,7 +108,9 @@ export class VehicleSystem implements System {
   private toggleMode(): void {
     if (this.mode === "drive") {
       this.mode = "fly";
-      // Carry momentum into flight; start with a gentle climb.
+      // Seed velocity and start with a gentle climb so lift-off feels smooth.
+      // (Flight re-derives velocity from the nose each frame; this just avoids a
+      // one-frame stall on the transition.)
       this.vel.copy(this.nose).multiplyScalar(Math.max(this.driveSpeed, TUNE.flyCruise * 0.6));
       this.pitch = 0.15;
     } else {

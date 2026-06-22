@@ -52,8 +52,13 @@ export function createInput(overlay: HTMLElement): InputController {
   const keys = new Set<string>();
   const onKeyDown = (e: KeyboardEvent) => {
     const k = e.key.toLowerCase();
-    if (k === "f") toggleQueued = true;
-    if (k === "e" || k === "enter") interactQueued = true;
+    // Only the initial press of a held key fires an edge event — `e.repeat` is
+    // true for OS auto-repeat, which would otherwise re-toggle the mode (or
+    // re-fire interact) every few frames while the key is held.
+    if (!e.repeat) {
+      if (k === "f") toggleQueued = true;
+      if (k === "e" || k === "enter") interactQueued = true;
+    }
     keys.add(k);
     if (MOVE_KEYS.has(k)) e.preventDefault();
   };
