@@ -6,13 +6,13 @@ export interface RevealPanelProps {
 }
 
 /**
- * The discovery UI (issue #38): three states driven by the discovery store.
- *  • A "Discovered N / total" badge, always visible.
+ * The discovery UI (issue #38): two states driven by the discovery store.
  *  • A teaser prompt near a landmark (with an interact hint when in range).
  *  • The full reveal panel (a modal dialog) when a landmark is opened.
- * Reads the store via `useSyncExternalStore`; closing calls `store.closePoi()`,
- * which the DiscoverySystem observes to resume the paused sim. Epic 5 layers the
- * richer HUD/nav hints on top; this is the core reveal experience.
+ * The "Discovered N / total" badge now lives in the HUD (Epic 5), so there's
+ * exactly one progress indicator. Reads the store via `useSyncExternalStore`;
+ * closing calls `store.closePoi()`, which the DiscoverySystem observes to resume
+ * the paused sim.
  */
 export function RevealPanel({ store }: RevealPanelProps) {
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
@@ -31,10 +31,6 @@ export function RevealPanel({ store }: RevealPanelProps) {
 
   return (
     <>
-      <div className="discovery-progress" role="status" aria-live="polite">
-        Discovered {snap.discoveredCount} / {snap.total}
-      </div>
-
       {!snap.open && snap.nearby && (
         <div className="reveal-prompt" role="status">
           <span className="reveal-prompt__title">{snap.nearby.title}</span>

@@ -3,6 +3,7 @@ import * as THREE from "three";
 import { createDiscoveryStore } from "./discoveryStore.ts";
 import { createPersistence } from "./persistence.ts";
 import { DiscoverySystem } from "./DiscoverySystem.ts";
+import { createSession } from "../gameSession.ts";
 import type { DiscoverablePoi } from "../content/discoverablePois.ts";
 import type { ControlState, InputSnapshot } from "../movement/input.ts";
 import type { VehicleSystem } from "../movement/vehicle.ts";
@@ -43,7 +44,7 @@ describe("DiscoverySystem (#37, #39)", () => {
     const input = fakeInput();
     const store = createDiscoveryStore(POIS.length);
     const pos = new THREE.Vector3(12, 1, 0); // within interact radius of POI a
-    const sys = new DiscoverySystem(input.snap, fakeVehicle(pos), POIS, store, mem(), { paused: false });
+    const sys = new DiscoverySystem(input.snap, fakeVehicle(pos), POIS, store, mem(), createSession());
 
     sys.update(ctx);
     const n = store.getSnapshot().nearby;
@@ -54,9 +55,7 @@ describe("DiscoverySystem (#37, #39)", () => {
   it("shows teaser but not in-range when only within teaser radius", () => {
     const input = fakeInput();
     const store = createDiscoveryStore(POIS.length);
-    const sys = new DiscoverySystem(input.snap, fakeVehicle(new THREE.Vector3(25, 1, 0)), POIS, store, mem(), {
-      paused: false,
-    });
+    const sys = new DiscoverySystem(input.snap, fakeVehicle(new THREE.Vector3(25, 1, 0)), POIS, store, mem(), createSession());
     sys.update(ctx);
     expect(store.getSnapshot().nearby?.inRange).toBe(false);
   });
@@ -65,7 +64,7 @@ describe("DiscoverySystem (#37, #39)", () => {
     const input = fakeInput();
     const store = createDiscoveryStore(POIS.length);
     const persist = mem();
-    const session = { paused: false };
+    const session = createSession();
     const sys = new DiscoverySystem(input.snap, fakeVehicle(new THREE.Vector3(8, 1, 0)), POIS, store, persist, session);
 
     input.press();
@@ -90,10 +89,26 @@ describe("DiscoverySystem (#37, #39)", () => {
     const persist = mem();
     persist.save(new Set(["a"]));
     const store = createDiscoveryStore(POIS.length);
-    new DiscoverySystem(fakeInput().snap, fakeVehicle(new THREE.Vector3(500, 0, 500)), POIS, store, persist, {
-      paused: false,
-    });
+    new DiscoverySystem(fakeInput().snap, fakeVehicle(new THREE.Vector3(500, 0, 500)), POIS, store, persist, createSession());
     expect(store.getSnapshot().discoveredCount).toBe(1);
+  });
+});
+
+describe("discoveryStore (#44 nav)", () => {
+  it("exposes discoveredIds and keeps the count in sync", () => {
+    const store = createDiscoveryStore(POIS.length);
+    expect(store.getSnapshot().discoveredIds).toEqual([]);
+    store.setDiscovered(["a", "b"]);
+    expect(store.getSnapshot().discoveredIds).toEqual(["a", "b"]);
+    expect(store.getSnapshot().discoveredCount).toBe(2);
+  });
+
+  it("returns a stable snapshot reference when discovered ids are unchanged", () => {
+    const store = createDiscoveryStore(POIS.length);
+    store.setDiscovered(["a"]);
+    const first = store.getSnapshot();
+    store.setDiscovered(["a"]);
+    expect(store.getSnapshot()).toBe(first);
   });
 });
 

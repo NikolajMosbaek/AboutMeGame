@@ -102,6 +102,19 @@ body {
   outline-offset: 3px;
 }
 
+.title-progress {
+  margin: 0;
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--color-accent);
+}
+
+.title-controls {
+  margin: 0;
+  font-size: 0.85rem;
+  opacity: 0.7;
+}
+
 .version-marker {
   margin: 0;
   font-size: 0.8rem;
@@ -294,11 +307,302 @@ body {
   margin-left: auto;
 }
 
+/* ----- In-game HUD (#42) + progress (#45) ----- */
+.hud-telemetry {
+  position: fixed;
+  top: var(--space-1);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: 0.3rem 0.8rem;
+  background: rgba(0, 0, 0, 0.45);
+  border-radius: 0.5rem;
+  z-index: 15;
+  pointer-events: none;
+  user-select: none;
+}
+
+.hud-mode {
+  font: 700 0.8rem var(--font-ui);
+  letter-spacing: 0.08em;
+  color: #b7f7c2;
+}
+.hud-mode--fly {
+  color: #9fd0ff;
+}
+
+.hud-stat {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.2rem;
+  font: 700 1rem ui-monospace, "SF Mono", Menlo, monospace;
+}
+.hud-stat__unit {
+  font-size: 0.7rem;
+  font-weight: 600;
+  opacity: 0.65;
+}
+
+.hud-top-right {
+  position: fixed;
+  top: var(--space-1);
+  right: var(--space-1);
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  z-index: 15;
+}
+
+/* The progress badge keeps its look but no longer fixes its own position — it
+ * sits inside the HUD's top-right cluster next to the menu button. */
+.hud-top-right .discovery-progress {
+  position: static;
+  top: auto;
+  right: auto;
+}
+
+.hud-menu-btn {
+  pointer-events: auto;
+  width: 2.4rem;
+  height: 2.4rem;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(0, 0, 0, 0.45);
+  color: var(--color-fg);
+  border-radius: 0.5rem;
+  font-size: 1.2rem;
+  cursor: pointer;
+  transition: filter 120ms ease;
+}
+.hud-menu-btn:hover {
+  filter: brightness(1.3);
+}
+.hud-menu-btn:focus-visible {
+  outline: 3px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.hud-controls {
+  position: fixed;
+  left: 50%;
+  bottom: var(--space-1);
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 0.2rem 0.7rem;
+  font: 600 0.75rem var(--font-ui);
+  color: var(--color-fg);
+  background: rgba(0, 0, 0, 0.35);
+  border-radius: 0.5rem;
+  opacity: 0.75;
+  z-index: 15;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* ----- Navigation hints (#44) ----- */
+.nav-markers {
+  position: fixed;
+  inset: 0;
+  z-index: 12;
+  pointer-events: none;
+}
+
+.nav-dot,
+.nav-arrow {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.1rem;
+  transform: translate(-50%, -50%);
+  color: var(--nav-color, var(--color-fg));
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+}
+
+.nav-dot__pip {
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 50%;
+  background: var(--nav-color, var(--color-fg));
+  border: 2px solid rgba(255, 255, 255, 0.85);
+}
+
+.nav-dot__label,
+.nav-arrow__label {
+  font: 700 0.7rem var(--font-ui);
+  color: var(--color-fg);
+}
+
+.nav-arrow__glyph {
+  font-size: 1.3rem;
+  line-height: 1;
+  display: inline-block;
+}
+
+/* ----- Onboarding (#43) ----- */
+.onboarding-backdrop {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: var(--space-2);
+  background: rgba(10, 9, 16, 0.6);
+  z-index: 35;
+}
+
+.onboarding {
+  max-width: min(30rem, 92vw);
+  background: var(--color-bg);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 1rem;
+  padding: var(--space-4) var(--space-3);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  animation: overlay-rise 180ms ease;
+}
+
+.onboarding__title {
+  margin: 0 0 var(--space-1);
+  font-size: clamp(1.4rem, 4vw, 1.9rem);
+}
+.onboarding__lede {
+  margin: 0 0 var(--space-3);
+  opacity: 0.9;
+}
+
+.onboarding__controls {
+  margin: 0 0 var(--space-3);
+  display: grid;
+  gap: 0.5rem;
+}
+.onboarding__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.onboarding__row dt {
+  flex: 0 0 7rem;
+  margin: 0;
+}
+.onboarding__row dd {
+  margin: 0;
+  opacity: 0.9;
+}
+.onboarding kbd {
+  display: inline-block;
+  padding: 0.15rem 0.45rem;
+  font: 700 0.8rem ui-monospace, "SF Mono", Menlo, monospace;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 0.4rem;
+}
+
+/* ----- Pause menu / settings (#41) ----- */
+.menu-backdrop {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: var(--space-2);
+  background: rgba(10, 9, 16, 0.6);
+  z-index: 30;
+}
+
+.menu {
+  width: min(26rem, 92vw);
+  background: var(--color-bg);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 1rem;
+  padding: var(--space-3);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  animation: overlay-rise 180ms ease;
+}
+
+.menu__title {
+  margin: 0 0 var(--space-2);
+  font-size: 1.5rem;
+}
+
+.menu__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: 0.5rem 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.menu__toggle,
+.menu__seg {
+  font: 700 0.85rem var(--font-ui);
+  color: var(--color-fg);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 0.5rem;
+  padding: 0.35rem 0.8rem;
+  cursor: pointer;
+}
+
+.menu__segmented {
+  display: inline-flex;
+  gap: 0.25rem;
+}
+.menu__seg--on {
+  background: var(--color-accent);
+  color: var(--color-accent-fg);
+  border-color: var(--color-accent);
+}
+
+.menu__actions {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: var(--space-3);
+}
+.menu__resume {
+  width: 100%;
+}
+.menu__btn {
+  font: 700 0.95rem var(--font-ui);
+  color: var(--color-fg);
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 0.6rem;
+  padding: 0.7rem var(--space-2);
+  cursor: pointer;
+  transition: filter 120ms ease;
+}
+.menu__btn:hover {
+  filter: brightness(1.3);
+}
+.menu__toggle:focus-visible,
+.menu__seg:focus-visible,
+.menu__btn:focus-visible {
+  outline: 3px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+@keyframes overlay-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .cta {
     transition: none;
   }
   .cta:hover {
     transform: none;
+  }
+  .onboarding,
+  .menu {
+    animation: none;
   }
 }

@@ -66,8 +66,21 @@ flag that holds the craft while reading (#39). **Verify:** 61 tests, screenshot
 shows driving to the Arrivals Gate and the revealed content panel. The game is
 now end-to-end playable: title → drive/fly → discover → read. Docs: discovery.md.
 
-### M5–M7 — pending
-Shell & UX → reach → polish.
+### M5 — Epic 5: Game Shell & UX — PR #_ (closes #40–#45, #5)
+Implemented by `senior-eng-frontend` to spec: in-game HUD (mode/speed/altitude
++ controls reminder, #42) via a throttled hud store + HudSystem; one-time
+onboarding overlay (#43); screen-projected nav markers (on-screen dots + edge
+arrows to the nearest undiscovered POIs, #44) via a NavSystem + nav store;
+settings/pause menu (sound/quality/reduced-motion + reset progress + back to
+title, #41); a single "Discovered N/13" progress badge (#45); enhanced title
+with controls hint + Continue/Drive-in by saved progress (#40). Generalised
+`GameSession` to OR multiple pause reasons (reveal + menu); reintroduced
+`exitToTitle`. **Verify:** 101 tests, build 188 KB gz, screenshots confirm
+onboarding, HUD, nav markers, the reveal teaser, and the pause menu — no console
+errors. **Review** pending.
+
+### M6–M7 — pending
+Reach (responsive, perf, a11y, text fallback) → polish.
 
 ## Notes / for the user
 - One-time repo setting needed for live deploy: **Settings → Pages → Source =
