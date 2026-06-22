@@ -105,3 +105,46 @@ describe("discoveryStore openPoi per-open guess state", () => {
     expect(open?.guessChoice).toBeNull();
   });
 });
+
+describe("discoveryStore bodyUnlocked is derived in set() (T4)", () => {
+  const guess = {
+    type: "guess" as const,
+    prompt: "?",
+    options: [
+      { text: "a", correct: true },
+      { text: "b", correct: false },
+    ],
+  };
+
+  it("recomputes bodyUnlocked in set(): guess locked, then true once guessChoice is set", () => {
+    const store = createDiscoveryStore(13);
+    store.openPoi({ id: "poi-0", order: 0, title: "First", body: "...", interaction: guess });
+    expect(store.getSnapshot().open?.bodyUnlocked).toBe(false);
+
+    // Commit a choice by re-opening with a guessChoice set on the open — the
+    // caller never writes bodyUnlocked; set() must derive it true because a
+    // choice is committed. (Proves derivation, not a caller-written flag.)
+    store.answerGuess(0);
+    const open = store.getSnapshot().open;
+    expect(open?.guessChoice).toBe(0);
+    expect(open?.bodyUnlocked).toBe(true);
+  });
+
+  it("a plain open is always bodyUnlocked true", () => {
+    const store = createDiscoveryStore(13);
+    store.openPoi({ id: "poi-0", order: 0, title: "First", body: "...", interaction: { type: "plain" } });
+    expect(store.getSnapshot().open?.bodyUnlocked).toBe(true);
+  });
+
+  it("a highlight open is always bodyUnlocked true", () => {
+    const store = createDiscoveryStore(13);
+    store.openPoi({
+      id: "poi-0",
+      order: 0,
+      title: "First",
+      body: "...",
+      interaction: { type: "highlight", emphasis: "lede" },
+    });
+    expect(store.getSnapshot().open?.bodyUnlocked).toBe(true);
+  });
+});

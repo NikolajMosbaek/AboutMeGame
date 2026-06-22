@@ -62,6 +62,10 @@ export interface DiscoveryStore {
   setNearby(nearby: NearbyInfo | null): void;
   openPoi(open: OpenPoiInput): void;
   closePoi(): void;
+  /** Commit a guess option index on the open POI. No-op when nothing is open
+   *  or the open interaction is not a guess; records the index only — the
+   *  store never judges correctness, and `bodyUnlocked` is derived in `set`. */
+  answerGuess(choice: number): void;
   /** Set the discovered set; count is derived so the two never drift. */
   setDiscovered(ids: string[]): void;
 }
@@ -88,6 +92,13 @@ export function createDiscoveryStore(total: number): DiscoveryStore {
     // mutated via openPoi/setNearby never carries a stale completed. The
     // total > 0 guard stops an empty store reading as instantly complete.
     merged.completed = merged.discoveredCount === merged.total && merged.total > 0;
+    // Derive bodyUnlocked the same way — never stored independently, so no
+    // caller can write a stale flag. The body is unlocked when there is no open
+    // panel, when the interaction isn't a guess, or once a guess is committed.
+    if (merged.open) {
+      merged.open.bodyUnlocked =
+        merged.open.interaction.type !== "guess" || merged.open.guessChoice !== null;
+    }
     snapshot = merged;
     emit();
   };
@@ -114,7 +125,8 @@ export function createDiscoveryStore(total: number): DiscoveryStore {
     },
     openPoi(input) {
       const interaction: PoiInteraction = input.interaction ?? { type: "plain" };
-      // A guess starts locked (no pick yet); plain/highlight are unlocked at once.
+      // A fresh open starts with no committed choice; `set` derives bodyUnlocked
+      // (the literal `false` here is a placeholder set() always recomputes).
       const open: OpenInfo = {
         id: input.id,
         order: input.order,
@@ -122,12 +134,22 @@ export function createDiscoveryStore(total: number): DiscoveryStore {
         body: input.body,
         interaction,
         guessChoice: null,
-        bodyUnlocked: interaction.type !== "guess",
+        bodyUnlocked: false,
       };
       set({ open });
     },
     closePoi() {
       if (snapshot.open) set({ open: null });
+    },
+    answerGuess(choice) {
+      const open = snapshot.open;
+      // No-op when nothing is open or the open interaction is not a guess, and
+      // idempotent when the same choice is re-committed (keeps the reference
+      // stable so React doesn't re-render). A new open object per change makes
+      // the update structural — no in-place mutation of the live snapshot.
+      if (!open || open.interaction.type !== "guess") return;
+      if (open.guessChoice === choice) return;
+      set({ open: { ...open, guessChoice: choice } });
     },
     setDiscovered(ids) {
       // Skip churn when the set is unchanged (same length + same members, in the
