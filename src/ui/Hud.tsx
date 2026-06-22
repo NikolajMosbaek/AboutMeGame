@@ -24,6 +24,7 @@ export function Hud({ hud, discovery, onOpenMenu }: HudProps) {
   const h = useSyncExternalStore(hud.subscribe, hud.getSnapshot);
   const d = useSyncExternalStore(discovery.subscribe, discovery.getSnapshot);
   const flying = h.mode === "fly";
+  const remaining = d.total - d.discoveredCount;
 
   return (
     <>
@@ -46,9 +47,24 @@ export function Hud({ hud, discovery, onOpenMenu }: HudProps) {
       <div className="hud-top-right">
         {/* Static visual progress. The spoken update lives in DiscoveryAnnouncer
             (a single polite live region that names the landmark), so this badge
-            is not a live region — that avoids a bare "N / 13" double-announce. */}
-        <div className="discovery-progress" aria-label={`Discovered ${d.discoveredCount} of ${d.total} landmarks`}>
+            is not a live region — that avoids a bare "N / 13" double-announce.
+            The remaining-count momentum line is a subordinate, aria-hidden cue;
+            its meaning folds into this one aria-label so there's no second
+            announcer and no double-announce. The completed branch is driven off
+            the store's d.completed (guarded by total > 0), never remaining === 0,
+            so an empty/unloaded store never reads as complete or "0 to go". */}
+        <div
+          className="discovery-progress"
+          aria-label={
+            d.completed
+              ? `All ${d.total} landmarks discovered`
+              : `Discovered ${d.discoveredCount} of ${d.total} landmarks, ${remaining} to go`
+          }
+        >
           Discovered {d.discoveredCount} / {d.total}
+          <span className="discovery-remaining" aria-hidden="true">
+            {d.completed ? "All discovered" : `${remaining} to go`}
+          </span>
         </div>
         <button
           type="button"
