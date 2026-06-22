@@ -24,8 +24,9 @@ critic returns a material flaw, revise the design to address it specifically.
 
 ## In Plan
 Decompose the agreed design into atomic, ordered tasks. Each task names an
-owner (frontend | backend | quality | junior | ux), its dependencies, and the
-first test to write. Tasks must be independently verifiable.
+owner (frontend | backend | graphics | quality | junior | ux), its dependencies,
+and the first test to write. Route Three.js/WebGL/GLSL/rendering tasks to the
+`graphics` owner. Tasks must be independently verifiable.
 
 ## In Ship
 Use Bash to ensure the feature branch, commit, and open the PR. Auto-merge
