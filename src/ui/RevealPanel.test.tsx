@@ -129,12 +129,14 @@ describe("RevealPanel guess interaction (t4)", () => {
     });
     expect(status!.textContent).toBe("Answer revealed.");
 
-    // Re-clicking the same option is a store no-op: still committed, still
-    // announced exactly once (no re-fire, no flicker of the body).
+    // Re-clicking the same option is a store no-op: still committed, the body
+    // stays rendered (no flicker), and the unlock is announced exactly once
+    // (no re-fire).
     act(() => {
       screen.getByRole("button", { name: chosenText }).click();
     });
     expect(store.getSnapshot().open?.guessChoice).toBe(0);
+    expect(screen.getByText(GUESS_BODY)).toBeTruthy();
     expect(status!.textContent).toBe("Answer revealed.");
   });
 
