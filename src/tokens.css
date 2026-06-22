@@ -515,11 +515,30 @@ body {
 }
 
 /* The progress badge keeps its look but no longer fixes its own position — it
- * sits inside the HUD's top-right cluster next to the menu button. */
+ * sits inside the HUD's top-right cluster next to the menu button. It stacks
+ * its children so the remaining-count momentum line drops directly under the
+ * "Discovered N / total" count. */
 .hud-top-right .discovery-progress {
   position: static;
   top: auto;
   right: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+/* "N to go" / "All discovered" momentum cue: a visually-subordinate line under
+ * the count — smaller, lower-emphasis, right-aligned to the cluster. Pure
+ * presentation; its meaning lives in the badge's aria-label (it's aria-hidden),
+ * so this adds no second announcer. */
+.discovery-remaining {
+  margin-top: 0.1rem;
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-align: right;
+  letter-spacing: 0.02em;
+  color: var(--color-fg);
+  opacity: 0.7;
 }
 
 .hud-menu-btn {

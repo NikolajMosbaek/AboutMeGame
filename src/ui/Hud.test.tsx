@@ -1,4 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { Hud } from "./Hud.tsx";
 import { createHudStore } from "./hudStore.ts";
@@ -114,6 +116,50 @@ describe("Hud", () => {
       "aria-hidden",
       "true",
     );
+  });
+
+  it("styles .discovery-remaining as a subordinate cue under the badge (smaller, right-aligned, in .hud-top-right)", () => {
+    // T5 is pure CSS. Load the shipped HUD stylesheet into a real <style> so
+    // jsdom's CSSOM applies it, then assert the remaining line is visually
+    // subordinate to the progress badge and lives directly inside the cluster.
+    const css = readFileSync(resolve(process.cwd(), "src/tokens.css"), "utf8");
+    const style = document.createElement("style");
+    style.textContent = css;
+    document.head.appendChild(style);
+
+    const discovery = createDiscoveryStore(13);
+    discovery.setDiscovered(["a", "b", "c"]);
+    const { container } = render(
+      <Hud hud={createHudStore()} discovery={discovery} onOpenMenu={() => {}} />,
+    );
+
+    const progress = container.querySelector<HTMLElement>(".discovery-progress")!;
+    const remaining = container.querySelector<HTMLElement>(".discovery-remaining")!;
+
+    // Sits directly under the badge, inside the top-right cluster.
+    expect(remaining.parentElement).toBe(progress);
+    expect(progress.closest(".hud-top-right")).not.toBeNull();
+
+    // jsdom returns the declared rem value (not resolved px). The badge sets
+    // its size via the `font:` shorthand, so read font-size from either the
+    // longhand or the shorthand, then compare numerically.
+    const rem = (el: HTMLElement) => {
+      const cs = getComputedStyle(el);
+      const raw = cs.fontSize || /(\d*\.?\d+)rem/.exec(cs.font)?.[1] + "rem";
+      return parseFloat(raw);
+    };
+    expect(rem(remaining)).toBeGreaterThan(0);
+    expect(rem(progress)).toBeGreaterThan(0);
+    expect(rem(remaining)).toBeLessThan(rem(progress));
+
+    // Right-aligned to the cluster (lower-emphasis cue tucked under the count).
+    expect(getComputedStyle(remaining).textAlign).toBe("right");
+
+    style.remove();
+  });
+
+  afterEach(() => {
+    document.head.querySelectorAll("style").forEach((s) => s.remove());
   });
 
   it("opens the menu when the menu button is clicked", () => {
