@@ -24,6 +24,8 @@ export interface DiscoverySnapshot {
   nearby: NearbyInfo | null;
   /** The POI whose body is open in the reveal panel, or null. */
   open: OpenInfo | null;
+  /** Ids of every discovered POI — the nav hints (#44) hide markers for these. */
+  discoveredIds: string[];
   discoveredCount: number;
   total: number;
 }
@@ -34,7 +36,8 @@ export interface DiscoveryStore {
   setNearby(nearby: NearbyInfo | null): void;
   openPoi(open: OpenInfo): void;
   closePoi(): void;
-  setDiscoveredCount(count: number): void;
+  /** Set the discovered set; count is derived so the two never drift. */
+  setDiscovered(ids: string[]): void;
 }
 
 export function createDiscoveryStore(total: number): DiscoveryStore {
@@ -44,6 +47,7 @@ export function createDiscoveryStore(total: number): DiscoveryStore {
   let snapshot: DiscoverySnapshot = {
     nearby: null,
     open: null,
+    discoveredIds: [],
     discoveredCount: 0,
     total,
   };
@@ -82,8 +86,16 @@ export function createDiscoveryStore(total: number): DiscoveryStore {
     closePoi() {
       if (snapshot.open) set({ open: null });
     },
-    setDiscoveredCount(discoveredCount) {
-      if (discoveredCount !== snapshot.discoveredCount) set({ discoveredCount });
+    setDiscovered(ids) {
+      // Skip churn when the set is unchanged (same length + same members, in the
+      // stable persistence order). Keeps the snapshot reference stable for React.
+      if (
+        ids.length === snapshot.discoveredIds.length &&
+        ids.every((id, i) => id === snapshot.discoveredIds[i])
+      ) {
+        return;
+      }
+      set({ discoveredIds: ids, discoveredCount: ids.length });
     },
   };
 }

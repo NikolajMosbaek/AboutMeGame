@@ -16,4 +16,15 @@ describe("appReducer", () => {
     const playing = { kind: "playing" } as const;
     expect(appReducer(playing, { type: "start" })).toBe(playing);
   });
+
+  it("exitToTitle moves playing → title", () => {
+    expect(appReducer({ kind: "playing" }, { type: "exitToTitle" })).toEqual({
+      kind: "title",
+    });
+  });
+
+  it("exitToTitle is a no-op when already on the title", () => {
+    const title = { kind: "title" } as const;
+    expect(appReducer(title, { type: "exitToTitle" })).toBe(title);
+  });
 });

@@ -3,13 +3,17 @@ import type { Engine } from "../engine/Engine.ts";
 import type { World } from "../world/buildWorld.ts";
 import type { Movement } from "../movement/buildMovement.ts";
 import type { GameSession } from "../gameSession.ts";
-import { buildDiscoverablePois } from "../content/discoverablePois.ts";
+import { buildDiscoverablePois, type DiscoverablePoi } from "../content/discoverablePois.ts";
 import { DiscoverySystem } from "./DiscoverySystem.ts";
 import { createDiscoveryStore, type DiscoveryStore } from "./discoveryStore.ts";
 import { createPersistence, type DiscoveryPersistence } from "./persistence.ts";
 
 export interface Discovery {
   store: DiscoveryStore;
+  /** The resolved landmarks, reused by the nav-hint projector (#44). */
+  pois: DiscoverablePoi[];
+  /** Wipe all progress (#41 "Reset progress" in the settings menu). */
+  reset(): void;
 }
 
 /**
@@ -29,9 +33,15 @@ export function buildDiscovery(
   const pois = buildDiscoverablePois((id) => posById.get(id) ?? new THREE.Vector3());
 
   const store = createDiscoveryStore(pois.length);
-  engine.addSystem(
-    new DiscoverySystem(movement.input, movement.vehicle, pois, store, persist, session),
+  const system = new DiscoverySystem(
+    movement.input,
+    movement.vehicle,
+    pois,
+    store,
+    persist,
+    session,
   );
+  engine.addSystem(system);
 
-  return { store };
+  return { store, pois, reset: () => system.reset() };
 }

@@ -34,15 +34,15 @@ export class DiscoverySystem implements System {
     private readonly session: GameSession,
   ) {
     this.discovered = persist.load();
-    this.store.setDiscoveredCount(this.discovered.size);
+    this.store.setDiscovered([...this.discovered]);
   }
 
   update(_ctx: FrameContext): void {
     const interact = this.input.consumeInteract();
 
-    // The sim is paused exactly while a reveal panel is open — derived here, so
-    // closing the panel from the UI button (not just an interact) also resumes.
-    this.session.paused = this.store.getSnapshot().open !== null;
+    // The sim is paused while a reveal panel is open — derived here, so closing
+    // the panel from any path (button, Escape, click-out, interact) resumes.
+    this.session.setPaused("reveal", this.store.getSnapshot().open !== null);
 
     // Panel open: an interact closes it; otherwise stay paused.
     if (this.store.getSnapshot().open) {
@@ -73,9 +73,22 @@ export class DiscoverySystem implements System {
       if (!this.discovered.has(nearest.id)) {
         this.discovered.add(nearest.id);
         this.persist.save(this.discovered);
-        this.store.setDiscoveredCount(this.discovered.size);
+        this.store.setDiscovered([...this.discovered]);
       }
     }
+  }
+
+  /**
+   * Wipe progress (#41 "Reset progress"): clear the persisted set and the
+   * in-memory Set, and close any open panel, so the world reads as fresh. The
+   * settings menu wires its button through here.
+   */
+  reset(): void {
+    this.discovered.clear();
+    this.persist.clear();
+    this.store.closePoi();
+    this.store.setNearby(null);
+    this.store.setDiscovered([]);
   }
 
   /** Test/debug view (also feeds render_game_to_text). */
