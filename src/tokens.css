@@ -83,3 +83,45 @@ body {
   font-size: 0.8rem;
   opacity: 0.7;
 }
+
+/* Prompt screen — the answer-collection step. Additive to the title styles;
+ * reuses the same layout width, spacing scale, and .cta classes. */
+.prompt-screen {
+  max-width: var(--layout-max-width);
+  margin: 0 auto;
+  padding: var(--space-4) var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.prompt-screen h1 {
+  font-size: 1.75rem;
+  margin: 0;
+}
+
+.answer-label {
+  font-weight: 600;
+}
+
+.answer-input {
+  width: 100%;
+  resize: vertical;
+  padding: var(--space-1);
+  font: inherit;
+  color: var(--color-fg);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 0.5rem;
+}
+
+.answer-input:focus-visible {
+  outline: 3px solid var(--color-fg);
+  outline-offset: 2px;
+}
+
+.answer-hint {
+  margin: 0;
+  font-size: 0.85rem;
+  opacity: 0.75;
+}
