@@ -251,3 +251,73 @@ describe("discoveryStore per-open guess state resets structurally (T6, AC3)", ()
     expect(a.getSnapshot().open?.guessChoice).toBe(1);
   });
 });
+
+describe("discoveryStore read-path & reference stability (T9, AC3/AC5/AC7)", () => {
+  const guess = {
+    type: "guess" as const,
+    prompt: "?",
+    options: [
+      { text: "a", correct: true },
+      { text: "b", correct: false },
+    ],
+  };
+
+  it("returns the IDENTICAL snapshot reference on two consecutive getSnapshot() calls — no per-frame allocation (AC7)", () => {
+    const store = createDiscoveryStore(13);
+    // Idle read path: a fresh store, then after a guess is opened and committed,
+    // back-to-back reads must hand back the same cached object (===), so the
+    // render loop allocates nothing per frame and useSyncExternalStore is stable.
+    expect(Object.is(store.getSnapshot(), store.getSnapshot())).toBe(true);
+
+    store.openPoi({ id: "poi-0", order: 0, title: "First", body: "...", interaction: guess });
+    expect(Object.is(store.getSnapshot(), store.getSnapshot())).toBe(true);
+
+    store.answerGuess(0);
+    expect(Object.is(store.getSnapshot(), store.getSnapshot())).toBe(true);
+  });
+
+  it("idempotent answerGuess re-committing the SAME choice keeps the snapshot reference stable (AC3)", () => {
+    const store = createDiscoveryStore(13);
+    store.openPoi({ id: "poi-0", order: 0, title: "First", body: "...", interaction: guess });
+
+    store.answerGuess(1);
+    const after = store.getSnapshot();
+    expect(after.open?.guessChoice).toBe(1);
+
+    // Re-committing the same index must early-return BEFORE set(), so the
+    // reference is unchanged (no churn, no re-render).
+    store.answerGuess(1);
+    expect(Object.is(store.getSnapshot(), after)).toBe(true);
+    expect(store.getSnapshot().open?.guessChoice).toBe(1);
+  });
+
+  it("answerGuess to a DIFFERENT choice produces a new reference (proves the idempotent guard is choice-scoped)", () => {
+    const store = createDiscoveryStore(13);
+    store.openPoi({ id: "poi-0", order: 0, title: "First", body: "...", interaction: guess });
+    store.answerGuess(0);
+    const after0 = store.getSnapshot();
+
+    store.answerGuess(1);
+    const after1 = store.getSnapshot();
+    expect(Object.is(after0, after1)).toBe(false);
+    expect(after1.open?.guessChoice).toBe(1);
+  });
+
+  it("is a no-op on a HIGHLIGHT open and keeps the snapshot reference stable (AC4/AC5)", () => {
+    const store = createDiscoveryStore(13);
+    store.openPoi({
+      id: "poi-0",
+      order: 0,
+      title: "First",
+      body: "...",
+      interaction: { type: "highlight", emphasis: "lede" },
+    });
+    const before = store.getSnapshot();
+
+    expect(() => store.answerGuess(1)).not.toThrow();
+    const after = store.getSnapshot();
+    expect(Object.is(before, after)).toBe(true);
+    expect(after.open?.guessChoice).toBeNull();
+    expect(after.open?.bodyUnlocked).toBe(true);
+  });
+});
