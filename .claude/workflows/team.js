@@ -18,6 +18,14 @@ const VERIFY_MAX_ROUNDS = 3
 const autoMerge = args && args.autoMerge === false ? false : true // default ON
 const feature = (args && args.feature) || null
 
+// ---- guardrails ----
+// The team builds the AboutMeGame PRODUCT, never itself. Reused across phases.
+const NO_HARNESS_EDITS = `HARD GUARDRAIL — you build the AboutMeGame product, never the team itself. Do NOT create, edit, or delete any file under \`.claude/\` (agents, workflows, skills, settings, hooks) and do NOT otherwise change the team's own process, roles, or harness. Your changes stay within product code and docs only: \`src/\`, \`content/\`, \`public/\`, \`index.html\`, test/config files, and \`docs/\` (run logs). If the agreed design seems to need a harness/process/role change, do NOT make it — stop and surface it.`
+// When an explicit feature is requested, it is the exact, non-negotiable scope.
+const scopeDirective = feature
+  ? `The requested feature is the EXACT, NON-NEGOTIABLE scope of this run: "${feature}". You MUST scope the problem statement to precisely this feature. Do NOT substitute a different feature, do NOT pull a different or "more valuable" backlog item, do NOT re-prioritize, and do NOT expand scope into process/harness/role changes. If the feature names a GitHub issue, that issue defines the work. Read docs/team/charter.md and docs/team/backlog.md only for grounding (stack, conventions, what already shipped).`
+  : `No explicit feature was given — pull the top unchecked backlog item, or propose the most valuable next item if the backlog is empty.`
+
 // ---- schemas ----
 const INTAKE_SCHEMA = {
   type: 'object',
@@ -130,7 +138,7 @@ const ROUNDTABLE = [
 // ---- Intake ----
 phase('Intake')
 const intake = await agent(
-  `Intake for the AboutMeGame team. ${feature ? `The requested feature is: "${feature}".` : 'No explicit feature was given — pull the top unchecked backlog item, or propose the most valuable next item if the backlog is empty.'} Read docs/team/charter.md and docs/team/backlog.md. Produce the problem statement, testable acceptance criteria, and whether this is the bootstrap run.`,
+  `Intake for the AboutMeGame team. ${scopeDirective}\n\n${NO_HARNESS_EDITS}\n\nProduce the problem statement (scoped exactly to the requested feature when one was given), testable acceptance criteria, and whether this is the bootstrap run.`,
   { agentType: 'product-owner', phase: 'Intake', schema: INTAKE_SCHEMA }
 )
 if (!intake) { log('HALT in Intake: the product-owner agent returned no result (likely an API/session limit). Stopping the run.'); return { halted: true, phase: 'Intake', reason: 'intake agent returned null' } }
@@ -179,7 +187,7 @@ const designBlock = `DESIGN:\n${consensus.summary}\nDECISIONS:\n${(consensus.dec
 // ---- Plan ----
 phase('Plan')
 const plan = await agent(
-  `Decompose the agreed design into atomic, ordered, independently verifiable tasks. Each task needs id, title, owner (frontend|backend|graphics|sound|quality|junior|ux), dependsOn (task ids), and the first test to write. Use the graphics owner for Three.js/WebGL/GLSL/rendering work and the sound owner for Web Audio / SFX / music / audio work.\n\n${designBlock}`,
+  `Decompose the agreed design into atomic, ordered, independently verifiable tasks. Each task needs id, title, owner (frontend|backend|graphics|sound|quality|junior|ux), dependsOn (task ids), and the first test to write. Use the graphics owner for Three.js/WebGL/GLSL/rendering work and the sound owner for Web Audio / SFX / music / audio work.\n\n${NO_HARNESS_EDITS}\nEvery task must touch only product code/docs — never plan a task that modifies the harness, agents, or process.\n\n${designBlock}`,
   { agentType: 'tech-lead', phase: 'Plan', schema: PLAN_SCHEMA }
 )
 if (!plan) { log('HALT in Plan: the tech-lead planning agent returned no result (likely an API/session limit). Stopping the run.'); return { halted: true, phase: 'Plan', reason: 'plan agent returned null' } }
@@ -198,7 +206,7 @@ while (done.size < tasks.length && guard <= tasks.length) {
   for (const t of batch) {
     const agentType = OWNER_TO_AGENT[t.owner] || 'junior-eng'
     const result = await agent(
-      `Implement this task test-first, then commit.\n\n${designBlock}\n\nTASK ${t.id}: ${t.title}\nFirst test to write: ${t.testFirst}\nImplement ONLY this task. Read docs/team/charter.md for the stack, test command, and conventions.`,
+      `Implement this task test-first, then commit.\n\n${designBlock}\n\nTASK ${t.id}: ${t.title}\nFirst test to write: ${t.testFirst}\nImplement ONLY this task. Read docs/team/charter.md for the stack, test command, and conventions.\n\n${NO_HARNESS_EDITS}`,
       { agentType, label: `impl:${t.id}:${t.owner}`, phase: 'Implement' }
     )
     implemented.push({ id: t.id, owner: t.owner, summary: result })
@@ -213,7 +221,7 @@ let ux = null
 for (let round = 1; round <= VERIFY_MAX_ROUNDS; round++) {
   const checks = await parallel([
     () => agent(
-      `Verify the implementation. Read docs/team/charter.md for the test command. Run the full test suite and review the diff (git diff main...HEAD).\n\n${designBlock}`,
+      `Verify the implementation. Read docs/team/charter.md for the test command. Run the full test suite and review the diff (git diff main...HEAD). HARD GUARDRAIL: run \`git diff --name-only main...HEAD\` — if ANY changed path is under \`.claude/\` (harness, agents, workflows, skills, settings, hooks), set reviewPass=false and add a failure like "harness self-modification: <path> — feature runs must not change the team's own files"; this is an automatic fail regardless of test results.\n\n${designBlock}`,
       { agentType: 'senior-eng-quality', label: `verify:tests:r${round}`, phase: 'Verify', schema: VERIFY_SCHEMA }
     ),
     () => agent(
