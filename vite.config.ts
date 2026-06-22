@@ -11,8 +11,10 @@ import react from "@vitejs/plugin-react";
 // is the single knob that makes a sub-path deploy work.
 const BASE = process.env.VITE_BASE ?? "/AboutMeGame/";
 
-export default defineConfig(({ command }) => ({
-  base: command === "build" ? BASE : "/",
+export default defineConfig(({ command, isPreview }) => ({
+  // Production build + `vite preview` serve under the GitHub Pages sub-path so
+  // the local preview matches the deployed site; the dev server stays at root.
+  base: command === "build" || isPreview ? BASE : "/",
   plugins: [react()],
   build: {
     rollupOptions: {
