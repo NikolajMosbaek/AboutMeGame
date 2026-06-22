@@ -7,6 +7,8 @@ import { createHudStore } from "../ui/hudStore.ts";
 import { createNavStore } from "../ui/navStore.ts";
 import { createSession } from "../gameSession.ts";
 import { createSettingsStore } from "../settings/settingsStore.ts";
+import { nextUndiscovered } from "../discovery/nextUndiscovered.ts";
+import type { RevealPanelProps } from "../ui/RevealPanel.tsx";
 
 // GameCanvas owns a real WebGLRenderer + Engine + ResizeObserver, none of which
 // jsdom provides. Stub the renderer + engine so the React shell (overlays) mounts
@@ -15,6 +17,18 @@ import { createSettingsStore } from "../settings/settingsStore.ts";
 vi.mock("./createRenderer.ts", () => ({
   createRenderer: () => ({ shadowMap: { enabled: false }, setPixelRatio() {} }),
   applyRendererQuality: () => {},
+}));
+
+// Capture the props RevealPanel is mounted with. The "Next landmark" affordance
+// is rendered in a later slice (RevealPanel currently voids `pois`), so the wire
+// at the GameCanvas seam (T3) is proved by the prop the panel *receives* — the
+// exact `game.discovery.pois` reference — not by visible chrome.
+const revealPanelProps: RevealPanelProps[] = [];
+vi.mock("../ui/RevealPanel.tsx", () => ({
+  RevealPanel: (props: RevealPanelProps) => {
+    revealPanelProps.push(props);
+    return null;
+  },
 }));
 
 const engineStub = {
@@ -133,5 +147,57 @@ describe("GameCanvas — CompletionPanel wiring (T7)", () => {
     expect(store.getSnapshot().completed).toBe(false);
     // The panel lowered on Replay (it does not linger a frame).
     expect(screen.queryByRole("dialog", { name: /you found everything/i })).toBeNull();
+  });
+});
+
+describe("GameCanvas — RevealPanel pois wiring (T3)", () => {
+  beforeEach(() => {
+    vi.stubGlobal("ResizeObserver", StubResizeObserver);
+    revealPanelProps.length = 0;
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  /** The props RevealPanel was last mounted/re-rendered with. */
+  function lastRevealProps(): RevealPanelProps {
+    const last = revealPanelProps.at(-1);
+    if (!last) throw new Error("RevealPanel was never rendered");
+    return last;
+  }
+
+  it("mounts RevealPanel with a non-empty pois prop sourced from game.discovery.pois", () => {
+    const { handle } = makeHandle();
+    render(<GameCanvas build={() => handle} showStats={false} />);
+
+    const { pois } = lastRevealProps();
+    expect(pois.length).toBeGreaterThan(0);
+    // The exact value GameCanvas hands CompletionPanel — one wire, one source.
+    expect(pois).toBe(handle.discovery.pois);
+  });
+
+  it("hands RevealPanel a pois prop the next-landmark selector can resolve a title from for a non-last POI", () => {
+    const { handle, store } = makeHandle();
+    render(<GameCanvas build={() => handle} showStats={false} />);
+
+    // Open a non-last landmark (order 1 of 3). DiscoverySystem discovers on open,
+    // so the open id is already in the discovered set while the panel is up.
+    act(() => {
+      store.openPoi({ id: "poi-alpha", order: 1, title: "Alpha", body: "…" });
+      store.setDiscovered(["poi-alpha"]);
+    });
+
+    const { pois } = lastRevealProps();
+    const open = store.getSnapshot().open!;
+    const next = nextUndiscovered(
+      pois,
+      store.getSnapshot().discoveredIds,
+      open.id,
+      open.order,
+    );
+    // The prop carries enough to name the next-by-order undiscovered landmark.
+    expect(next).not.toBeNull();
+    expect(next!.title).toBe("Beta");
   });
 });
