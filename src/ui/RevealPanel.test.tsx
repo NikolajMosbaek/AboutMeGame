@@ -610,6 +610,56 @@ describe("RevealPanel keyboard activation (t8)", () => {
     expect(focusable.indexOf(optionB)).toBeLessThan(focusable.indexOf(close));
     expect(focusable.indexOf(close)).toBeLessThan(focusable.indexOf(next));
   });
+
+  it("Next is reachable after Drive on and Enter/Space activate it (calls closePoi)", () => {
+    // The keyboard path for forward-nav (T7): focus the Next button — the last
+    // focusable stop, after Drive on — and prove platform Enter/Space activation
+    // closes the panel. As above, jsdom does not synthesize a click from a
+    // keystroke on a native button, so we model the platform contract honestly:
+    // Next is a real <button type="button"> (Tab-reachable, Enter/Space → click),
+    // and the click the platform dispatches calls store.closePoi() and nothing
+    // else (the discovered set is untouched, no body is revealed).
+    const store = createDiscoveryStore(13);
+    openGuess(store);
+    const { container } = render(<RevealPanel store={store} pois={POIS} />);
+
+    // Commit a pick so the body unlocks and Next renders (non-last guess).
+    act(() => {
+      screen.getByRole("button", { name: GUESS.options[0].text }).click();
+    });
+
+    const focusable = focusableInDialog(container);
+    const close = screen.getByRole("button", { name: "Drive on" });
+    const next = screen.getByRole("button", { name: /^Next:/ });
+
+    // Tab reaches Next after Drive on: it is the last focusable stop, right
+    // after the close button in document/tab order.
+    expect(focusable.indexOf(next)).toBe(focusable.indexOf(close) + 1);
+    expect(focusable.indexOf(next)).toBe(focusable.length - 1);
+
+    // A keyboard user focuses Next; it must be a genuinely focusable, operable
+    // native button (the platform's Enter/Space → click contract).
+    act(() => {
+      next.focus();
+    });
+    expect(document.activeElement).toBe(next);
+    expect(next.tagName).toBe("BUTTON");
+    expect(next.getAttribute("type")).toBe("button");
+    expect(next.hasAttribute("disabled")).toBe(false);
+
+    // Fire Enter then Space, each followed by the click the platform dispatches
+    // for those keys on a focused native button. The panel closes (open === null)
+    // via store.closePoi(), and the discovered set is left untouched — Next never
+    // mutates discovery, it is a pure close.
+    const discoveredBefore = store.getSnapshot().discoveredIds;
+    act(() => {
+      fireEvent.keyDown(next, { key: "Enter", code: "Enter" });
+      fireEvent.keyDown(next, { key: " ", code: "Space" });
+      next.click();
+    });
+    expect(store.getSnapshot().open).toBeNull();
+    expect(store.getSnapshot().discoveredIds).toBe(discoveredBefore);
+  });
 });
 
 describe("RevealPanel Next landmark affordance (t4)", () => {
