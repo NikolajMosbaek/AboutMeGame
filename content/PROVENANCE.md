@@ -64,3 +64,20 @@ The adversarial fact-check phase dropped anything it couldn't ground. Notably:
 Field names (`teaser`, `body`, `worldZoneHint`, `tags`, `order`) are an interim draft. When the formal
 content data model lands in #34, reconcile names/types there and treat `working-with-claude.json` as the
 seed dataset.
+
+## Authored interactions (M2 slice 3, #34)
+
+Three POIs gained an interaction beyond the default `plain`. Each prompt,
+option, and reveal is drawn **only** from that POI's already-verified `body`
+copy (cards A/C in the table above) — no new claim is introduced, and the
+correct option restates what the body already asserts.
+
+| POI | Interaction | Grounding in existing body |
+|-----|-------------|----------------------------|
+| 4. The Staff-Engineer Gate | `guess` (3 options, 1 correct) | Correct: "citing the actual build or test output" = body's "I run it, then cite the actual build or test output: the receipt, not the claim." Distractors are the alternatives the body explicitly rejects ("things I say"; "reading the code isn't enough"). |
+| 8. The Force-Push Dam | `guess` (2 options, 1 correct) | Correct: "a PreToolUse hook kills any push with a force flag" = body's "a PreToolUse hook inspects every git push and kills the command the moment it spots a force flag." Distractor "I just remember not to do it" is the approach the body rejects ("I don't trust memory to enforce it"). |
+| 2. The One-Sentence Overlook | `highlight` (emphasis) | Emphasis is a verbatim lede lifted from the body: "If the sentence won't come, that's the signal: I don't understand the work yet." |
+
+The `answerReveal` flavor lines paraphrase only the same body sentences. The
+UI makes no correctness verdict this slice; `correct` is carried for a future
+scoring slice (validated by `parseInteraction`). All other POIs stay `plain`.
