@@ -57,8 +57,17 @@ buildGame = world + movement; the temporary orbit-preview was removed in favour
 of the follow camera. **Verify:** 51 tests, screenshots show spawn / driving to
 the gate / boosted (92) / flight to altitude 102. Docs: controls.md.
 
-### M4–M7 — pending
-Content & discovery → shell & UX → reach → polish.
+### M4 — Epic 4: Content & Discovery — PR #_ (closes #34, #36–#39, #4)
+Typed/validated content model over the seed JSON (#34); anchor↔content binding by
+id (#36); `DiscoverySystem` proximity/interact reveal triggers (#37); React
+`RevealPanel` modal + teaser prompt + "Discovered N/13" badge via an observable
+store + `useSyncExternalStore` (#38); localStorage persistence + a shared pause
+flag that holds the craft while reading (#39). **Verify:** 61 tests, screenshot
+shows driving to the Arrivals Gate and the revealed content panel. The game is
+now end-to-end playable: title → drive/fly → discover → read. Docs: discovery.md.
+
+### M5–M7 — pending
+Shell & UX → reach → polish.
 
 ## Notes / for the user
 - One-time repo setting needed for live deploy: **Settings → Pages → Source =

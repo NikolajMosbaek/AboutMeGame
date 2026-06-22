@@ -3,6 +3,7 @@ import type { System, FrameContext } from "../engine/types.ts";
 import type { Terrain } from "../world/terrain.ts";
 import type { Boundaries } from "../world/boundaries.ts";
 import type { ControlState, InputSnapshot } from "./input.ts";
+import type { GameSession } from "../gameSession.ts";
 
 export type DriveMode = "drive" | "fly";
 
@@ -68,6 +69,7 @@ export class VehicleSystem implements System {
     private readonly terrain: Terrain,
     private readonly boundaries: Boundaries,
     spawn: { x: number; z: number; yaw?: number } = { x: 0, z: 0 },
+    private readonly session?: GameSession,
   ) {
     this.object = buildCraft(this.disposables);
     this.yaw = spawn.yaw ?? 0;
@@ -87,6 +89,8 @@ export class VehicleSystem implements System {
   }
 
   update(ctx: FrameContext): void {
+    // Hold still while a reveal panel / menu is open.
+    if (this.session?.paused) return;
     if (this.input.consumeToggleMode()) this.toggleMode();
     if (this.mode === "drive") this.updateDrive(ctx.dt, this.input.state);
     else this.updateFly(ctx.dt, this.input.state);
