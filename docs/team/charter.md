@@ -25,6 +25,14 @@ lowest-ceremony foundation. A server/real-time seam (WebSocket) is **not** in
 the bootstrap — it is added in the first slice that actually needs networked
 multiplayer, so the next run spends its budget on game value, not plumbing.
 
+## Commands
+- **Install:** `npm install` (a clean checkout uses `npm ci` to enforce the
+  committed `package-lock.json`).
+- **Build:** `npm run build` (`tsc --noEmit && vite build`).
+- **Test:** `npm test` (`vitest run` — non-watch, exits zero on pass).
+- **Run:** `npm run dev` (Vite dev server, title screen at
+  http://localhost:5173).
+
 ## Conventions
 - Commits: Conventional Commits (see `.claude/rules/commit-and-pr-prefixes.md`).
 - Branching: one feature branch per `/team` run; PRs to `main`.
