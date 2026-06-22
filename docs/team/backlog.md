@@ -92,7 +92,12 @@ headless-testable pure logic plus thin React panels — no rendering work.
   reload — mitigated by rising-edge derivation (never on initial snapshot,
   mirroring `announcementFor`'s `prev === null` guard).
 
-### M2 — Make the Reveal Interactive, Not a Wall of Text  *(top unfinished mechanics item)*
+### M2 — Make the Reveal Interactive, Not a Wall of Text  — ✅ SHIPPED (PRs #83, #109, #110, #111, 2026-06-23)
+
+> **Done — do not pull.** PoiInteraction union + loader validation (#83); store
+> seam into OpenInfo + guess session state (#109); guess/highlight RevealPanel UI
+> + authored content (#110); in-panel "Next →" wayfinding (#111). Issue #74 closed.
+> **Top unfinished mechanics item is now M3.**
 
 - **Goal / value:** Every landmark resolves to "press E, read a paragraph" —
   passive and uniform. Turn each reveal into a small, varied interaction (a
@@ -133,7 +138,7 @@ headless-testable pure logic plus thin React panels — no rendering work.
   system — explicitly capped at one-pick-then-reveal, no score. Content/code
   coupling mitigated by optional fields with a plain default (incremental authoring).
 
-### M3 — Free-Roam Loop Polish: Recall, Re-read & Wayfinding
+### M3 — Free-Roam Loop Polish: Recall, Re-read & Wayfinding  *(top unfinished mechanics item)*
 
 - **Goal / value:** Once a landmark is discovered its nav marker disappears
   (markers only show undiscovered POIs) and there's no way back to re-read it — the
