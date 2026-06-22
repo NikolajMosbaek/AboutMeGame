@@ -1,13 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { Engine } from "./Engine.ts";
 import { createRenderer } from "./createRenderer.ts";
-import { buildHelloWorld } from "../world/helloWorld.ts";
+import { buildWorld } from "../world/buildWorld.ts";
 import { StatsOverlay } from "../perf/StatsOverlay.tsx";
 
 export interface GameCanvasProps {
-  /** Populate the engine with this milestone's systems. Defaults to the Epic 1
-   *  placeholder world; later epics pass the real world builder. Injected so a
-   *  preview/test can build a minimal scene. */
+  /** Populate the engine with the world's systems. Defaults to the real world
+   *  builder; injected so a preview/test can build a minimal scene instead. */
   buildWorld?: (engine: Engine) => void;
   /** Show the runtime stats overlay (#14). Defaults to dev-only. */
   showStats?: boolean;
@@ -21,7 +20,7 @@ export interface GameCanvasProps {
  * (and any test) gets a clean engine each time.
  */
 export function GameCanvas({
-  buildWorld = buildHelloWorld,
+  buildWorld: buildWorldFn = buildWorld,
   showStats = import.meta.env.DEV,
 }: GameCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -35,7 +34,7 @@ export function GameCanvas({
 
     const renderer = createRenderer({ canvas });
     const eng = new Engine({ renderer });
-    buildWorld(eng);
+    buildWorldFn(eng);
 
     const resize = () => {
       const { clientWidth, clientHeight } = container;
@@ -66,7 +65,7 @@ export function GameCanvas({
       eng.dispose();
       setEngine(null);
     };
-  }, [buildWorld]);
+  }, [buildWorldFn]);
 
   return (
     <div ref={containerRef} className="game-canvas-container">
