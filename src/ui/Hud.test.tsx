@@ -65,6 +65,57 @@ describe("Hud", () => {
     expect(screen.queryByText(/0 to go/)).not.toBeInTheDocument();
   });
 
+  it("introduces no second live region; remaining meaning is in the single discovery-progress aria-label", () => {
+    // Baseline: the HUD's only live region is the telemetry role=status.
+    // The discovery-progress badge and the new discovery-remaining line must
+    // NOT add a second aria-live / role=status node — DiscoveryAnnouncer stays
+    // the sole polite announcer.
+    const baseline = render(
+      <Hud hud={createHudStore()} discovery={createDiscoveryStore(13)} onOpenMenu={() => {}} />,
+    );
+    const baselineCount =
+      baseline.container.querySelectorAll("[aria-live],[role=status]").length;
+    baseline.unmount();
+
+    const discovery = createDiscoveryStore(13);
+    discovery.setDiscovered(["a", "b", "c"]);
+    const { container } = render(
+      <Hud hud={createHudStore()} discovery={discovery} onOpenMenu={() => {}} />,
+    );
+
+    expect(container.querySelectorAll("[aria-live],[role=status]").length).toBe(
+      baselineCount,
+    );
+
+    const remaining = container.querySelector(".discovery-remaining");
+    expect(remaining).not.toBeNull();
+    expect(remaining).toHaveAttribute("aria-hidden", "true");
+    expect(remaining).not.toHaveAttribute("aria-live");
+    expect(remaining).not.toHaveAttribute("role");
+
+    const progress = container.querySelector(".discovery-progress");
+    expect(progress).toHaveAttribute(
+      "aria-label",
+      "Discovered 3 of 13 landmarks, 10 to go",
+    );
+  });
+
+  it("folds the completed meaning into the single discovery-progress aria-label", () => {
+    const discovery = createDiscoveryStore(13);
+    discovery.setDiscovered(Array.from({ length: 13 }, (_, i) => `p${i}`));
+    const { container } = render(
+      <Hud hud={createHudStore()} discovery={discovery} onOpenMenu={() => {}} />,
+    );
+    expect(container.querySelector(".discovery-progress")).toHaveAttribute(
+      "aria-label",
+      "All 13 landmarks discovered",
+    );
+    expect(container.querySelector(".discovery-remaining")).toHaveAttribute(
+      "aria-hidden",
+      "true",
+    );
+  });
+
   it("opens the menu when the menu button is clicked", () => {
     const onOpenMenu = vi.fn();
     render(<Hud hud={createHudStore()} discovery={createDiscoveryStore(13)} onOpenMenu={onOpenMenu} />);
