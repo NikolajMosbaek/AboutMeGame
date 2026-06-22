@@ -24,7 +24,11 @@ import type { GameSession } from "../gameSession.ts";
 /** The slice of the built game the React shell needs. A subset of `Game`, so the
  *  default `buildGame` satisfies it and a preview/test can return a minimal one. */
 export interface GameHandle {
-  discovery: { store: DiscoveryStore; reset(): void; pois: { order: number; title: string }[] };
+  discovery: {
+    store: DiscoveryStore;
+    reset(): void;
+    pois: { id: string; order: number; title: string }[];
+  };
   hud: HudStore;
   nav: NavStore;
   settings: SettingsStore;
@@ -226,7 +230,7 @@ export function GameCanvas({
           <Hud hud={game.hud} discovery={game.discovery.store} onOpenMenu={() => setMenuOpen(true)} />
           <DiscoveryAnnouncer store={game.discovery.store} />
           <NavMarkers nav={game.nav} />
-          <RevealPanel store={game.discovery.store} />
+          <RevealPanel store={game.discovery.store} pois={game.discovery.pois} />
           <CompletionPanel
             store={game.discovery.store}
             pois={game.discovery.pois}

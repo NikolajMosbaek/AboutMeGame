@@ -5,6 +5,13 @@ import type { PoiInteraction } from "../content/contentModel.ts";
 
 export interface RevealPanelProps {
   store: DiscoveryStore;
+  /**
+   * The full ordered POI projection (id/order/title), injected at the
+   * GameCanvas seam from `game.discovery.pois`. It is the candidate set for the
+   * "Next landmark" selector (wired in a later slice). RevealPanel imports no
+   * content/navStore — this minimal, immutable shape is the only data wire.
+   */
+  pois: readonly { id: string; order: number; title: string }[];
 }
 
 /**
@@ -21,7 +28,11 @@ export interface RevealPanelProps {
  * calls `store.answerGuess(index)` with the option's array position — the UI
  * makes no correctness judgement (the `correct` flag is inert this slice).
  */
-export function RevealPanel({ store }: RevealPanelProps) {
+export function RevealPanel({ store, pois }: RevealPanelProps) {
+  // `pois` is the candidate set for the "Next landmark" selector, threaded in
+  // now and consumed by the next slice. Referenced as void here so the interface
+  // widening is exercised without yet rendering the unwired affordance.
+  void pois;
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const closeRef = useRef<HTMLButtonElement>(null);
   const firstOptionRef = useRef<HTMLButtonElement>(null);

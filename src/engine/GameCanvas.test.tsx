@@ -39,9 +39,9 @@ class StubResizeObserver {
 }
 
 const POIS = [
-  { order: 1, title: "Alpha" },
-  { order: 2, title: "Beta" },
-  { order: 3, title: "Gamma" },
+  { id: "poi-alpha", order: 1, title: "Alpha" },
+  { id: "poi-beta", order: 2, title: "Beta" },
+  { id: "poi-gamma", order: 3, title: "Gamma" },
 ];
 
 /** The thirteen ordered landmarks the real island carries — three is enough to
