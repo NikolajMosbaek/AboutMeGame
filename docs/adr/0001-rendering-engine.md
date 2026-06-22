@@ -60,9 +60,10 @@ a code-first, statically-deployed, TS/Vite repo.
 
 ## Spike result — "hello cube"
 
-The throwaway spike is wired as the Epic 1 placeholder world
+The throwaway spike was wired as the Epic 1 placeholder world
 (`src/world/helloWorld.ts`): a lit, shadow-casting, rotating cube on a ground
-plane, driven by the real `Engine` loop. It builds (`npm run build`, 165 KB gz)
-and renders in the dev/preview server on desktop and mobile Safari (verified by
-the team's Playwright screenshot pass during M1 verification). Epic 2 replaces
-`buildHelloWorld` with the real world builder behind the identical seam.
+plane, driven by the real `Engine` loop. It built (`npm run build`, 165 KB gz)
+and rendered in the dev/preview server on desktop and mobile Safari (verified by
+the team's Playwright screenshot pass during M1 verification). As planned, Epic 2
+then replaced it with the real world builder (`src/world/buildWorld.ts`) behind
+the identical `Engine`/`buildWorld` seam, and the spike file was removed.
