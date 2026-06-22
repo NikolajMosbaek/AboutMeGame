@@ -5,7 +5,7 @@
 > the next most valuable item.
 
 ## Items
-- [ ] First vertical game slice (local, single device): show one "about me"
+- [x] First vertical game slice (local, single device): show one "about me"
       prompt, let the player type an answer, submit it, and see it echoed back
       on a reveal screen. Proves the prompt → answer → reveal loop (the core
       mechanic) before any lobby, networking, multiplayer, or scoring. The
