@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { POI_ANCHORS } from "../world/worldConfig.ts";
-import { contentById, type PoiContent } from "./contentModel.ts";
+import { contentById, type PoiContent, type PoiInteraction } from "./contentModel.ts";
 
 /** A point of interest fully resolved: its content joined to its world anchor
  *  and the landmark colour. This is what discovery proximity-tests against. */
@@ -14,6 +14,11 @@ export interface DiscoverablePoi {
   /** World position of the landmark base (y is set from the anchor; the actual
    *  ground height is applied by the placement code that knows the terrain). */
   position: THREE.Vector3;
+  /** What this POI does on interaction. OPTIONAL on the type so existing literal
+   *  fixtures stay green, but `buildDiscoverablePois` ALWAYS populates it from
+   *  the content's resolved interaction — the discovery store defaults a missing
+   *  one to `plain`. Carried whole so slice 3 does one exhaustive switch. */
+  interaction?: PoiInteraction;
 }
 
 /**
@@ -42,6 +47,7 @@ export function buildDiscoverablePois(
       body: c.body,
       color: anchor.color,
       position: positionFor(anchor.poiId).clone(),
+      interaction: c.interaction,
     };
   }).sort((a, b) => a.order - b.order);
 }
