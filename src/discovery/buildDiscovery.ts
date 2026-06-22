@@ -3,14 +3,13 @@ import type { Engine } from "../engine/Engine.ts";
 import type { World } from "../world/buildWorld.ts";
 import type { Movement } from "../movement/buildMovement.ts";
 import type { GameSession } from "../gameSession.ts";
-import { buildDiscoverablePois, type DiscoverablePoi } from "../content/discoverablePois.ts";
+import { buildDiscoverablePois } from "../content/discoverablePois.ts";
 import { DiscoverySystem } from "./DiscoverySystem.ts";
 import { createDiscoveryStore, type DiscoveryStore } from "./discoveryStore.ts";
 import { createPersistence, type DiscoveryPersistence } from "./persistence.ts";
 
 export interface Discovery {
   store: DiscoveryStore;
-  pois: DiscoverablePoi[];
 }
 
 /**
@@ -34,5 +33,5 @@ export function buildDiscovery(
     new DiscoverySystem(movement.input, movement.vehicle, pois, store, persist, session),
   );
 
-  return { store, pois };
+  return { store };
 }

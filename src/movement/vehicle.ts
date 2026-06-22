@@ -89,8 +89,13 @@ export class VehicleSystem implements System {
   }
 
   update(ctx: FrameContext): void {
-    // Hold still while a reveal panel / menu is open.
-    if (this.session?.paused) return;
+    // Hold still while a reveal panel / menu is open. Drain the mode-toggle edge
+    // so an F pressed behind the panel doesn't fire a surprise drive↔fly on
+    // resume (movement axes are level-triggered, so they can't leak).
+    if (this.session?.paused) {
+      this.input.consumeToggleMode();
+      return;
+    }
     if (this.input.consumeToggleMode()) this.toggleMode();
     if (this.mode === "drive") this.updateDrive(ctx.dt, this.input.state);
     else this.updateFly(ctx.dt, this.input.state);

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { loadContent, contentById } from "./contentModel.ts";
 import { buildDiscoverablePois } from "./discoverablePois.ts";
 import { POI_ANCHORS } from "../world/worldConfig.ts";
@@ -36,9 +36,22 @@ describe("POI placement binding (#36)", () => {
     }
   });
 
-  it("throws if an anchor has no matching content", () => {
-    // Sanity: all real anchors resolve (no throw). The throw path is covered by
-    // the contract — every POI_ANCHORS.poiId must exist in the content set.
+  it("resolves every real anchor without throwing", () => {
     expect(() => buildDiscoverablePois(() => new THREE.Vector3())).not.toThrow();
+  });
+});
+
+// Exercise the safety net: if content is missing for an anchor, binding throws
+// rather than silently dropping a landmark's reveal.
+describe("POI binding throw path", () => {
+  it("throws when an anchor has no matching content", async () => {
+    vi.resetModules();
+    vi.doMock("./contentModel.ts", () => ({
+      contentById: () => new Map(), // no content for any anchor
+    }));
+    const { buildDiscoverablePois: bind } = await import("./discoverablePois.ts");
+    expect(() => bind(() => new THREE.Vector3())).toThrow(/no content for anchor/);
+    vi.doUnmock("./contentModel.ts");
+    vi.resetModules();
   });
 });
