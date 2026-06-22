@@ -73,7 +73,7 @@ export class DiscoverySystem implements System {
     );
 
     if (nearest && inRange && interact) {
-      this.store.openPoi({ id: nearest.id, order: nearest.order, title: nearest.title, body: nearest.body });
+      this.store.openPoi({ id: nearest.id, order: nearest.order, title: nearest.title, body: nearest.body, interaction: nearest.interaction });
       if (!this.discovered.has(nearest.id)) {
         this.discovered.add(nearest.id);
         this.persist.save(this.discovered);
