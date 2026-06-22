@@ -60,3 +60,82 @@ describe("CompletionPanel latch", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 });
+
+// ---- T5: panel content ----
+// Thirteen ordered landmarks (the real island has 13). The panel only ever
+// appears once every landmark is found, so every row is a discovered row: each
+// must carry a text label (not a glyph alone — WCAG 1.4.1), and the titles must
+// render in `order`.
+const THIRTEEN = Array.from({ length: 13 }, (_, i) => ({
+  order: i + 1,
+  title: `Landmark ${i + 1}`,
+}));
+
+function driveToShown(store: ReturnType<typeof createDiscoveryStore>) {
+  // 13th find arrives with its reveal open, then the player closes it.
+  act(() => {
+    store.openPoi({ id: "p13", order: 13, title: "Landmark 13", body: "…" });
+    store.setDiscovered(THIRTEEN.map((_, i) => `p${i + 1}`));
+  });
+  act(() => store.closePoi());
+}
+
+describe("CompletionPanel content", () => {
+  it("renders all 13 titles in order", () => {
+    const store = createDiscoveryStore(13);
+    render(<CompletionPanel store={store} pois={THIRTEEN} onReplay={() => {}} />);
+    driveToShown(store);
+
+    const items = screen.getAllByRole("listitem");
+    expect(items).toHaveLength(13);
+    expect(items.map((li) => li.textContent)).toEqual(
+      THIRTEEN.map((p) => expect.stringContaining(p.title)),
+    );
+  });
+
+  it("marks each discovered row with a text label, not a glyph alone", () => {
+    const store = createDiscoveryStore(13);
+    render(<CompletionPanel store={store} pois={THIRTEEN} onReplay={() => {}} />);
+    driveToShown(store);
+
+    // Every row exposes the textual "Discovered" status to assistive tech — the
+    // checkmark glyph alone would fail WCAG 1.4.1 (use of colour/glyph alone).
+    const labels = screen.getAllByText(/discovered/i);
+    expect(labels).toHaveLength(13);
+  });
+
+  it("exposes both CTAs by accessible role and name", () => {
+    const store = createDiscoveryStore(13);
+    render(<CompletionPanel store={store} pois={THIRTEEN} onReplay={() => {}} />);
+    driveToShown(store);
+
+    expect(screen.getByRole("button", { name: /replay/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /keep exploring/i })).toBeTruthy();
+  });
+
+  it("invokes onReplay when 'Replay' is clicked", () => {
+    const store = createDiscoveryStore(13);
+    let calls = 0;
+    render(
+      <CompletionPanel store={store} pois={THIRTEEN} onReplay={() => (calls += 1)} />,
+    );
+    driveToShown(store);
+
+    act(() => {
+      screen.getByRole("button", { name: /replay/i }).click();
+    });
+    expect(calls).toBe(1);
+  });
+
+  it("lowers the panel when 'Keep exploring' is clicked", () => {
+    const store = createDiscoveryStore(13);
+    render(<CompletionPanel store={store} pois={THIRTEEN} onReplay={() => {}} />);
+    driveToShown(store);
+    expect(screen.getByRole("dialog")).toBeTruthy();
+
+    act(() => {
+      screen.getByRole("button", { name: /keep exploring/i }).click();
+    });
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+});

@@ -52,11 +52,10 @@ export function CompletionPanel({ store, pois, onReplay }: CompletionPanelProps)
 
   if (!shown) return null;
 
-  const discovered = new Set(store.getSnapshot().discoveredIds);
-  // The list renders all titles in `order`; discovered marking and CTAs are
-  // refined by later tasks. void to keep the prop wired without dead-code lint.
-  void discovered;
-
+  // The panel is raised only once every landmark is discovered, so every row is
+  // a discovered row. Each is marked with a checkmark glyph (decorative, hidden
+  // from assistive tech) PAIRED WITH a textual "Discovered" status — never a
+  // glyph or colour alone (WCAG 1.4.1).
   return (
     <div className="completion-panel-backdrop">
       <div
@@ -70,7 +69,13 @@ export function CompletionPanel({ store, pois, onReplay }: CompletionPanelProps)
         </h2>
         <ol className="completion-panel__list">
           {pois.map((p) => (
-            <li key={p.order}>{p.title}</li>
+            <li key={p.order} className="completion-panel__item">
+              <span className="completion-panel__check" aria-hidden="true">
+                {"\u2713"}
+              </span>
+              <span className="completion-panel__item-title">{p.title}</span>
+              <span className="completion-panel__item-status">Discovered</span>
+            </li>
           ))}
         </ol>
         <button type="button" className="cta" onClick={() => onReplay()}>
