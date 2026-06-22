@@ -411,9 +411,21 @@ body {
   font-size: 1.05rem;
   line-height: 1.65;
 }
+/* Footer (M2 slice 4): "Drive on" first, then the optional "Next: <title> →".
+   Right-aligned cluster so the dismiss/forward pair reads as the panel's
+   trailing controls; wraps to stacked CTAs on a narrow viewport (below). */
+.reveal-panel__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
 .reveal-panel__close {
-  display: block;
   margin-left: auto;
+}
+.reveal-panel__next {
+  margin-left: 0;
 }
 
 /* Interactive reveal (#M2 slice 3). A guess turns the read into an act; a
@@ -1003,7 +1015,11 @@ body {
     padding: var(--space-3) var(--space-2);
   }
 
-  .reveal-panel__close {
+  .reveal-panel__actions {
+    flex-direction: column;
+  }
+  .reveal-panel__close,
+  .reveal-panel__next {
     width: 100%;
     margin-left: 0;
   }

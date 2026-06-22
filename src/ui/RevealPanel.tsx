@@ -1,10 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 import { useSyncExternalStore } from "react";
 import type { DiscoveryStore, OpenInfo } from "../discovery/discoveryStore.ts";
+import { nextUndiscovered } from "../discovery/nextUndiscovered.ts";
 import type { PoiInteraction } from "../content/contentModel.ts";
 
 export interface RevealPanelProps {
   store: DiscoveryStore;
+  /**
+   * The full ordered POI projection (id/order/title), injected at the
+   * GameCanvas seam from `game.discovery.pois`. It is the candidate set for the
+   * "Next landmark" selector (wired in a later slice). RevealPanel imports no
+   * content/navStore — this minimal, immutable shape is the only data wire.
+   */
+  pois: readonly { id: string; order: number; title: string }[];
 }
 
 /**
@@ -21,7 +29,7 @@ export interface RevealPanelProps {
  * calls `store.answerGuess(index)` with the option's array position — the UI
  * makes no correctness judgement (the `correct` flag is inert this slice).
  */
-export function RevealPanel({ store }: RevealPanelProps) {
+export function RevealPanel({ store, pois }: RevealPanelProps) {
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const closeRef = useRef<HTMLButtonElement>(null);
   const firstOptionRef = useRef<HTMLButtonElement>(null);
@@ -81,18 +89,71 @@ export function RevealPanel({ store }: RevealPanelProps) {
 
             <RevealBody open={open} store={store} firstOptionRef={firstOptionRef} />
 
-            <button
-              ref={closeRef}
-              type="button"
-              className="cta reveal-panel__close"
-              onClick={() => store.closePoi()}
-            >
-              Drive on
-            </button>
+            <RevealActions
+              open={open}
+              store={store}
+              pois={pois}
+              discoveredIds={snap.discoveredIds}
+              closeRef={closeRef}
+            />
           </div>
         </div>
       )}
     </>
+  );
+}
+
+interface RevealActionsProps {
+  open: OpenInfo;
+  store: DiscoveryStore;
+  pois: readonly { id: string; order: number; title: string }[];
+  discoveredIds: readonly string[];
+  closeRef: React.RefObject<HTMLButtonElement>;
+}
+
+/**
+ * The dialog footer (M2 slice 4). "Drive on" is the always-present unnamed
+ * dismiss; it stays first in DOM/tab order so the focus-on-open contract
+ * (plain/highlight → close button) is untouched. "Next: <title> →" is a named
+ * forward move toward a concrete landmark, placed AFTER "Drive on".
+ *
+ * Visibility collapses to one rule: render Next ONLY when the body is unlocked
+ * AND the cyclic-successor selector names a target. So an unanswered guess
+ * (body locked) hides Next — forward-nav cannot bypass the unread payload — and
+ * the last undiscovered landmark hides it too (the selector returns null). The
+ * current open id is passed explicitly so it is excluded independently of
+ * `discoveredIds` (the open POI is already discovered while the panel is open).
+ *
+ * On activate Next calls only `store.closePoi()` — it never mutates the
+ * discovered set, reveals a body, teleports, or touches NavSystem/navStore: the
+ * POI's existing nav marker is simply live again once the player is back in the
+ * world.
+ */
+function RevealActions({ open, store, pois, discoveredIds, closeRef }: RevealActionsProps) {
+  const next = open.bodyUnlocked
+    ? nextUndiscovered(pois, discoveredIds, open.id, open.order)
+    : null;
+
+  return (
+    <div className="reveal-panel__actions">
+      <button
+        ref={closeRef}
+        type="button"
+        className="cta reveal-panel__close"
+        onClick={() => store.closePoi()}
+      >
+        Drive on
+      </button>
+      {next && (
+        <button
+          type="button"
+          className="cta reveal-panel__next"
+          onClick={() => store.closePoi()}
+        >
+          Next: {next.title} →
+        </button>
+      )}
+    </div>
   );
 }
 
