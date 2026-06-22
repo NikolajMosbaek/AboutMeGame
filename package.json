@@ -11,7 +11,8 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:install-gate": "vitest run --config vitest.install-gate.config.ts"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.4.6",
