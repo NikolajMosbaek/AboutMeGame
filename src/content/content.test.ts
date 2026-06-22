@@ -167,8 +167,37 @@ describe("content model (#34)", () => {
       expect(p.title).toBeTruthy();
       expect(p.teaser.length).toBeGreaterThan(0);
       expect(p.body.length).toBeGreaterThan(0);
-      // The current dataset carries no interaction, so every POI resolves to
-      // the default `plain` variant — guards against silent content drift.
+    }
+  });
+
+  // M2 slice 3 authors interactions on three POIs; the rest stay plain. This
+  // asserts the authored content resolves to the intended variants (not merely
+  // that loadContent does not throw), so a coerce-to-plain typo fails loudly.
+  it("resolves the authored guess and highlight interactions, rest plain", () => {
+    const by = contentById();
+
+    for (const id of ["poi-staff-engineer-gate", "poi-force-push-dam"]) {
+      const i = by.get(id)!.interaction;
+      expect(i.type).toBe("guess");
+      if (i.type !== "guess") throw new Error("narrowing");
+      expect(i.options.length).toBeGreaterThanOrEqual(2);
+      expect(i.options.length).toBeLessThanOrEqual(3);
+      expect(i.options.filter((o) => o.correct)).toHaveLength(1);
+      expect(i.prompt.length).toBeGreaterThan(0);
+    }
+
+    const overlook = by.get("poi-end-state-overlook")!.interaction;
+    expect(overlook.type).toBe("highlight");
+    if (overlook.type !== "highlight") throw new Error("narrowing");
+    expect(overlook.emphasis.length).toBeGreaterThan(0);
+
+    const authored = new Set([
+      "poi-staff-engineer-gate",
+      "poi-force-push-dam",
+      "poi-end-state-overlook",
+    ]);
+    for (const [id, p] of by) {
+      if (authored.has(id)) continue;
       expect(p.interaction).toEqual({ type: "plain" });
     }
   });
