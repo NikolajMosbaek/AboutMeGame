@@ -57,6 +57,14 @@ describe("Hud", () => {
     expect(screen.queryByText("All discovered")).not.toBeInTheDocument();
   });
 
+  it('shows "All discovered" at the completed boundary and never "0 to go"', () => {
+    const discovery = createDiscoveryStore(13);
+    discovery.setDiscovered(Array.from({ length: 13 }, (_, i) => `p${i}`));
+    render(<Hud hud={createHudStore()} discovery={discovery} onOpenMenu={() => {}} />);
+    expect(screen.getByText("All discovered")).toBeInTheDocument();
+    expect(screen.queryByText(/0 to go/)).not.toBeInTheDocument();
+  });
+
   it("opens the menu when the menu button is clicked", () => {
     const onOpenMenu = vi.fn();
     render(<Hud hud={createHudStore()} discovery={createDiscoveryStore(13)} onOpenMenu={onOpenMenu} />);
