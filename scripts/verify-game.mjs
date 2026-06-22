@@ -63,6 +63,17 @@ try {
   // Step the simulation deterministically, then read state.
   await page.evaluate((ms) => window.advanceTime(ms), advanceMs);
   for (const k of heldKeys) await page.keyboard.up(k);
+
+  // Optional coast (let momentum settle) then a single key tap (e.g. interact).
+  const coastMs = Number(argVal("--coast") ?? "0");
+  if (coastMs > 0) await page.evaluate((ms) => window.advanceTime(ms), coastMs);
+  const tapKey = argVal("--tap");
+  if (tapKey) {
+    await page.keyboard.down(tapKey);
+    await page.evaluate(() => window.advanceTime(50));
+    await page.keyboard.up(tapKey);
+    await page.evaluate(() => window.advanceTime(400));
+  }
   const stateJson = await page.evaluate(() =>
     window.render_game_to_text ? window.render_game_to_text() : "null",
   );

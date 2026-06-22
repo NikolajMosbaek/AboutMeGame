@@ -3,12 +3,18 @@ import { Engine } from "./Engine.ts";
 import { createRenderer } from "./createRenderer.ts";
 import { buildGame } from "../buildGame.ts";
 import { StatsOverlay } from "../perf/StatsOverlay.tsx";
+import { RevealPanel } from "../ui/RevealPanel.tsx";
+import type { DiscoveryStore } from "../discovery/discoveryStore.ts";
 
 export interface GameCanvasProps {
-  /** Populate the engine with the game's systems (world + movement). `overlay`
-   *  is the canvas container that touch controls mount into. Defaults to the
+  /** Populate the engine with the game's systems (world + movement + discovery).
+   *  `overlay` is the canvas container touch controls mount into. Returns the
+   *  game handle (its discovery store drives the reveal UI). Defaults to the
    *  real game; injected so a preview/test can build a minimal scene instead. */
-  build?: (engine: Engine, overlay: HTMLElement) => void;
+  build?: (
+    engine: Engine,
+    overlay: HTMLElement,
+  ) => { discovery: { store: DiscoveryStore } } | void;
   /** Show the runtime stats overlay (#14). Defaults to dev-only. */
   showStats?: boolean;
 }
@@ -27,6 +33,7 @@ export function GameCanvas({
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [engine, setEngine] = useState<Engine | null>(null);
+  const [store, setStore] = useState<DiscoveryStore | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -35,7 +42,8 @@ export function GameCanvas({
 
     const renderer = createRenderer({ canvas });
     const eng = new Engine({ renderer });
-    build(eng, container);
+    const game = build(eng, container);
+    if (game?.discovery?.store) setStore(game.discovery.store);
 
     const resize = () => {
       const { clientWidth, clientHeight } = container;
@@ -65,6 +73,7 @@ export function GameCanvas({
       delete window.__ENGINE_STATE__;
       eng.dispose();
       setEngine(null);
+      setStore(null);
     };
   }, [build]);
 
@@ -72,6 +81,7 @@ export function GameCanvas({
     <div ref={containerRef} className="game-canvas-container">
       <canvas ref={canvasRef} className="game-canvas" aria-hidden="true" />
       {showStats && engine && <StatsOverlay engine={engine} />}
+      {store && <RevealPanel store={store} />}
     </div>
   );
 }
