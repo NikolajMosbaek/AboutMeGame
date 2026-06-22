@@ -1,7 +1,8 @@
 /*
- * Minimal design-token seam. The first real screen establishes the colors and
- * spacing scale that later screens (Lobby, Prompt, Guess, Scoreboard) inherit,
- * so they do not each invent their own. Contrast pairs meet WCAG AA.
+ * Design-token seam. The colours, spacing and type scale every screen and
+ * overlay inherits, so none reinvents its own. The personal-brand pass
+ * (Epic 7) refines these values; everything references the tokens, not raw
+ * hex. Contrast pairs meet WCAG AA.
  */
 :root {
   --color-bg: #14121f; /* deep indigo */
@@ -15,6 +16,9 @@
   --space-4: 2.5rem;
 
   --layout-max-width: 32rem;
+
+  --font-ui:
+    system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
 * {
@@ -22,50 +26,70 @@
 }
 
 html,
-body {
+body,
+#root {
   margin: 0;
+  height: 100%;
   min-height: 100%;
 }
 
 body {
   background: var(--color-bg);
   color: var(--color-fg);
-  font-family:
-    system-ui,
-    -apple-system,
-    "Segoe UI",
-    Roboto,
-    sans-serif;
+  font-family: var(--font-ui);
   line-height: 1.5;
+  overflow: hidden; /* the world owns the viewport; no page scroll */
 }
 
+/* ----- Title / landing screen ----- */
 .title-screen {
   max-width: var(--layout-max-width);
   margin: 0 auto;
   padding: var(--space-4) var(--space-2);
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   text-align: center;
+  gap: var(--space-3);
 }
 
 .title-screen h1 {
-  font-size: 2.5rem;
-  margin: 0 0 var(--space-2);
+  font-size: clamp(2.5rem, 8vw, 4rem);
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+.title-screen h1:focus-visible {
+  outline: 3px solid var(--color-accent);
+  outline-offset: 6px;
+  border-radius: 0.25rem;
 }
 
 .title-screen .tagline {
-  font-size: 1.05rem;
-  margin: 0 auto var(--space-4);
-  max-width: 28rem;
+  font-size: clamp(1rem, 2.5vw, 1.15rem);
+  margin: 0 auto;
+  max-width: 30rem;
+  opacity: 0.92;
 }
 
 .cta {
   background: var(--color-accent);
   color: var(--color-accent-fg);
   border: none;
-  border-radius: 0.5rem;
-  padding: var(--space-1) var(--space-3);
-  font-size: 1rem;
-  font-weight: 600;
+  border-radius: 0.6rem;
+  padding: var(--space-2) var(--space-4);
+  font: inherit;
+  font-size: 1.1rem;
+  font-weight: 700;
   cursor: pointer;
+  transition: transform 120ms ease, filter 120ms ease;
+}
+
+.cta:hover {
+  filter: brightness(1.06);
+  transform: translateY(-1px);
 }
 
 .cta:disabled {
@@ -79,82 +103,57 @@ body {
 }
 
 .version-marker {
-  margin-top: var(--space-4);
+  margin: 0;
   font-size: 0.8rem;
-  opacity: 0.7;
+  opacity: 0.6;
 }
 
-/* Prompt screen — the answer-collection step. Additive to the title styles;
- * reuses the same layout width, spacing scale, and .cta classes. */
-.prompt-screen {
-  max-width: var(--layout-max-width);
-  margin: 0 auto;
-  padding: var(--space-4) var(--space-2);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.prompt-screen h1 {
-  font-size: 1.75rem;
-  margin: 0;
-}
-
-.answer-label {
-  font-weight: 600;
-}
-
-.answer-input {
+/* ----- The 3D world ----- */
+.game-canvas-container {
+  position: fixed;
+  inset: 0;
   width: 100%;
-  resize: vertical;
-  padding: var(--space-1);
-  font: inherit;
-  color: var(--color-fg);
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  border-radius: 0.5rem;
+  height: 100%;
+  touch-action: none; /* the world handles touch; don't scroll/zoom the page */
 }
 
-.answer-input:focus-visible {
-  outline: 3px solid var(--color-fg);
-  outline-offset: 2px;
+.game-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
-.answer-hint {
-  margin: 0;
-  font-size: 0.85rem;
-  opacity: 0.75;
-}
-
-/* Reveal screen — echoes the prompt and the player's answer. Additive to the
- * title/prompt styles; reuses the same layout width, spacing scale, and .cta. */
-.reveal-screen {
-  max-width: var(--layout-max-width);
-  margin: 0 auto;
-  padding: var(--space-4) var(--space-2);
+/* ----- Runtime stats overlay (#14) ----- */
+.stats-overlay {
+  position: fixed;
+  top: var(--space-1);
+  left: var(--space-1);
   display: flex;
-  flex-direction: column;
   gap: var(--space-2);
+  padding: 0.25rem 0.6rem;
+  font:
+    600 0.8rem / 1.4 ui-monospace, "SF Mono", Menlo, monospace;
+  color: #b7f7c2;
+  background: rgba(0, 0, 0, 0.55);
+  border-radius: 0.4rem;
+  pointer-events: none;
+  user-select: none;
+  z-index: 10;
 }
 
-.reveal-screen h1 {
-  font-size: 1.75rem;
-  margin: 0;
+.stats-overlay--breach {
+  color: #ffb4b4;
 }
 
-.reveal-prompt {
-  margin: 0;
-  font-weight: 600;
-  opacity: 0.85;
+.stats-overlay__breach {
+  color: #ff5c5c;
 }
 
-/* D6: pre-wrap so the answer's leading/trailing/internal whitespace and
- * newlines render exactly as the player typed them. */
-.answer-echo {
-  margin: 0;
-  white-space: pre-wrap;
-  padding: var(--space-2);
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  border-radius: 0.5rem;
+@media (prefers-reduced-motion: reduce) {
+  .cta {
+    transition: none;
+  }
+  .cta:hover {
+    transform: none;
+  }
 }

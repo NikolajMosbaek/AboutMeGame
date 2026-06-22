@@ -1,0 +1,23 @@
+name: CI
+
+# The pull-request gate: typecheck + production build + full test suite. A red
+# run blocks the green-only merge (see .claude/CLAUDE.md guardrails). Deploys to
+# GitHub Pages happen separately on merge to main (deploy.yml).
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      - name: Build (tsc --noEmit + vite build)
+        run: npm run build
+      - name: Test
+        run: npm test
