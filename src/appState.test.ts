@@ -16,10 +16,4 @@ describe("appReducer", () => {
     const playing = { kind: "playing" } as const;
     expect(appReducer(playing, { type: "start" })).toBe(playing);
   });
-
-  it("exitToTitle returns to the title from playing", () => {
-    expect(appReducer({ kind: "playing" }, { type: "exitToTitle" })).toEqual({
-      kind: "title",
-    });
-  });
 });

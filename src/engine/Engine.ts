@@ -144,13 +144,20 @@ export class Engine {
       guard++;
     }
     this.render();
+    // If a live loop is running, force the next frame to recompute dt from
+    // scratch (dt=0) rather than charging it the wall-clock gap that elapsed
+    // during this synchronous burst. Keeps live + harness stepping decoupled.
+    this.lastTimeMs = null;
   }
 
   /** One simulation step: clamp dt, update fps, advance every system, render. */
   private tick(rawDt: number, render = true): void {
     const dt = Math.min(Math.max(rawDt, 0), this.maxDt);
     this.elapsed += dt;
-    if (dt > 0) {
+    // Only live frames (render=true) feed the fps read-out. The deterministic
+    // `advanceTime` sub-steps (render=false) use synthetic maxDt-sized dts that
+    // would otherwise drag the displayed fps down to ~1/maxDt.
+    if (dt > 0 && render) {
       // EMA smoothing (~0.1 weight) keeps the fps read-out from flickering.
       this.emaFrameMs += (dt * 1000 - this.emaFrameMs) * 0.1;
     }

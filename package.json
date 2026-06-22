@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "A lightweight, browser-based social party game where a small group answers prompts about themselves and players score points by guessing each other's answers.",
+  "description": "A browser-based 3D world you drive and fly around to discover how I build software with Claude — every landmark reveals a piece of how I work. No installs, just a link.",
   "engines": {
     "node": ">=20"
   },

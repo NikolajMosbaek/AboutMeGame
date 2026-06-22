@@ -7,7 +7,9 @@
 
 export type AppScreen = { kind: "title" } | { kind: "playing" };
 
-export type AppAction = { type: "start" } | { type: "exitToTitle" };
+// Epic 5 (pause / exit-to-title) will extend this union; for now the only
+// transition is entering the world.
+export type AppAction = { type: "start" };
 
 export const INITIAL_APP_STATE: AppScreen = { kind: "title" };
 
@@ -17,13 +19,9 @@ export function appReducer(state: AppScreen, action: AppAction): AppScreen {
       // The world mounts only from the title screen.
       return state.kind === "title" ? { kind: "playing" } : state;
 
-    case "exitToTitle":
-      return { kind: "title" };
-
-    default: {
-      // Exhaustiveness guard: a new AppAction without a case is a compile error.
-      const _exhaustive: never = action;
-      return _exhaustive;
-    }
+    default:
+      // Unknown action — leave state unchanged. When Epic 5 grows the action
+      // union, restore the `never` exhaustiveness guard here.
+      return state;
   }
 }
