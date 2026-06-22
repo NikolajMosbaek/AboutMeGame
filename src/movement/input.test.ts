@@ -1,0 +1,79 @@
+import { afterEach, describe, expect, it } from "vitest";
+import { createInput, type InputController } from "./input.ts";
+
+function press(key: string) {
+  window.dispatchEvent(new KeyboardEvent("keydown", { key }));
+}
+function release(key: string) {
+  window.dispatchEvent(new KeyboardEvent("keyup", { key }));
+}
+
+describe("createInput — keyboard mapping & edge events", () => {
+  let input: InputController;
+  let overlay: HTMLElement;
+
+  afterEach(() => {
+    input?.dispose();
+    overlay?.remove();
+  });
+
+  function make() {
+    overlay = document.createElement("div");
+    document.body.appendChild(overlay);
+    input = createInput(overlay);
+    return input;
+  }
+
+  it("maps WASD to forward/turn axes", () => {
+    make();
+    press("w");
+    input.update();
+    expect(input.state.forward).toBe(1);
+    release("w");
+    press("s");
+    input.update();
+    expect(input.state.forward).toBe(-1);
+
+    release("s");
+    press("d");
+    input.update();
+    expect(input.state.turn).toBe(1);
+    press("a"); // a + d cancel
+    input.update();
+    expect(input.state.turn).toBe(0);
+  });
+
+  it("maps space to thrust and shift to boost", () => {
+    make();
+    press(" ");
+    press("Shift");
+    input.update();
+    expect(input.state.thrust).toBe(1);
+    expect(input.state.boost).toBe(true);
+  });
+
+  it("treats F (mode) and E (interact) as one-shot edge events", () => {
+    make();
+    press("f");
+    expect(input.consumeToggleMode()).toBe(true);
+    expect(input.consumeToggleMode()).toBe(false); // consumed once
+    press("e");
+    expect(input.consumeInteract()).toBe(true);
+    expect(input.consumeInteract()).toBe(false);
+  });
+
+  it("stops responding after dispose", () => {
+    make();
+    input.dispose();
+    press("w");
+    input.update();
+    expect(input.state.forward).toBe(0);
+    // prevent afterEach double-dispose from throwing
+    input = createInput(overlay);
+  });
+
+  it("reports touch inactive until a touch occurs", () => {
+    make();
+    expect(input.touchActive).toBe(false);
+  });
+});
