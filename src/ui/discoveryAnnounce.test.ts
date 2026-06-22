@@ -21,7 +21,15 @@ describe("announcementFor", () => {
     const next = snap({
       discoveredCount: 3,
       discoveredIds: ["a", "b", "c"],
-      open: { id: "c", order: 5, title: "Root-Cause Quarry", body: "…" },
+      open: {
+        id: "c",
+        order: 5,
+        title: "Root-Cause Quarry",
+        body: "…",
+        interaction: { type: "plain" },
+        guessChoice: null,
+        bodyUnlocked: true,
+      },
     });
     expect(announcementFor(prev, next)).toBe("Discovered Root-Cause Quarry — 3 of 13");
   });
@@ -32,7 +40,15 @@ describe("announcementFor", () => {
     const next = snap({
       discoveredCount: 3,
       discoveredIds: ["a", "b", "c"],
-      open: { id: "a", order: 1, title: "Arrivals Gate", body: "…" },
+      open: {
+        id: "a",
+        order: 1,
+        title: "Arrivals Gate",
+        body: "…",
+        interaction: { type: "plain" },
+        guessChoice: null,
+        bodyUnlocked: true,
+      },
     });
     expect(announcementFor(prev, next)).toBeNull();
   });

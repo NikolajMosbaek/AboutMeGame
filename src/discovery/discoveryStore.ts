@@ -3,6 +3,8 @@
 // useSyncExternalStore). A plain framework-agnostic store: no singleton, created
 // per game and injected, so tests construct their own.
 
+import type { PoiInteraction } from "../content/contentModel.ts";
+
 export interface NearbyInfo {
   id: string;
   order: number;
@@ -12,11 +14,33 @@ export interface NearbyInfo {
   inRange: boolean;
 }
 
+/** What a caller supplies to open a POI. `interaction` is optional — callers
+ *  that don't know (or don't carry) one get `plain` in the snapshot. The richer
+ *  per-open guess state (`guessChoice`, `bodyUnlocked`) is owned by the store,
+ *  not the caller, so it lives only on the snapshot `OpenInfo`. */
+export interface OpenPoiInput {
+  id: string;
+  order: number;
+  title: string;
+  body: string;
+  interaction?: PoiInteraction;
+}
+
 export interface OpenInfo {
   id: string;
   order: number;
   title: string;
   body: string;
+  /** Always present in the snapshot — defaulted to `{ type: "plain" }` when the
+   *  opening caller omits one. Carried whole for slice 3's exhaustive switch. */
+  interaction: PoiInteraction;
+  /** The committed guess option index, or null before a pick (or for a
+   *  non-guess interaction). A number-or-null index, not a boolean, so the UI
+   *  can show which option was picked and tell null from option zero. */
+  guessChoice: number | null;
+  /** Derived: true when the body should be shown — always for plain/highlight,
+   *  and for guess only once a choice is committed. Never stored independently. */
+  bodyUnlocked: boolean;
 }
 
 export interface DiscoverySnapshot {
@@ -36,7 +60,7 @@ export interface DiscoveryStore {
   getSnapshot(): DiscoverySnapshot;
   subscribe(listener: () => void): () => void;
   setNearby(nearby: NearbyInfo | null): void;
-  openPoi(open: OpenInfo): void;
+  openPoi(open: OpenPoiInput): void;
   closePoi(): void;
   /** Set the discovered set; count is derived so the two never drift. */
   setDiscovered(ids: string[]): void;
@@ -88,7 +112,18 @@ export function createDiscoveryStore(total: number): DiscoveryStore {
       }
       set({ nearby });
     },
-    openPoi(open) {
+    openPoi(input) {
+      const interaction: PoiInteraction = input.interaction ?? { type: "plain" };
+      // A guess starts locked (no pick yet); plain/highlight are unlocked at once.
+      const open: OpenInfo = {
+        id: input.id,
+        order: input.order,
+        title: input.title,
+        body: input.body,
+        interaction,
+        guessChoice: null,
+        bodyUnlocked: interaction.type !== "guess",
+      };
       set({ open });
     },
     closePoi() {

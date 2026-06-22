@@ -42,3 +42,15 @@ describe("discoveryStore completed", () => {
     expect(store.getSnapshot().completed).toBe(true);
   });
 });
+
+describe("discoveryStore openPoi interaction default", () => {
+  it("defaults open.interaction to {type:'plain'} when input omits interaction", () => {
+    const store = createDiscoveryStore(13);
+    // OpenPoiInput.interaction is optional; the snapshot OpenInfo.interaction
+    // is always present.
+    store.openPoi({ id: "poi-0", order: 0, title: "First", body: "..." });
+    const open = store.getSnapshot().open;
+    expect(open).not.toBeNull();
+    expect(open?.interaction).toEqual({ type: "plain" });
+  });
+});
