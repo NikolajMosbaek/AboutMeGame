@@ -18,21 +18,34 @@
          under the GitHub Pages sub-path in production and at root in dev. -->
     <link rel="icon" type="image/svg+xml" href="%BASE_URL%favicon.svg" />
 
-    <!-- Social / share metadata (#54). Real product copy, no placeholder. No
-         og:image is referenced — there is no committed share image asset, and a
-         broken reference is worse than none. -->
+    <!-- Social / share metadata (#54). Real product copy, no placeholder. The
+         committed 1200x630 raster share card unfurls as a large preview on
+         Slack/iMessage/LinkedIn/X/Discord. `%BASE_URL%` is substituted by Vite
+         (same mechanism as the favicon href above) so the image resolves under
+         the GitHub Pages sub-path in production and at root in dev. og:url gives
+         scrapers a canonical page so a relative og:image still resolves. -->
     <meta property="og:type" content="website" />
+    <meta property="og:url" content="%BASE_URL%" />
     <meta property="og:title" content="AboutMeGame — drive and fly to discover how I work" />
     <meta
       property="og:description"
       content="A browser-based 3D island you drive and fly around to discover how I build software with Claude. No installs, just a link."
     />
-    <meta name="twitter:card" content="summary" />
+    <meta property="og:image" content="%BASE_URL%share-card.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:type" content="image/png" />
+    <meta
+      property="og:image:alt"
+      content="AboutMeGame wordmark on the deep-indigo brand field with the amber sky-beacon over a small green island."
+    />
+    <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="AboutMeGame — drive and fly to discover how I work" />
     <meta
       name="twitter:description"
       content="A browser-based 3D island you drive and fly around to discover how I build software with Claude. No installs, just a link."
     />
+    <meta name="twitter:image" content="%BASE_URL%share-card.png" />
   </head>
   <body>
     <div id="root"></div>
