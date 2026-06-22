@@ -28,6 +28,8 @@ export interface DiscoverySnapshot {
   discoveredIds: string[];
   discoveredCount: number;
   total: number;
+  /** True once every POI is discovered — derived from count and total in set(). */
+  completed: boolean;
 }
 
 export interface DiscoveryStore {
@@ -50,13 +52,19 @@ export function createDiscoveryStore(total: number): DiscoveryStore {
     discoveredIds: [],
     discoveredCount: 0,
     total,
+    completed: false,
   };
 
   const emit = () => {
     for (const l of listeners) l();
   };
   const set = (next: Partial<DiscoverySnapshot>) => {
-    snapshot = { ...snapshot, ...next };
+    const merged = { ...snapshot, ...next };
+    // Derive completion here (not in a setter's argument path) so a snapshot
+    // mutated via openPoi/setNearby never carries a stale completed. The
+    // total > 0 guard stops an empty store reading as instantly complete.
+    merged.completed = merged.discoveredCount === merged.total && merged.total > 0;
+    snapshot = merged;
     emit();
   };
 

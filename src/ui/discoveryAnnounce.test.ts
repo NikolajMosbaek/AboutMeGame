@@ -10,6 +10,7 @@ function snap(over: Partial<DiscoverySnapshot> = {}): DiscoverySnapshot {
     discoveredIds: [],
     discoveredCount: 0,
     total: 13,
+    completed: false,
     ...over,
   };
 }
