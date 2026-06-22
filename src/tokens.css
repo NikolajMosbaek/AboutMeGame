@@ -913,3 +913,17 @@ body {
     padding-top: calc(var(--space-4) * 1.5);
   }
 }
+
+/* WebGL-unavailable fallback (#50 "can't play"). */
+.webgl-fallback {
+  max-width: var(--layout-max-width);
+  margin: 0 auto;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-2);
+  text-align: center;
+}

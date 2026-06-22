@@ -27,6 +27,8 @@ export interface GameHandle {
   nav: NavStore;
   settings: SettingsStore;
   session: GameSession;
+  /** Toggle shadow casting live when graphics quality changes (#47). */
+  setShadowsEnabled?: (enabled: boolean) => void;
 }
 
 export interface GameCanvasProps {
@@ -69,6 +71,7 @@ export function GameCanvas({
   const [game, setGame] = useState<GameHandle | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
+  const [webglError, setWebglError] = useState(false);
 
   // Resolve the device tier once for this mount — `detectDeviceTier` reads real
   // hardware signals, so it's stable for the session and cheap to memoise.
@@ -85,11 +88,20 @@ export function GameCanvas({
     // same persisted store the menu writes, so the two agree at mount.
     const quality = resolveQuality(createSettingsStore().getSnapshot().quality, deviceTier);
 
-    const renderer = createRenderer({
-      canvas,
-      maxPixelRatio: quality.maxPixelRatio,
-      shadows: quality.shadows,
-    });
+    // A device without a usable WebGL context throws here. Don't crash — fall
+    // back to a message pointing at the no-WebGL text view (#50 "can't play").
+    let renderer: ReturnType<typeof createRenderer>;
+    try {
+      renderer = createRenderer({
+        canvas,
+        maxPixelRatio: quality.maxPixelRatio,
+        shadows: quality.shadows,
+      });
+    } catch (err) {
+      console.error("WebGL unavailable — falling back to the text view:", err);
+      setWebglError(true);
+      return;
+    }
     rendererRef.current = renderer;
     const eng = new Engine({ renderer });
     const built = build(eng, container, quality);
@@ -145,6 +157,10 @@ export function GameCanvas({
         maxPixelRatio: quality.maxPixelRatio,
         shadows: quality.shadows,
       });
+      // Re-apply the shadow caster too, so toggling quality up re-enables shadows
+      // (the renderer's shadowMap.enabled flag alone can't, since the caster was
+      // built without castShadow).
+      game?.setShadowsEnabled?.(quality.shadows);
     };
     apply(); // sync once in case the store changed between build and subscribe
     return settings.subscribe(apply);
@@ -179,6 +195,22 @@ export function GameCanvas({
 
   const closeMenu = useCallback(() => setMenuOpen(false), []);
   const resetProgress = useCallback(() => game?.discovery.reset(), [game]);
+
+  if (webglError) {
+    return (
+      <main className="webgl-fallback">
+        <h2>3D couldn’t start here</h2>
+        <p>
+          Your browser or device couldn’t start the 3D view. Nothing’s lost — head
+          back and choose <strong>“Read it without playing”</strong> to read every
+          landmark as text.
+        </p>
+        <button type="button" className="cta" onClick={() => onExit?.()}>
+          Back to start
+        </button>
+      </main>
+    );
+  }
 
   return (
     <div ref={containerRef} className="game-canvas-container">

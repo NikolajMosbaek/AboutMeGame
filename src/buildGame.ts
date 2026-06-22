@@ -21,6 +21,10 @@ export interface Game {
   nav: NavStore;
   /** Persisted player settings (#41), read/written by the pause menu. */
   settings: SettingsStore;
+  /** Toggle the sun's shadow casting live (#47), so a quality change in the menu
+   *  re-applies shadows in BOTH directions — the renderer's shadowMap.enabled
+   *  flag alone can't turn shadows back on once the caster was built without it. */
+  setShadowsEnabled(enabled: boolean): void;
 }
 
 /**
@@ -62,5 +66,16 @@ export function buildGame(
     new NavSystem(engine, movement.vehicle, discovery.pois, nav, discovery.store),
   );
 
-  return { world, movement, discovery, session, hud, nav, settings };
+  return {
+    world,
+    movement,
+    discovery,
+    session,
+    hud,
+    nav,
+    settings,
+    setShadowsEnabled(enabled) {
+      world.sky.sun.castShadow = enabled;
+    },
+  };
 }
