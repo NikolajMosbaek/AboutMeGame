@@ -21,6 +21,7 @@ describe("resolveQuality", () => {
     expect(low.shadows).toBe(false);
     expect(low.propDensity).toBeLessThanOrEqual(0.5);
     expect(low.waterDisplacement).toBe(false);
+    expect(low.bloom).toBe(false);
   });
 
   it("the medium tier turns shadows on at a smaller map and caps DPR", () => {
@@ -33,6 +34,7 @@ describe("resolveQuality", () => {
     expect(med.propDensity).toBeGreaterThan(0.5);
     expect(med.propDensity).toBeLessThan(1);
     expect(med.waterDisplacement).toBe(true);
+    expect(med.bloom).toBe(true);
   });
 
   it("the high tier is full quality", () => {
@@ -42,6 +44,7 @@ describe("resolveQuality", () => {
     expect(high.shadowMapSize).toBe(2048);
     expect(high.propDensity).toBe(1);
     expect(high.waterDisplacement).toBe(true);
+    expect(high.bloom).toBe(true);
   });
 
   it("monotonically scales every cost knob across the tiers", () => {
@@ -63,5 +66,10 @@ describe("resolveQuality", () => {
     expect(QUALITY_TIERS.low.waterDisplacement).toBe(false);
     expect(QUALITY_TIERS.medium.waterDisplacement).toBe(true);
     expect(QUALITY_TIERS.high.waterDisplacement).toBe(true);
+    // the bloom post-pass is off only at the bottom tier (the full-screen
+    // fill-rate spend is held off mobile to protect the low tier).
+    expect(QUALITY_TIERS.low.bloom).toBe(false);
+    expect(QUALITY_TIERS.medium.bloom).toBe(true);
+    expect(QUALITY_TIERS.high.bloom).toBe(true);
   });
 });
