@@ -48,4 +48,20 @@ describe("landmarks", () => {
     expect(mat.transparent).toBe(true);
     expect(mat.depthWrite).toBe(false);
   });
+
+  // The tower lamp is the second genuine bloom source. Its emissive must carry
+  // the signature colour and its intensity must sit above 0.9 so the lamp
+  // reliably clears the tuned-high bloom threshold under the new
+  // linear + OutputPass compositor chain — guarding that threshold-clearing
+  // invariant against future tweaks.
+  it("gives the tower lamp emissive colour and emissiveIntensity > 0.9 (bloom threshold invariant)", () => {
+    const tower = POI_ANCHORS.find((a) => a.archetype === "tower")!;
+    const placed = landmarks.placed.find((p) => p.poiId === tower.poiId)!;
+    const lamp = placed.object.getObjectByName("lamp");
+    expect(lamp, "tower lamp mesh").toBeInstanceOf(THREE.Mesh);
+    const mat = (lamp as THREE.Mesh).material as THREE.MeshStandardMaterial;
+    expect(mat).toBeInstanceOf(THREE.MeshStandardMaterial);
+    expect(mat.emissive.getHex()).toBe(tower.color);
+    expect(mat.emissiveIntensity).toBeGreaterThan(0.9);
+  });
 });

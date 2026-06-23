@@ -164,8 +164,14 @@ function buildArchetype(
       shaft.position.y = 7;
       const lamp = mesh(track(new THREE.IcosahedronGeometry(2.2, 0), d), accent);
       lamp.position.y = 15;
+      lamp.name = "lamp";
+      // The lamp is the second genuine bloom source (with the beacon) on the
+      // medium/high compositor path. Under the linear + OutputPass chain the
+      // bloom threshold is tuned high so ordinary lit stone, sky and water do
+      // not glow; push the lamp's emissive past 1.0 so its post-tonemap
+      // luminance reliably clears that threshold — guarded by landmarks.test.ts.
       (lamp.material as THREE.MeshStandardMaterial).emissive = new THREE.Color(color);
-      (lamp.material as THREE.MeshStandardMaterial).emissiveIntensity = 0.9;
+      (lamp.material as THREE.MeshStandardMaterial).emissiveIntensity = 1.6;
       g.add(shaft, lamp);
       break;
     }
