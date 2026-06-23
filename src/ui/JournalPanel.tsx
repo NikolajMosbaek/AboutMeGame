@@ -1,4 +1,4 @@
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { DiscoveryStore } from "../discovery/discoveryStore.ts";
 import type { JournalPoi } from "../content/discoverablePois.ts";
 import {
@@ -19,6 +19,18 @@ export interface JournalPanelProps {
   consumeInteract: () => boolean;
 }
 
+const LOCK_LABEL = "Undiscovered landmark";
+
+/** The focusable stops inside a node, in document order, skipping disabled ones
+ *  (the locked rows). Used to seat focus on open and to wrap Tab/Shift+Tab. */
+function focusable(root: HTMLElement): HTMLElement[] {
+  return Array.from(
+    root.querySelectorAll<HTMLElement>(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+    ),
+  ).filter((el) => !el.hasAttribute("disabled"));
+}
+
 /**
  * In-game Journal (M3). Its own component + state, never a mode flag. Lists all
  * landmarks ordered by `order`; discovered rows show title + teaser, undiscovered
@@ -30,20 +42,69 @@ export interface JournalPanelProps {
  * `store.openPoi` re-deriving the full open input from `journalPois` (never from
  * a row, so no locked body can leak). GameCanvas owns the open/close state and
  * the pause handoff; this component is the surface + the guarded open action.
+ *
+ * A11y: `role=dialog` + `aria-modal`, focus seated inside on open, a focus trap
+ * that wraps Tab/Shift+Tab within the dialog, Escape and backdrop-click to close,
+ * and a dialog-scoped polite `sr-only` live region (the GuessBody pattern) that
+ * announces a newly discovered landmark while the journal is open. The announcer
+ * is a sibling of the Hud's, scoped inside this dialog, so the Hud's single
+ * live-region invariant holds.
  */
 export function JournalPanel({ store, journalPois, onClose, consumeInteract }: JournalPanelProps) {
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const entries = buildJournalEntries(journalPois, snap.discoveredIds);
 
-  // The journal owns Escape while topmost (GameCanvas's opener defers to it), so
-  // it closes itself here. Full focus-trap polish lands with the panel's own a11y.
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const [announcement, setAnnouncement] = useState("");
+  const prevCountRef = useRef(snap.discoveredCount);
+
+  // Seat focus inside the dialog on open, and wire Escape + a Tab focus trap.
+  // The journal owns Escape while topmost (GameCanvas's opener defers to it).
   useEffect(() => {
+    const dialog = dialogRef.current;
+    if (dialog) {
+      const first = focusable(dialog)[0];
+      (first ?? dialog).focus();
+    }
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        onClose();
+        return;
+      }
+      if (e.key === "Tab" && dialog) {
+        const stops = focusable(dialog);
+        if (stops.length === 0) {
+          e.preventDefault();
+          return;
+        }
+        const firstStop = stops[0];
+        const lastStop = stops[stops.length - 1];
+        const active = document.activeElement;
+        if (e.shiftKey && active === firstStop) {
+          e.preventDefault();
+          lastStop.focus();
+        } else if (!e.shiftKey && active === lastStop) {
+          e.preventDefault();
+          firstStop.focus();
+        } else if (active && !dialog.contains(active)) {
+          // Focus escaped the dialog (e.g. nothing inside was focused): pull it back.
+          e.preventDefault();
+          firstStop.focus();
+        }
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
+
+  // Politely announce a landmark unlocking while the journal is open. Guarded by
+  // the previous count so it never fires on mount or on an unrelated re-render.
+  useEffect(() => {
+    if (snap.discoveredCount > prevCountRef.current) {
+      setAnnouncement("New landmark discovered.");
+    }
+    prevCountRef.current = snap.discoveredCount;
+  }, [snap.discoveredCount]);
 
   const open = (id: string) => {
     // Re-check against the live discovered set, never the row that may be stale.
@@ -68,7 +129,14 @@ export function JournalPanel({ store, journalPois, onClose, consumeInteract }: J
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="menu" role="dialog" aria-modal="true" aria-labelledby="journal-title">
+      <div
+        ref={dialogRef}
+        className="menu"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="journal-title"
+        tabIndex={-1}
+      >
         <h2 id="journal-title" className="menu__title">
           Journal
         </h2>
@@ -76,13 +144,18 @@ export function JournalPanel({ store, journalPois, onClose, consumeInteract }: J
           {entries.map((entry) =>
             entry.locked ? (
               <li key={entry.id}>
-                <button type="button" className="journal__entry journal__entry--locked" disabled>
+                <button
+                  type="button"
+                  className="journal__entry journal__entry--locked"
+                  disabled
+                  aria-label={LOCK_LABEL}
+                >
                   <span
                     className="journal__swatch"
                     style={{ background: `#${entry.color.toString(16).padStart(6, "0")}` }}
                     aria-hidden="true"
                   />
-                  <span className="journal__locked-label">Undiscovered landmark</span>
+                  <span className="journal__locked-label">{LOCK_LABEL}</span>
                 </button>
               </li>
             ) : (
@@ -108,6 +181,10 @@ export function JournalPanel({ store, journalPois, onClose, consumeInteract }: J
           <button type="button" className="cta" onClick={onClose}>
             Close
           </button>
+        </div>
+
+        <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+          {announcement}
         </div>
       </div>
     </div>
