@@ -87,3 +87,52 @@ describe("createInput — keyboard mapping & edge events", () => {
     expect(input.touchActive).toBe(false);
   });
 });
+
+describe("createInput — eager touch mount (injectable seam)", () => {
+  let input: InputController;
+  let overlay: HTMLElement;
+
+  afterEach(() => {
+    input?.dispose();
+    overlay?.remove();
+  });
+
+  function make(touchCapable: boolean) {
+    overlay = document.createElement("div");
+    document.body.appendChild(overlay);
+    input = createInput(overlay, touchCapable);
+    return input;
+  }
+
+  it("mounts controls eagerly so the FIRST USE tap fires interact once, no prior touchstart", () => {
+    make(true);
+    const useBtn = overlay.querySelector<HTMLButtonElement>(".touch-use");
+    expect(useBtn).not.toBeNull();
+    // A single plain pointerdown — NOT a PointerEvent (not a constructor in this
+    // jsdom) — landing on a real, already-mounted button, no touchstart first.
+    useBtn!.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    expect(input.consumeInteract()).toBe(true);
+    expect(input.consumeInteract()).toBe(false);
+  });
+
+  it("mounts the joystick eagerly and reports touch active when touchCapable", () => {
+    make(true);
+    expect(overlay.querySelector(".touch-joystick")).not.toBeNull();
+    expect(input.touchActive).toBe(true);
+  });
+
+  it("mounts no touch elements when not touchCapable", () => {
+    make(false);
+    expect(overlay.querySelector(".touch-use")).toBeNull();
+    expect(overlay.querySelector(".touch-joystick")).toBeNull();
+    expect(input.touchActive).toBe(false);
+  });
+
+  it("does not double-append when a coarse device also fires touchstart", () => {
+    make(true);
+    overlay.dispatchEvent(new Event("touchstart", { bubbles: true }));
+    overlay.dispatchEvent(new Event("touchstart", { bubbles: true }));
+    expect(overlay.querySelectorAll(".touch-use").length).toBe(1);
+    expect(overlay.querySelectorAll(".touch-joystick").length).toBe(1);
+  });
+});

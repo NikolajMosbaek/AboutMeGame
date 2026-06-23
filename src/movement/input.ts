@@ -5,6 +5,18 @@
 // axes are level-triggered; mode-toggle and interact are edge-triggered and
 // consumed once, so a held key fires them a single time.
 
+import { readEnv } from "../perf/deviceCapability.ts";
+
+/** The one coarse-pointer notion the codebase uses (mirrors deviceCapability's
+ *  `isTouch`): a device is touch-capable when its primary pointer is coarse or
+ *  it reports touch points. Derived from the injectable `readEnv()` so this stays
+ *  a pure read with a single source of truth — no second matchMedia/ontouchstart
+ *  probe to drift out of sync. */
+function defaultTouchCapable(): boolean {
+  const env = readEnv();
+  return env.coarsePointer || env.maxTouchPoints > 0;
+}
+
 export interface ControlState {
   /** Forward/back intent, -1..1. Drive: accelerate/brake-reverse. Fly: pitch. */
   forward: number;
@@ -40,9 +52,23 @@ export interface InputController extends InputSnapshot {
 /**
  * Build the input controller. `overlay` is the DOM element touch controls mount
  * into (the canvas container). Keyboard binds to window; gamepad is polled in
- * `update()`. Touch controls are created lazily on first touch.
+ * `update()`.
+ *
+ * `touchCapable` is the one injectable decision for whether the on-screen touch
+ * controls mount eagerly (a coarse-pointer / touch device) — defaulting to a
+ * `deviceCapability.readEnv()`-derived read so tests and previews can substitute
+ * their own value instead of probing globals. When true the controls are built
+ * synchronously at construction, so the USE button's DOM exists before any input
+ * and the very first tap lands on a real button (the iOS-Safari fix, #148). When
+ * false (desktop / jsdom default, where matchMedia is guarded to false and
+ * maxTouchPoints reads 0) nothing mounts and `touchActive` stays false. A device
+ * that fires touch yet reports neither signal still gets controls via an
+ * idempotent `touchstart` fallback inside the touch layer.
  */
-export function createInput(overlay: HTMLElement): InputController {
+export function createInput(
+  overlay: HTMLElement,
+  touchCapable: boolean = defaultTouchCapable(),
+): InputController {
   const state = zeroState();
   let toggleQueued = false;
   let interactQueued = false;
@@ -79,11 +105,15 @@ export function createInput(overlay: HTMLElement): InputController {
   };
 
   // ---- Touch (#32): left virtual joystick + right thrust + two buttons ----
-  const touch = createTouchControls(overlay, {
-    onToggle: () => (toggleQueued = true),
-    onInteract: () => (interactQueued = true),
-    onActive: () => (touchActive = true),
-  });
+  const touch = createTouchControls(
+    overlay,
+    {
+      onToggle: () => (toggleQueued = true),
+      onInteract: () => (interactQueued = true),
+      onActive: () => (touchActive = true),
+    },
+    touchCapable,
+  );
 
   // ---- Gamepad (#33): standard mapping, polled each frame ----
   const readGamepad = (): {
@@ -179,10 +209,15 @@ interface TouchReadout {
 /**
  * A minimal on-screen control set for touch devices: a left virtual joystick
  * (drag = forward/turn), a right thrust pad (hold = climb), and FLY/USE buttons.
- * Created lazily on first touch so desktop never sees it. Epic 5's HUD can
- * restyle these, but they drive the same `ControlState`.
+ * Epic 5's HUD can restyle these, but they drive the same `ControlState`.
+ *
+ * When `touchCapable` the controls build eagerly at construction so the USE
+ * button exists before the first tap (the #148 fix — a lazy first-touch build
+ * swallowed that opening tap). The `touchstart` listener stays only as an
+ * idempotent, `built`-guarded fallback for a device that fires touch but reports
+ * neither a coarse pointer nor maxTouchPoints; it never appends a second set.
  */
-function createTouchControls(overlay: HTMLElement, h: TouchHandlers) {
+function createTouchControls(overlay: HTMLElement, h: TouchHandlers, touchCapable: boolean) {
   let built = false;
   const readout: TouchReadout = { active: false, forward: 0, turn: 0, thrust: 0, boost: false };
   let stick: HTMLDivElement | null = null;
@@ -251,6 +286,11 @@ function createTouchControls(overlay: HTMLElement, h: TouchHandlers) {
       h.onInteract();
     });
   };
+
+  // Eager mount on a known touch device: build synchronously now, before any
+  // input, so the first USE tap lands on a real button. `build()` itself is
+  // guarded, so the touchstart fallback below can never construct a second set.
+  if (touchCapable) build();
 
   const onFirstTouch = () => build();
   overlay.addEventListener("touchstart", onFirstTouch, { passive: true });
