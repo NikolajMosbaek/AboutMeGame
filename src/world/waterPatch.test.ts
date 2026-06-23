@@ -184,6 +184,71 @@ describe("makeWaterPatch — no-foam variant (heightAt absent)", () => {
   });
 });
 
+describe("makeWaterPatch — no-foam variant (T5: leak-free + cache-key disambiguation)", () => {
+  it("adds NO new sampler2D and NO ground-texture sampling in the no-foam program", () => {
+    const shader = freshShader();
+    makeWaterPatch({ hasFoam: false, uniforms: {} }).onBeforeCompile(
+      shader as unknown as THREE.WebGLProgramParametersWithUniforms,
+    );
+    const patchedFs = stripGlslComments(shader.fragmentShader);
+    const baseFs = stripGlslComments(THREE.ShaderLib.standard.fragmentShader);
+    // The base MeshStandard program declares its own optional-map samplers; the
+    // contract is that the no-foam patch introduces NONE of its own. Counting the
+    // `sampler2D` tokens, the patched program must match the base exactly — proof
+    // the variant carries no dangling sampler the runtime would have to bind (AC8).
+    const countSamplers = (s: string) => (s.match(/\bsampler2D\b/g) ?? []).length;
+    expect(countSamplers(patchedFs)).toBe(countSamplers(baseFs));
+    // The foam sampler in particular is absent.
+    expect(patchedFs).not.toContain("uGroundHeight");
+    // No ground-texture sampling call — the foam lookup is the only sampler call
+    // the patch would ever add, and it is compiled out of this variant.
+    expect(patchedFs).not.toMatch(/texture2D\s*\(\s*uGroundHeight/);
+    expect(patchedFs).not.toMatch(/\btexture\s*\(\s*uGroundHeight/);
+    // And the foam-depth math the sampling feeds is absent too.
+    expect(patchedFs).not.toMatch(/uSeaLevel\s*-/);
+    expect(patchedFs).not.toContain("groundUV");
+  });
+
+  it("keeps the vWorldXZ varying but uses it for NO foam sampling in the no-foam fragment", () => {
+    const shader = freshShader();
+    makeWaterPatch({ hasFoam: false, uniforms: {} }).onBeforeCompile(
+      shader as unknown as THREE.WebGLProgramParametersWithUniforms,
+    );
+    const fs = stripGlslComments(shader.fragmentShader);
+    // The varying is still declared (the vertex stage is variant-agnostic)...
+    expect(fs).toMatch(/varying\s+vec2\s+vWorldXZ/);
+    // ...but the fragment never reads it into a UV / sampler lookup.
+    expect(fs).not.toMatch(/vWorldXZ\s*\//); // no `vWorldXZ / (...extent...)`
+    expect(fs).not.toContain("groundUV");
+  });
+
+  it("retains the fresnel colour ramp in the no-foam fragment", () => {
+    const shader = freshShader();
+    makeWaterPatch({ hasFoam: false, uniforms: {} }).onBeforeCompile(
+      shader as unknown as THREE.WebGLProgramParametersWithUniforms,
+    );
+    const fs = stripGlslComments(shader.fragmentShader);
+    expect(fs).toMatch(/pow\s*\(\s*1\.0\s*-\s*max\s*\(\s*dot\s*\(/);
+    expect(fs).toMatch(/mix\s*\(\s*uWaterShallow\s*,\s*uWaterDeep/);
+  });
+
+  it("returns a no-foam cache key distinct from the foam variant AND from a default MeshStandard program", () => {
+    const noFoam = makeWaterPatch({ hasFoam: false, uniforms: {} }).customProgramCacheKey();
+    const foam = makeWaterPatch({ hasFoam: true, uniforms: {} }).customProgramCacheKey();
+    // Constant per variant, and distinct from the foam variant.
+    expect(noFoam).toBe(makeWaterPatch({ hasFoam: false, uniforms: {} }).customProgramCacheKey());
+    expect(noFoam).not.toBe(foam);
+    // A material WITHOUT a customProgramCacheKey (terrain/props use the stock
+    // MeshStandard program) caches under three's default empty key. The patched
+    // water key must be a non-empty string so it never collides with those.
+    expect(noFoam).not.toBe("");
+    expect(foam).not.toBe("");
+    // Namespaced so neither water variant can collide with a sibling program key.
+    expect(noFoam).toMatch(/^water-/);
+    expect(foam).toMatch(/^water-/);
+  });
+});
+
 describe("makeWaterPatch — uniform wiring", () => {
   it("merges the caller-supplied uniforms onto shader.uniforms", () => {
     const uniforms = {
