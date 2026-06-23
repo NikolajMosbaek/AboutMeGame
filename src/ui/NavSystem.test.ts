@@ -94,6 +94,46 @@ describe("NavSystem (#44)", () => {
     expect(navStore.getSnapshot().markers[0].label).toBe("60 m");
   });
 
+  it("excludes a discovered POI when the showDiscovered reader returns false", () => {
+    const cam = frontCamera();
+    const pois = [poi("ahead", new THREE.Vector3(0, 0, -100))];
+    const navStore = createNavStore();
+    const discovery = createDiscoveryStore(pois.length);
+    discovery.setDiscovered(["ahead"]);
+    const sys = new NavSystem(
+      fakeEngine(cam),
+      fakeVehicle(new THREE.Vector3(0, 0, 0)),
+      pois,
+      navStore,
+      discovery,
+      () => false,
+    );
+
+    sys.update(ctx);
+    expect(navStore.getSnapshot().markers).toHaveLength(0);
+  });
+
+  it("includes a discovered POI when the showDiscovered reader returns true", () => {
+    const cam = frontCamera();
+    const pois = [poi("ahead", new THREE.Vector3(0, 0, -100))];
+    const navStore = createNavStore();
+    const discovery = createDiscoveryStore(pois.length);
+    discovery.setDiscovered(["ahead"]);
+    const sys = new NavSystem(
+      fakeEngine(cam),
+      fakeVehicle(new THREE.Vector3(0, 0, 0)),
+      pois,
+      navStore,
+      discovery,
+      () => true,
+    );
+
+    sys.update(ctx);
+    const markers = navStore.getSnapshot().markers;
+    expect(markers).toHaveLength(1);
+    expect(markers[0].id).toBe("ahead");
+  });
+
   it("caps off-screen edge arrows to the 3 nearest undiscovered POIs", () => {
     const cam = frontCamera();
     // Five POIs all behind the camera (off-screen) at increasing distances.

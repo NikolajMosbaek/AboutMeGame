@@ -35,8 +35,19 @@ export default tseslint.config(
       // boundaries (stub renderers in tests, THREE interop) — keep them as a
       // warning, not an error.
       "@typescript-eslint/no-explicit-any": "warn",
-      // Allow unused args prefixed with _ (e.g. `_ctx` in System.update).
-      "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_" }],
+      // Allow unused args prefixed with _ (e.g. `_ctx` in System.update) and
+      // unused destructured bindings prefixed with _ (e.g. the `_position` drop
+      // in `toJournalPoi`, where rest-destructuring is the idiomatic field omit).
+      // `ignoreRestSiblings` covers the rest-destructure discard regardless of
+      // name; `varsIgnorePattern`/`argsIgnorePattern` cover the `_`-prefix idiom.
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        {
+          argsIgnorePattern: "^_",
+          varsIgnorePattern: "^_",
+          ignoreRestSiblings: true,
+        },
+      ],
     },
   },
   {

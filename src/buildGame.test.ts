@@ -98,3 +98,52 @@ describe("buildGame audio/fx wiring", () => {
     engine.dispose();
   });
 });
+
+describe("buildGame discovery.journalPois seam", () => {
+  it("exposes a position-free journalPois projection of all 13 landmarks, while pois keeps position", () => {
+    const { engine, overlay } = makeEngineAndOverlay();
+    const game = buildGame(engine, overlay, undefined, undefined);
+
+    const { journalPois, pois } = game.discovery;
+
+    // All 13 landmarks, in the same order as the position-bearing array.
+    expect(journalPois).toHaveLength(13);
+    expect(pois).toHaveLength(13);
+    expect(journalPois.map((p) => p.id)).toEqual(pois.map((p) => p.id));
+
+    for (const entry of journalPois) {
+      // Carries the React-facing content + color.
+      expect(typeof entry.id).toBe("string");
+      expect(typeof entry.order).toBe("number");
+      expect(typeof entry.title).toBe("string");
+      expect(typeof entry.teaser).toBe("string");
+      expect(typeof entry.body).toBe("string");
+      expect(typeof entry.color).toBe("number");
+      // NO THREE.Vector3 leaks into the React-facing shape.
+      expect("position" in entry).toBe(false);
+    }
+
+    // The position-bearing array still carries the THREE.Vector3 NavSystem reads.
+    for (const poi of pois) {
+      expect(poi.position).toBeInstanceOf(THREE.Vector3);
+    }
+
+    engine.dispose();
+  });
+});
+
+describe("buildGame discovery.consumeInteract seam", () => {
+  it("drains the queued interact edge: returns true once then false", () => {
+    const { engine, overlay } = makeEngineAndOverlay();
+    const game = buildGame(engine, overlay, undefined, undefined);
+
+    // Simulate an Enter keydown — input.ts sets interactQueued on the edge.
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+
+    // The handle drains the SAME edge DiscoverySystem.update would consume.
+    expect(game.discovery.consumeInteract()).toBe(true);
+    expect(game.discovery.consumeInteract()).toBe(false);
+
+    engine.dispose();
+  });
+});

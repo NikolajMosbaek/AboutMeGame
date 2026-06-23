@@ -7,6 +7,8 @@ export interface HudProps {
   discovery: DiscoveryStore;
   /** Open the pause/settings menu (the gear button + Escape both call this). */
   onOpenMenu: () => void;
+  /** Open the in-game journal (the book button + J both call this). */
+  onOpenJournal: () => void;
 }
 
 /**
@@ -20,7 +22,7 @@ export interface HudProps {
  * button is the only interactive part (pointer-events), so the HUD never eats the
  * world's drag input.
  */
-export function Hud({ hud, discovery, onOpenMenu }: HudProps) {
+export function Hud({ hud, discovery, onOpenMenu, onOpenJournal }: HudProps) {
   const h = useSyncExternalStore(hud.subscribe, hud.getSnapshot);
   const d = useSyncExternalStore(discovery.subscribe, discovery.getSnapshot);
   const flying = h.mode === "fly";
@@ -69,6 +71,15 @@ export function Hud({ hud, discovery, onOpenMenu }: HudProps) {
         <button
           type="button"
           className="hud-menu-btn"
+          aria-label="Open journal"
+          title="Journal (J)"
+          onClick={onOpenJournal}
+        >
+          📖
+        </button>
+        <button
+          type="button"
+          className="hud-menu-btn"
           aria-label="Open menu"
           title="Menu (Esc)"
           onClick={onOpenMenu}
@@ -78,7 +89,7 @@ export function Hud({ hud, discovery, onOpenMenu }: HudProps) {
       </div>
 
       <p className="hud-controls" aria-hidden="true">
-        WASD move · F fly · E reveal · Esc menu
+        WASD move · F fly · E reveal · J journal · Esc menu
       </p>
     </>
   );

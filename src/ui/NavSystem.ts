@@ -28,10 +28,15 @@ export class NavSystem implements System {
     private readonly pois: DiscoverablePoi[],
     private readonly navStore: NavStore,
     private readonly discovery: DiscoveryStore,
+    // When this returns true, already-discovered landmarks keep their markers
+    // (the "show discovered markers" setting, #M3). Defaulted off so existing
+    // construction sites are byte-for-byte unchanged and add zero per-frame cost.
+    private readonly showDiscovered: () => boolean = () => false,
   ) {}
 
   update(_ctx: FrameContext): void {
     const discovered = new Set(this.discovery.getSnapshot().discoveredIds);
+    const showDiscovered = this.showDiscovered();
     const camera = this.engine.camera;
     // Refresh the camera's world/inverse matrices so projection is exact for
     // THIS frame (the renderer otherwise only updates them at render time, one
@@ -44,7 +49,7 @@ export class NavSystem implements System {
     const offScreen: Pending[] = [];
 
     for (const poi of this.pois) {
-      if (discovered.has(poi.id)) continue;
+      if (discovered.has(poi.id) && !showDiscovered) continue;
 
       const dist = eye.distanceTo(poi.position);
       const label = `${Math.round(dist)} m`;

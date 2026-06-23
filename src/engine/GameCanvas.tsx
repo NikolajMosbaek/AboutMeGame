@@ -12,10 +12,12 @@ import { Hud } from "../ui/Hud.tsx";
 import { NavMarkers } from "../ui/NavMarkers.tsx";
 import { Onboarding } from "../ui/Onboarding.tsx";
 import { SettingsMenu } from "../ui/SettingsMenu.tsx";
+import { JournalPanel } from "../ui/JournalPanel.tsx";
 import { DiscoveryAnnouncer } from "../ui/DiscoveryAnnouncer.tsx";
 import { CompletionPanel } from "../ui/CompletionPanel.tsx";
 import { SpeedVignette } from "../fx/SpeedVignette.tsx";
 import type { DiscoveryStore } from "../discovery/discoveryStore.ts";
+import type { JournalPoi } from "../content/discoverablePois.ts";
 import type { HudStore } from "../ui/hudStore.ts";
 import type { NavStore } from "../ui/navStore.ts";
 import type { SettingsStore } from "../settings/settingsStore.ts";
@@ -28,6 +30,14 @@ export interface GameHandle {
     store: DiscoveryStore;
     reset(): void;
     pois: { id: string; order: number; title: string }[];
+    /** Position-free projection of the landmarks for the journal UI (M3): content
+     *  + colour with no THREE leaking into React. Additive to `pois`, which keeps
+     *  the THREE `position` NavSystem reads. */
+    journalPois: JournalPoi[];
+    /** Drain the queued interact edge before opening a reveal from the journal,
+     *  so the next `DiscoverySystem.update` can't consume a stale Enter/e press
+     *  and close it one tick later. */
+    consumeInteract(): boolean;
   };
   hud: HudStore;
   nav: NavStore;
@@ -76,6 +86,7 @@ export function GameCanvas({
   const [engine, setEngine] = useState<Engine | null>(null);
   const [game, setGame] = useState<GameHandle | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [journalOpen, setJournalOpen] = useState(false);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [completionOpen, setCompletionOpen] = useState(false);
   const [webglError, setWebglError] = useState(false);
@@ -145,6 +156,7 @@ export function GameCanvas({
       setEngine(null);
       setGame(null);
       setMenuOpen(false);
+      setJournalOpen(false);
     };
   }, [build, deviceTier]);
 
@@ -184,24 +196,74 @@ export function GameCanvas({
     game?.session.setPaused("menu", menuOpen);
   }, [game, menuOpen]);
 
-  // Escape opens the menu — but only when no reveal panel is open (RevealPanel
-  // owns Escape while open; SettingsMenu owns it while the menu is up). This
-  // handler is the single opener.
+  // The journal pauses the sim under its own reason — distinct from the menu and
+  // the reveal, so the three coexist in the session's reason Set. Mirrors the
+  // menu effect above; the reveal reason is owned by DiscoverySystem (derived
+  // each frame from store.open), so the journal never writes it.
+  useEffect(() => {
+    game?.session.setPaused("journal", journalOpen);
+  }, [game, journalOpen]);
+
+  // The reveal handoff (flaw three): when a journal entry opens a reveal,
+  // DiscoverySystem only establishes the "reveal" pause reason on its NEXT tick,
+  // one frame after the React `openPoi` commit. If we cleared `journalOpen` at
+  // that commit, the journal reason would drop before the reveal reason was
+  // added — `paused` would read false for one frame and the vehicle would
+  // integrate motion. So we keep `journalOpen` set and clear it only once BOTH
+  // the store reports `open != null` AND the session's "reveal" reason is live,
+  // i.e. once DiscoverySystem has taken over the pause. We poll per frame from
+  // the open commit because that reason flip happens inside the engine loop and
+  // emits no store event; the rAF stops the instant the reveal reason lands.
+  useEffect(() => {
+    if (!game || !journalOpen) return;
+    const { store } = game.discovery;
+    const { session } = game;
+    let raf = 0;
+    const tryHandoff = () => {
+      if (store.getSnapshot().open && session.isPaused("reveal")) {
+        setJournalOpen(false); // reveal reason now overlaps — safe to drop journal
+        return;
+      }
+      raf = requestAnimationFrame(tryHandoff);
+    };
+    tryHandoff();
+    return () => cancelAnimationFrame(raf);
+  }, [game, journalOpen]);
+
+  // The single keyboard opener. Escape opens the menu and J opens the journal,
+  // each only when no other modal owns the foreground — so two modals never
+  // stack (RevealPanel/SettingsMenu/CompletionPanel/Onboarding/journal each own
+  // their own keys while up). The journal owns Escape while topmost.
   useEffect(() => {
     if (!game) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      if (menuOpen) return; // SettingsMenu handles closing.
-      if (onboardingOpen) return; // don't open a hidden menu behind onboarding.
-      if (completionOpen) return; // CompletionPanel owns Escape while it's up.
-      if (game.discovery.store.getSnapshot().open) return; // RevealPanel owns it.
-      setMenuOpen(true);
+      // Escape opens the menu — but only when no other modal owns Escape, and
+      // the journal owns it while topmost (it closes itself, below). J opens the
+      // journal under the same precedence chain, so two modals never stack.
+      if (e.key === "Escape") {
+        if (journalOpen) return; // JournalPanel handles closing while topmost.
+        if (menuOpen) return; // SettingsMenu handles closing.
+        if (onboardingOpen) return; // don't open a hidden menu behind onboarding.
+        if (completionOpen) return; // CompletionPanel owns Escape while it's up.
+        if (game.discovery.store.getSnapshot().open) return; // RevealPanel owns it.
+        setMenuOpen(true);
+        return;
+      }
+      if (e.key === "j" || e.key === "J") {
+        if (journalOpen) return; // already open.
+        if (menuOpen) return; // a modal is up.
+        if (onboardingOpen) return;
+        if (completionOpen) return;
+        if (game.discovery.store.getSnapshot().open) return; // reveal is up.
+        setJournalOpen(true);
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [game, menuOpen, onboardingOpen, completionOpen]);
+  }, [game, menuOpen, journalOpen, onboardingOpen, completionOpen]);
 
   const closeMenu = useCallback(() => setMenuOpen(false), []);
+  const closeJournal = useCallback(() => setJournalOpen(false), []);
   const resetProgress = useCallback(() => game?.discovery.reset(), [game]);
 
   if (webglError) {
@@ -227,7 +289,12 @@ export function GameCanvas({
       {game && (
         <>
           <SpeedVignette hud={game.hud} settings={game.settings} />
-          <Hud hud={game.hud} discovery={game.discovery.store} onOpenMenu={() => setMenuOpen(true)} />
+          <Hud
+            hud={game.hud}
+            discovery={game.discovery.store}
+            onOpenMenu={() => setMenuOpen(true)}
+            onOpenJournal={() => setJournalOpen(true)}
+          />
           <DiscoveryAnnouncer store={game.discovery.store} />
           <NavMarkers nav={game.nav} />
           <RevealPanel store={game.discovery.store} pois={game.discovery.pois} />
@@ -239,6 +306,14 @@ export function GameCanvas({
             onOpenChange={setCompletionOpen}
           />
           <Onboarding onOpenChange={setOnboardingOpen} />
+          {journalOpen && (
+            <JournalPanel
+              store={game.discovery.store}
+              journalPois={game.discovery.journalPois}
+              onClose={closeJournal}
+              consumeInteract={game.discovery.consumeInteract}
+            />
+          )}
           {menuOpen && (
             <SettingsMenu
               settings={game.settings}

@@ -9,6 +9,10 @@ export interface GameSession {
   readonly paused: boolean;
   /** Add (`true`) or clear (`false`) a named pause reason. */
   setPaused(reason: string, paused: boolean): void;
+  /** True while a *specific* named reason is active. Lets the journal hand the
+   *  pause off to the reveal without a gap: it keeps its own reason until it
+   *  sees the `reveal` reason established, so the two overlap (M3 flaw three). */
+  isPaused(reason: string): boolean;
 }
 
 export function createSession(): GameSession {
@@ -20,6 +24,9 @@ export function createSession(): GameSession {
     setPaused(reason, paused) {
       if (paused) reasons.add(reason);
       else reasons.delete(reason);
+    },
+    isPaused(reason) {
+      return reasons.has(reason);
     },
   };
 }

@@ -21,6 +21,20 @@ export interface DiscoverablePoi {
   interaction?: PoiInteraction;
 }
 
+/** A POI projected for the React-facing journal: the same content + colour a
+ *  `DiscoverablePoi` carries, but with the THREE `position` dropped, so the
+ *  journal UI gets `body`/`teaser`/`interaction` without leaking THREE into the
+ *  DOM shell. NavSystem keeps reading the position-bearing array. */
+export type JournalPoi = Omit<DiscoverablePoi, "position">;
+
+/** Project a position-bearing POI onto the position-free journal shape. Pure;
+ *  drops `position` so the structural seam between the engine array (NavSystem)
+ *  and the React-facing array is additive, never widening one field with THREE. */
+export function toJournalPoi(poi: DiscoverablePoi): JournalPoi {
+  const { position: _position, ...rest } = poi;
+  return rest;
+}
+
 /**
  * POI placement / binding system (issue #36): join the data-driven world anchors
  * (`POI_ANCHORS`) with the content (`working-with-claude.json`) by id. The world

@@ -58,6 +58,15 @@ const POIS = [
   { id: "poi-gamma", order: 3, title: "Gamma" },
 ];
 
+// The position-free journal projection the handle exposes alongside POIS (M3):
+// same ids/order, with the content + colour the journal renders and no THREE.
+const JOURNAL_POIS = POIS.map((p) => ({
+  ...p,
+  teaser: `${p.title} teaser`,
+  body: `${p.title} body`,
+  color: 0xffffff,
+}));
+
 /** The thirteen ordered landmarks the real island carries — three is enough to
  *  drive the latch here. The build hook hands GameCanvas a real handle built on
  *  the real stores, so the completion latch and reset() run for real. */
@@ -68,10 +77,12 @@ function makeHandle(): { handle: GameHandle; store: DiscoveryStore; resetCalls: 
     discovery: {
       store,
       pois: POIS,
+      journalPois: JOURNAL_POIS,
       reset() {
         resetCalls += 1;
         store.setDiscovered([]);
       },
+      consumeInteract: () => false,
     },
     hud: createHudStore(),
     nav: createNavStore(),
@@ -90,6 +101,33 @@ function driveToCompletion(store: DiscoveryStore) {
   });
   act(() => store.closePoi());
 }
+
+describe("GameCanvas — handle seam shape (T13)", () => {
+  it("exposes a position-free journalPois sibling and a consumeInteract drain", () => {
+    const { handle } = makeHandle();
+
+    // journalPois is the sibling projection, not the same reference as pois…
+    expect(handle.discovery.journalPois).not.toBe(handle.discovery.pois);
+    // …same ids/order as POIS, carrying the journal content + colour…
+    expect(handle.discovery.journalPois.map((p) => p.id)).toEqual(
+      POIS.map((p) => p.id),
+    );
+    expect(handle.discovery.journalPois.map((p) => p.order)).toEqual(
+      POIS.map((p) => p.order),
+    );
+    for (const p of handle.discovery.journalPois) {
+      expect(typeof p.teaser).toBe("string");
+      expect(typeof p.body).toBe("string");
+      expect(typeof p.color).toBe("number");
+      // …and carries no THREE position — the whole point of the seam.
+      expect(p).not.toHaveProperty("position");
+    }
+
+    // consumeInteract is the queued-edge drain the journal calls before openPoi.
+    expect(typeof handle.discovery.consumeInteract).toBe("function");
+    expect(handle.discovery.consumeInteract()).toBe(false);
+  });
+});
 
 describe("GameCanvas — CompletionPanel wiring (T7)", () => {
   beforeEach(() => {
