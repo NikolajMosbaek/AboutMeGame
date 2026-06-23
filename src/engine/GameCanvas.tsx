@@ -16,6 +16,7 @@ import { DiscoveryAnnouncer } from "../ui/DiscoveryAnnouncer.tsx";
 import { CompletionPanel } from "../ui/CompletionPanel.tsx";
 import { SpeedVignette } from "../fx/SpeedVignette.tsx";
 import type { DiscoveryStore } from "../discovery/discoveryStore.ts";
+import type { JournalPoi } from "../content/discoverablePois.ts";
 import type { HudStore } from "../ui/hudStore.ts";
 import type { NavStore } from "../ui/navStore.ts";
 import type { SettingsStore } from "../settings/settingsStore.ts";
@@ -28,6 +29,10 @@ export interface GameHandle {
     store: DiscoveryStore;
     reset(): void;
     pois: { id: string; order: number; title: string }[];
+    /** Position-free projection of the landmarks for the journal UI (M3): content
+     *  + colour with no THREE leaking into React. Additive to `pois`, which keeps
+     *  the THREE `position` NavSystem reads. */
+    journalPois: JournalPoi[];
     /** Drain the queued interact edge before opening a reveal from the journal,
      *  so the next `DiscoverySystem.update` can't consume a stale Enter/e press
      *  and close it one tick later. */

@@ -3,15 +3,25 @@ import type { Engine } from "../engine/Engine.ts";
 import type { World } from "../world/buildWorld.ts";
 import type { Movement } from "../movement/buildMovement.ts";
 import type { GameSession } from "../gameSession.ts";
-import { buildDiscoverablePois, type DiscoverablePoi } from "../content/discoverablePois.ts";
+import {
+  buildDiscoverablePois,
+  toJournalPoi,
+  type DiscoverablePoi,
+  type JournalPoi,
+} from "../content/discoverablePois.ts";
 import { DiscoverySystem } from "./DiscoverySystem.ts";
 import { createDiscoveryStore, type DiscoveryStore } from "./discoveryStore.ts";
 import { createPersistence, type DiscoveryPersistence } from "./persistence.ts";
 
 export interface Discovery {
   store: DiscoveryStore;
-  /** The resolved landmarks, reused by the nav-hint projector (#44). */
+  /** The resolved landmarks, reused by the nav-hint projector (#44). Carries the
+   *  THREE `position` NavSystem reads — never expose this to React. */
   pois: DiscoverablePoi[];
+  /** Position-free projection of `pois` (same order) for the journal UI: content
+   *  + colour with no THREE leaking into the DOM shell. Additive to `pois`, not a
+   *  widening of it — NavSystem keeps the position-bearing array untouched (M3). */
+  journalPois: JournalPoi[];
   /** Wipe all progress (#41 "Reset progress" in the settings menu). */
   reset(): void;
   /**
@@ -54,6 +64,7 @@ export function buildDiscovery(
   return {
     store,
     pois,
+    journalPois: pois.map(toJournalPoi),
     reset: () => system.reset(),
     consumeInteract: () => movement.input.consumeInteract(),
   };

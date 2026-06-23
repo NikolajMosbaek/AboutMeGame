@@ -58,6 +58,15 @@ const POIS = [
   { id: "poi-gamma", order: 3, title: "Gamma" },
 ];
 
+// The position-free journal projection the handle exposes alongside POIS (M3):
+// same ids/order, with the content + colour the journal renders and no THREE.
+const JOURNAL_POIS = POIS.map((p) => ({
+  ...p,
+  teaser: `${p.title} teaser`,
+  body: `${p.title} body`,
+  color: 0xffffff,
+}));
+
 /** The thirteen ordered landmarks the real island carries — three is enough to
  *  drive the latch here. The build hook hands GameCanvas a real handle built on
  *  the real stores, so the completion latch and reset() run for real. */
@@ -68,6 +77,7 @@ function makeHandle(): { handle: GameHandle; store: DiscoveryStore; resetCalls: 
     discovery: {
       store,
       pois: POIS,
+      journalPois: JOURNAL_POIS,
       reset() {
         resetCalls += 1;
         store.setDiscovered([]);
