@@ -384,4 +384,34 @@ describe("landmarks", () => {
       }
     }
   });
+
+  // Triangle-budget guard (G4, T6): the whole landmark set is fully procedural
+  // low-poly geometry, so its total triangle count must stay a rounding error
+  // against the 500k/frame budget (docs/perf-budget.md). This sums
+  // positionAttribute.count/3 over EVERY renderable Mesh geometry in the whole
+  // landmarks.group — the 13 merged stone meshes, the merged accent meshes, all
+  // 13 beacons and the tower lamp — and asserts the grand total stays under a
+  // stated ceiling well below budget. The ceiling is set ~5x over the measured
+  // total (≈730 tris) so it gives room for richer silhouettes yet still fails
+  // loudly if a future edit accidentally subdivides geometry or adds heavy
+  // sub-primitives, before that cost ever reaches a frame.
+  const LANDMARK_TRIANGLE_CEILING = 4000;
+
+  it("keeps total landmark triangles well under the frame budget (triangle ceiling)", () => {
+    let total = 0;
+    landmarks.group.traverse((o) => {
+      if (!(o instanceof THREE.Mesh)) return;
+      const position = o.geometry.getAttribute("position");
+      expect(position, "renderable mesh has a position attribute").toBeDefined();
+      total += position.count / 3;
+    });
+
+    // Sanity floor: the sum must actually be counting real geometry (every
+    // landmark contributes), not silently zero from an empty traversal.
+    expect(total, "total landmark triangles").toBeGreaterThan(0);
+    expect(
+      total,
+      `total landmark triangles ${total} exceeds ceiling ${LANDMARK_TRIANGLE_CEILING}`,
+    ).toBeLessThan(LANDMARK_TRIANGLE_CEILING);
+  });
 });
