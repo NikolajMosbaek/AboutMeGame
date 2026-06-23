@@ -27,3 +27,39 @@ describe("buildSky() exposed handles (T1, shape)", () => {
     expect(sky.dome).toBeInstanceOf(THREE.ShaderMaterial);
   });
 });
+
+/** The single sky-dome Mesh inside the sky group. It is UNNAMED (hemi/sun are
+ *  Lights, not Meshes), so the only way to reach it is `instanceof THREE.Mesh`
+ *  — the name-based `waterMesh` precedent does NOT apply here. */
+function domeMesh(group: THREE.Group): THREE.Mesh {
+  const found = group.children.filter((o): o is THREE.Mesh => o instanceof THREE.Mesh);
+  expect(found).toHaveLength(1);
+  return found[0];
+}
+
+describe("buildSky() handle identity (T2, one source of truth)", () => {
+  it("with quality.fog=true, `fog` is the SAME FogExp2 assigned to scene.fog", () => {
+    const scene = new THREE.Scene();
+    const sky = buildSky(scene, { shadows: true, shadowMapSize: 2048, fog: true });
+
+    expect(sky.fog).toBeInstanceOf(THREE.FogExp2);
+    // Identity, not a copy: a per-frame writer mutating sky.fog drives scene.fog.
+    expect(sky.fog).toBe(scene.fog);
+  });
+
+  it("with quality.fog=false, both `fog` and scene.fog are null", () => {
+    const scene = new THREE.Scene();
+    const sky = buildSky(scene, { shadows: false, shadowMapSize: 1024, fog: false });
+
+    // null (not undefined): the field is always present and the type never lies.
+    expect(sky.fog).toBeNull();
+    expect(scene.fog).toBeNull();
+  });
+
+  it("`dome` IS the dome Mesh's material — the existing local, not a re-wrap", () => {
+    const sky = buildSky(new THREE.Scene());
+
+    // Reached via instanceof THREE.Mesh because the dome Mesh is unnamed.
+    expect(sky.dome).toBe(domeMesh(sky.group).material);
+  });
+});
