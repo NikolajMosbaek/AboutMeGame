@@ -158,4 +158,97 @@ describe("Engine", () => {
     expect(sys.disposed).toBe(true);
     expect(renderer.dispose).toHaveBeenCalledOnce();
   });
+
+  describe("injected compositor render delegate", () => {
+    function stubCompositor() {
+      return {
+        render: vi.fn(),
+        setSize: vi.fn(),
+        dispose: vi.fn(),
+      };
+    }
+
+    it("routes rendering through compositor.render, never renderer.render", () => {
+      const compositor = stubCompositor();
+      const { engine, render } = makeEngine({ compositor });
+      const sys = new RecordingSystem();
+      engine.addSystem(sys);
+
+      engine.advanceTime(1000); // renders once at the end
+
+      expect(compositor.render).toHaveBeenCalledTimes(1);
+      expect(compositor.render).toHaveBeenCalledWith(engine.scene, engine.camera);
+      // The plain renderer path is bypassed entirely on the compositor path.
+      expect(render).not.toHaveBeenCalled();
+    });
+
+    it("routes live-loop frames through compositor.render too", () => {
+      const compositor = stubCompositor();
+      const { engine, render, sched } = makeEngine({ compositor });
+      const sys = new RecordingSystem();
+      engine.addSystem(sys);
+      engine.start();
+
+      sched.flush(0); // first frame: dt = 0 but still renders
+      sched.flush(16);
+
+      expect(compositor.render).toHaveBeenCalled();
+      expect(compositor.render).toHaveBeenLastCalledWith(engine.scene, engine.camera);
+      expect(render).not.toHaveBeenCalled();
+    });
+
+    it("resize calls compositor.setSize(width,height) AFTER renderer.setSize", () => {
+      const compositor = stubCompositor();
+      const { engine, renderer } = makeEngine({ compositor });
+      const order: string[] = [];
+      (renderer.setSize as ReturnType<typeof vi.fn>).mockImplementation(() => {
+        order.push("renderer.setSize");
+      });
+      compositor.setSize.mockImplementation(() => {
+        order.push("compositor.setSize");
+      });
+
+      engine.resize(800, 400);
+
+      expect(renderer.setSize).toHaveBeenCalledWith(800, 400, false);
+      expect(compositor.setSize).toHaveBeenCalledWith(800, 400);
+      // The compositor must propagate size only after the renderer/camera resize.
+      expect(order).toEqual(["renderer.setSize", "compositor.setSize"]);
+      expect(engine.camera.aspect).toBeCloseTo(2, 5);
+    });
+
+    it("dispose calls compositor.dispose BEFORE renderer.dispose", () => {
+      const compositor = stubCompositor();
+      const { engine, renderer } = makeEngine({ compositor });
+      const order: string[] = [];
+      compositor.dispose.mockImplementation(() => {
+        order.push("compositor.dispose");
+      });
+      (renderer.dispose as ReturnType<typeof vi.fn>).mockImplementation(() => {
+        order.push("renderer.dispose");
+      });
+
+      engine.dispose();
+
+      expect(compositor.dispose).toHaveBeenCalledOnce();
+      expect(renderer.dispose).toHaveBeenCalledOnce();
+      expect(order).toEqual(["compositor.dispose", "renderer.dispose"]);
+    });
+
+    it("with NO compositor injected, the existing renderer path is unchanged", () => {
+      const { engine, render, renderer } = makeEngine(); // no compositor
+      const sys = new RecordingSystem();
+      engine.addSystem(sys);
+
+      engine.advanceTime(1000);
+      expect(render).toHaveBeenCalledTimes(1);
+      expect(render).toHaveBeenCalledWith(engine.scene, engine.camera);
+
+      engine.resize(640, 480);
+      expect(renderer.setSize).toHaveBeenCalledWith(640, 480, false);
+
+      engine.dispose();
+      expect(renderer.dispose).toHaveBeenCalledOnce();
+    });
+  });
 });
