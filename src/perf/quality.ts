@@ -30,6 +30,13 @@ export interface QualityConfig {
    *  reload, not via the live `applyRendererQuality` path. Off on low to keep
    *  the subdivided, animated full-screen water plane off mobile fill rate. */
   waterDisplacement: boolean;
+  /** Whether the bloom post-processing pass runs, so emissive landmarks
+   *  (beacons, the tower lamp, snow caps) visibly glow. A FILL-RATE knob — a
+   *  full-screen threshold + blur pass over the framebuffer, NOT a
+   *  draw-call/triangle knob — so it is off on low to protect mobile fill rate.
+   *  The actual EffectComposer pass lives behind the renderer seam, wired in a
+   *  later G2 slice; this field is the cost-table source it reads from. */
+  bloom: boolean;
 }
 
 /**
@@ -46,6 +53,7 @@ export const QUALITY_TIERS: Record<DeviceTier, QualityConfig> = {
     propDensity: 0.4,
     fog: false,
     waterDisplacement: false,
+    bloom: false,
   },
   medium: {
     tier: "medium",
@@ -55,6 +63,7 @@ export const QUALITY_TIERS: Record<DeviceTier, QualityConfig> = {
     propDensity: 0.7,
     fog: true,
     waterDisplacement: true,
+    bloom: true,
   },
   high: {
     tier: "high",
@@ -64,6 +73,7 @@ export const QUALITY_TIERS: Record<DeviceTier, QualityConfig> = {
     propDensity: 1,
     fog: true,
     waterDisplacement: true,
+    bloom: true,
   },
 };
 
