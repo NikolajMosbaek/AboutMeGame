@@ -7,6 +7,7 @@ import { buildBoundaries, type Boundaries } from "./boundaries.ts";
 import { buildLandmarks, type Landmarks } from "./landmarks.ts";
 import { buildProps } from "./props.ts";
 import { WaterSystem } from "./waterSystem.ts";
+import { DayCycleSystem } from "./dayCycleSystem.ts";
 import { WORLD } from "./worldConfig.ts";
 import { QUALITY_TIERS, type QualityConfig } from "../perf/quality.ts";
 
@@ -92,6 +93,15 @@ export function buildWorld(
       new WaterSystem(boundaries.waterUniforms, reducedMotion),
     );
   }
+
+  // The living-sky day cycle (G3) — registered UNCONDITIONALLY (like the beacon
+  // pulse), since the sun and dome exist on every tier and the fog handle is
+  // null-guarded for the low tier. Injected the three live sky handles
+  // individually (never the whole World/Sky), and the reduced-motion gate so it
+  // pins to golden hour and holds when the player asks for less motion. This is
+  // the single production importer of `./dayCycle` — the chain that wires the
+  // pure palette into the bundle.
+  engine.addSystem(new DayCycleSystem(sky.sun, sky.dome, sky.fog, reducedMotion));
 
   return world;
 }
