@@ -1,7 +1,9 @@
 # Run log — MOB2 #153 slice 1: lift the top HUD clear of the notch (safe-area `max()` clamps)
 
 Date: 2026-06-24
-Branch: `fix/mob1-safe-area-eager-touch`
+Branch: `feat/mob2-top-hud-safe-area` (re-cut off a clean `main` from the
+MOB2 work originally staged on `fix/mob1-safe-area-eager-touch`, so the shipped
+PR diff is scoped to exactly this slice and carries no already-merged MOB1 files)
 Feature: Lift the **top HUD cluster** — runtime stats, the centred telemetry
 chip, the discovery badge, and the top-right journal + **menu/Settings** buttons
 — clear of the notch / status bar / Dynamic Island by wrapping the top/right/left
