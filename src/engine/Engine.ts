@@ -3,6 +3,7 @@ import type {
   EngineState,
   FrameContext,
   FrameScheduler,
+  RenderDelegate,
   RendererLike,
   System,
 } from "./types.ts";
@@ -14,6 +15,13 @@ export interface EngineOptions {
   /** Optional pre-built scene/camera; defaults are created if omitted. */
   scene?: THREE.Scene;
   camera?: THREE.PerspectiveCamera;
+  /** Optional render delegate that presents the frame instead of the bare
+   *  renderer — the seam the post-processing compositor (bloom) plugs into.
+   *  When present, `render()` calls `compositor.render`, `resize()` forwards to
+   *  `compositor.setSize`, and `dispose()` calls `compositor.dispose`. Omitted on
+   *  the plain (low-quality / test) path, which uses `renderer.render` directly.
+   *  Injected, never constructed here — keeps three/examples/jsm out of Engine. */
+  compositor?: RenderDelegate;
   /** Frame scheduler. Defaults to the real rAF; tests inject a manual one. */
   scheduler?: FrameScheduler;
   /** Upper bound on per-frame dt (seconds). Guards against the giant dt a
@@ -53,6 +61,9 @@ export class Engine {
   camera: THREE.PerspectiveCamera;
 
   private readonly renderer: RendererLike;
+  /** When set, owns presenting the frame (post-processing). Undefined ⇒ the
+   *  Engine presents directly via `renderer.render`. */
+  private readonly compositor?: RenderDelegate;
   private readonly scheduler: FrameScheduler;
   private readonly maxDt: number;
 
@@ -69,6 +80,7 @@ export class Engine {
 
   constructor(opts: EngineOptions) {
     this.renderer = opts.renderer;
+    this.compositor = opts.compositor;
     this.scheduler = opts.scheduler ?? defaultScheduler();
     this.maxDt = opts.maxDt ?? DEFAULT_MAX_DT;
     this.scene = opts.scene ?? new THREE.Scene();
@@ -99,6 +111,10 @@ export class Engine {
     this.renderer.setSize(this.width, this.height, false);
     this.camera.aspect = this.width / this.height;
     this.camera.updateProjectionMatrix();
+    // Propagate to the compositor AFTER the renderer/camera so it can resize its
+    // composer buffers (and re-apply any per-tier bloom-buffer override) against
+    // the now-current drawing-buffer dimensions.
+    this.compositor?.setSize(this.width, this.height);
   }
 
   /** Begin the live render loop (idempotent). */
@@ -172,7 +188,13 @@ export class Engine {
   }
 
   private render(): void {
-    this.renderer.render(this.scene, this.camera);
+    // The compositor (when injected) owns presenting the frame — it runs the
+    // post-processing chain and presents. Otherwise the renderer presents directly.
+    if (this.compositor) {
+      this.compositor.render(this.scene, this.camera);
+    } else {
+      this.renderer.render(this.scene, this.camera);
+    }
   }
 
   /** Serialisable snapshot for `render_game_to_text` and debugging. */
@@ -197,6 +219,8 @@ export class Engine {
     this.stop();
     for (const s of this.systems) s.dispose?.();
     this.systems = [];
+    // Free the compositor's GPU targets before the renderer it draws into.
+    this.compositor?.dispose();
     this.renderer.dispose();
   }
 }

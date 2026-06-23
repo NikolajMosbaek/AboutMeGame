@@ -49,6 +49,17 @@ export interface RendererLike {
   };
 }
 
+/** Optional render delegate that takes over presenting the frame — the seam the
+ *  post-processing compositor (EffectComposer + bloom) plugs into. When injected,
+ *  the Engine calls `render` instead of `renderer.render`, forwards every resize,
+ *  and disposes it on teardown. Kept deliberately minimal (no three/examples/jsm
+ *  type leaks into the Engine) so tests can inject a plain stub and stay WebGL-free. */
+export interface RenderDelegate {
+  render(scene: THREE.Scene, camera: THREE.Camera): void;
+  setSize(width: number, height: number): void;
+  dispose(): void;
+}
+
 /** Injectable animation-frame scheduler, so tests drive frames deterministically
  *  instead of waiting on a real `requestAnimationFrame`. */
 export interface FrameScheduler {

@@ -46,7 +46,7 @@ reports. The table is the single source of truth (`QUALITY_TIERS`), asserted in
 | `propDensity` | **0.4** | 0.7 | 1.0 | Multiplier on the 540 trees / 150 rocks — fewer instances ⇒ fewer triangles. |
 | `fog` | **off** | on | on | Cheap, but low drops it so the shorter draw distance reads cleanly. |
 | `waterDisplacement` | **off** | on | on | Vertex displacement + grid subdivision on the full-screen water plane; off on low to protect mobile fill rate. Applies on reload. |
-| `bloom` | **off** | on | on | Threshold post-processing pass that makes emissive landmarks (beacons, tower lamp) glow; fill-rate spend, not draw/triangle; off on low to protect mobile fill rate. Wired behind the renderer seam in a later G2 slice. |
+| `bloom` | **off** | on | on | Threshold post-processing pass that makes emissive landmarks (beacons, tower lamp) glow; fill-rate spend, not draw/triangle; off on low to protect mobile fill rate. **Shipped** behind the renderer seam (a tuned `UnrealBloomPass` in `src/engine/createCompositor.ts`); applies on reload. |
 
 **Low tier vs the mobile budget.** Low is tuned to comfortably clear the
 mid-range-phone bar: pixelRatio 1 (no super-sampling), no real-time shadows, and
@@ -55,16 +55,28 @@ count), so the draw-call budget is unaffected by density; the win is in
 triangles and the dropped shadow pass. The cheap knobs (`maxPixelRatio`,
 `shadows`) re-apply live when the setting changes in the pause menu
 (`applyRendererQuality`); the build-time knobs (`propDensity`, `shadowMapSize`,
-`fog`, `waterDisplacement`) bake at mount, so the menu notes "Detail level
-applies on reload." `bloom` is a renderer-seam post-pass; whether it re-applies
-live or on reload is decided when the EffectComposer pass is wired in G2 slice 2,
-so this slice keeps the table apply-timing-neutral rather than assuming either.
+`fog`, `waterDisplacement`, `bloom`) bake at mount, so the menu notes "Detail
+level applies on reload." `bloom` is a renderer-seam post-pass: the compositor's
+existence _is_ its configuration, so it follows the bake-at-mount path with the
+other detail knobs and re-applies on reload — the live `applyRendererQuality`
+path (`maxPixelRatio` + shadows) does not tear down or rebuild the composer.
 
 **Bundle impact.** Epic 6 added the scaler, the text view, the a11y announcer
-and the responsive/reduced-motion CSS without regressing the budget. Latest
-`vite build` (gzip): main JS **66.7 KB**, `three` vendor chunk **120.1 KB**
-(split, unchanged) ⇒ **~187 KB** total JS, well inside the 400 KB cap; CSS
-**3.0 KB**.
+and the responsive/reduced-motion CSS without regressing the budget. The bloom
+slice (G2) wires the `EffectComposer` + `UnrealBloomPass` post-pass behind the
+renderer seam and widens `vite.config.ts` `manualChunks` to an id-based matcher
+(`/node_modules\/three\//`) so `three/examples/jsm/postprocessing/*` folds into
+the `three` vendor chunk instead of leaking into the entry chunk. Measured
+branch-vs-`main` `vite build` (gzip), confirmed against the actual dist chunk
+listing (T9): `GameCanvas` reaches `createCompositor`, so the four postprocessing
+passes (`EffectComposer` + `RenderPass` + `UnrealBloomPass` + `OutputPass`) are
+in the import graph and the id-based matcher folds them into the **`three`** vendor
+chunk — which grows **120.7 → 124.9 KB** (**+4.1 KB**, the postprocessing passes)
+and stays a separate, cacheable vendor chunk. The entry chunk grew only
+**73.9 → 74.2 KB** (**+0.3 KB** — the compositor wrapper + landmark emissive
+tweaks + seam glue, **no three internals**, proving the matcher kept the
+postprocessing out of the entry chunk); modules 95 → 106. Total first-load JS
+**~194.6 → ~199.1 KB** (**+4.5 KB**), well inside the 400 KB cap; CSS **3.5 KB**.
 
 ## How it is enforced
 

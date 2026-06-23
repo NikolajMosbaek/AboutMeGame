@@ -64,13 +64,27 @@ export function buildLandmarks(terrain: Terrain): Landmarks {
   };
 }
 
-/** A tall translucent glowing column rising from the landmark into the sky. */
+/**
+ * A tall translucent glowing column rising from the landmark into the sky.
+ *
+ * The beacon is the chief bloom source for the medium/high compositor path
+ * (`createCompositor.ts`): RenderPass writes linear, UnrealBloomPass adds in
+ * linear HDR, OutputPass tone-maps once. To clear the tuned-high bloom
+ * threshold while ordinary lit stone, sky and water do not, the additive
+ * colour is pushed into HDR (>1.0) by scaling the signature hue, and the
+ * opacity is raised so the additive contribution is bright at the core. The
+ * additive / `depthWrite:false` / transparent invariants are preserved so it
+ * stays a non-occluding overlay — guarded by landmarks.test.ts.
+ */
 function buildBeacon(color: number, disposables: Array<{ dispose(): void }>): THREE.Mesh {
   const geo = new THREE.CylinderGeometry(0.6, 1.6, 60, 8, 1, true);
+  // HDR-scale the signature hue past 1.0 so the additive core reads as a true
+  // light source that clears the high bloom threshold; preserves the colour.
+  const hdr = new THREE.Color(color).multiplyScalar(2.4);
   const mat = new THREE.MeshBasicMaterial({
-    color,
+    color: hdr,
     transparent: true,
-    opacity: 0.28,
+    opacity: 0.42,
     side: THREE.DoubleSide,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
@@ -150,8 +164,14 @@ function buildArchetype(
       shaft.position.y = 7;
       const lamp = mesh(track(new THREE.IcosahedronGeometry(2.2, 0), d), accent);
       lamp.position.y = 15;
+      lamp.name = "lamp";
+      // The lamp is the second genuine bloom source (with the beacon) on the
+      // medium/high compositor path. Under the linear + OutputPass chain the
+      // bloom threshold is tuned high so ordinary lit stone, sky and water do
+      // not glow; push the lamp's emissive past 1.0 so its post-tonemap
+      // luminance reliably clears that threshold — guarded by landmarks.test.ts.
       (lamp.material as THREE.MeshStandardMaterial).emissive = new THREE.Color(color);
-      (lamp.material as THREE.MeshStandardMaterial).emissiveIntensity = 0.9;
+      (lamp.material as THREE.MeshStandardMaterial).emissiveIntensity = 1.6;
       g.add(shaft, lamp);
       break;
     }
