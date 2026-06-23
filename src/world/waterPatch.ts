@@ -1,4 +1,5 @@
 import type * as THREE from "three";
+import { waveGlsl } from "./waterSurface.ts";
 
 // The `onBeforeCompile` GLSL patch for the water `MeshStandardMaterial` (G1
 // slice 2). It patches the ONE existing water plane in place — no new geometry,
@@ -26,6 +27,29 @@ import type * as THREE from "three";
 // `customProgramCacheKey` returns a distinct constant per variant so the patched
 // water program never collides with the terrain/props MeshStandard programs in
 // three's shader cache.
+//
+// G1 ANIMATION (slice 3) — opt-in `displacement` adds a gentle two-sine swell in
+// the VERTEX stage at TWO anchors, both reading the raw `position` attribute
+// (model space == world XZ, since the plane baked `rotateX(-PI/2)`):
+//   - Anchor A `#include <beginnormal_vertex>`: AFTER three declares
+//     `objectNormal` from the un-perturbed +Y normal and BEFORE
+//     `defaultnormal_vertex` consumes it into `transformedNormal`, OVERWRITE
+//     `objectNormal = normalize(vec3(-dHdx, 1.0, -dHdz))` from the analytic
+//     `waveGradient`. This is load-bearing and order-sensitive: it is the ONLY
+//     path by which the swell reaches `vNormal`/the fragment `normal`, so the
+//     DirectionalLight response AND the slice-1/2 fresnel ramp both ripple. An
+//     overwrite at `begin_vertex` (downstream) would be dead code for shading.
+//   - Anchor B `#include <begin_vertex>`: AFTER `transformed` is born,
+//     `transformed.y += waveHeight(position.x, position.z, uTime)` for the
+//     silhouette. Reads raw `position`, NOT `transformed`, so it stays
+//     consistent with the normal (both close-form from the SAME constants).
+// The closed-form `waveHeight`/`waveGradient` GLSL comes from the shared
+// `waveGlsl()` emitter in `waterSurface.ts` (interpolated from the SAME exported
+// A1/A2/K1/S1/K2/S2 constants) — never a second hand-copy of the magic numbers.
+// The `uTime` uniform is merged by the caller's `uniforms` bag (one identity-
+// stable `{value}` object the live `WaterSystem` advances), and the displacement
+// axis is added to `customProgramCacheKey` so three never serves an undisplaced
+// program to a displaced mesh.
 
 /**
  * Fresnel ramp exponent `p` in `fresnel = pow(1 - max(dot(N, V), 0), p)`.
@@ -48,9 +72,15 @@ export interface WaterPatchOptions {
    *  was baked, i.e. `heightAt` was supplied to `buildBoundaries`). */
   hasFoam: boolean;
   /** Uniform bag merged onto `shader.uniforms`. The caller owns the values
-   *  (the linear palette vec3s, the foam edges, the sampler) so this patch
+   *  (the linear palette vec3s, the foam edges, the sampler, and — for the
+   *  displacement variant — the live `uTime` `{value}` object) so this patch
    *  re-declares no palette hex or foam-edge literal. */
   uniforms: Record<string, UniformValue>;
+  /** Whether to compile the G1 two-sine vertex swell (true only on medium/high
+   *  tiers, i.e. `quality.waterDisplacement`). When false (the default, and on
+   *  low) NEITHER vertex anchor is injected and the program text references no
+   *  `uTime`/wave function — the water is the static slice-2 surface. */
+  displacement?: boolean;
 }
 
 export interface WaterPatch {
@@ -64,6 +94,29 @@ export interface WaterPatch {
 // the standard chunk only declares under envmap/shadow defines.
 const VERTEX_DECL = "varying vec2 vWorldXZ;\n";
 const VERTEX_BODY = "\tvWorldXZ = ( modelMatrix * vec4( transformed, 1.0 ) ).xz;\n";
+
+// G1 displacement anchors. The shared `waveGlsl()` callable definitions are
+// prepended once; each anchor calls them from the raw `position` attribute.
+//
+// Anchor A rides `#include <beginnormal_vertex>` — injected AFTER it so
+// `objectNormal` is already declared, but it MUST land before
+// `defaultnormal_vertex` consumes it. (`beginnormal_vertex` is the last vertex
+// chunk before `defaultnormal_vertex` in three's standard program, so appending
+// to it satisfies the ordering by construction.) It overwrites the un-perturbed
+// +Y normal with the analytic surface normal of the wave field.
+const DISP_NORMAL_ANCHOR = "#include <beginnormal_vertex>";
+const DISP_NORMAL_BODY =
+  "\t{\n" +
+  "\t\tvec2 wGrad = waveGradient( position.x, position.z, uTime );\n" +
+  "\t\tobjectNormal = normalize( vec3( -wGrad.x, 1.0, -wGrad.y ) );\n" +
+  "\t}\n";
+
+// Anchor B rides `#include <begin_vertex>` — injected AFTER it so `transformed`
+// exists, then displaces its y by the wave height (read from raw `position`, so
+// it is consistent with the normal above rather than the prior offset).
+const DISP_HEIGHT_ANCHOR = "#include <begin_vertex>";
+const DISP_HEIGHT_BODY =
+  "\ttransformed.y += waveHeight( position.x, position.z, uTime );\n";
 
 // The colour-ramp + (optional) foam injection runs after `normal_fragment_maps`,
 // where the view-space `normal` and `vViewPosition` (fragment→camera) are both
@@ -80,7 +133,7 @@ const FRAG_ANCHOR = "#include <normal_fragment_maps>";
  * tested headless against the real `THREE.ShaderLib` source).
  */
 export function makeWaterPatch(options: WaterPatchOptions): WaterPatch {
-  const { hasFoam, uniforms } = options;
+  const { hasFoam, uniforms, displacement = false } = options;
 
   // Fragment preamble: the palette uniforms, the fresnel exponent, and — only
   // for the foam variant — the foam uniforms, the sampler, and `#define HAS_FOAM`.
@@ -134,11 +187,28 @@ export function makeWaterPatch(options: WaterPatchOptions): WaterPatch {
     Object.assign(shader.uniforms, uniforms);
 
     // Vertex: prepend the varying decl, write it at the world-position anchor.
-    shader.vertexShader = VERTEX_DECL + shader.vertexShader;
+    // For the displacement variant also prepend the `uTime` uniform decl and the
+    // shared `waveHeight`/`waveGradient` GLSL definitions, then inject the two
+    // swell anchors (normal recompute upstream of `defaultnormal_vertex`,
+    // y-displacement after `transformed` is born).
+    const vertexPreamble = displacement
+      ? VERTEX_DECL + "uniform float uTime;\n" + waveGlsl()
+      : VERTEX_DECL;
+    shader.vertexShader = vertexPreamble + shader.vertexShader;
     shader.vertexShader = shader.vertexShader.replace(
       "#include <worldpos_vertex>",
       "#include <worldpos_vertex>\n" + VERTEX_BODY,
     );
+    if (displacement) {
+      shader.vertexShader = shader.vertexShader.replace(
+        DISP_NORMAL_ANCHOR,
+        DISP_NORMAL_ANCHOR + "\n" + DISP_NORMAL_BODY,
+      );
+      shader.vertexShader = shader.vertexShader.replace(
+        DISP_HEIGHT_ANCHOR,
+        DISP_HEIGHT_ANCHOR + "\n" + DISP_HEIGHT_BODY,
+      );
+    }
 
     // Fragment: prepend declarations, inject the ramp/foam body after the normal
     // chunk so `normal` and `vViewPosition` are in scope.
@@ -149,10 +219,12 @@ export function makeWaterPatch(options: WaterPatchOptions): WaterPatch {
     );
   };
 
-  // Distinct constant per variant; the `water-` prefix disambiguates both from
-  // the terrain/props MeshStandard programs in three's program cache.
+  // Distinct constant per variant; the `water-` prefix disambiguates all four
+  // {foam, no-foam} x {displace, no-displace} programs from each other and from
+  // the terrain/props MeshStandard programs in three's program cache, so three
+  // never serves an undisplaced program to a displaced mesh.
   const customProgramCacheKey = () =>
-    hasFoam ? "water-foam-v1" : "water-nofoam-v1";
+    `water-${hasFoam ? "foam" : "nofoam"}${displacement ? "-disp" : ""}-v1`;
 
   return { onBeforeCompile, customProgramCacheKey };
 }

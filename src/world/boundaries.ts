@@ -13,6 +13,25 @@ import {
   type GroundHeightTexture,
 } from "./groundHeightTexture.ts";
 
+/**
+ * Fixed, measured subdivision count per side of the animated water plane (G1
+ * slice 3). A `PlaneGeometry(size*3, size*3, N, N)` has `(N+1)²` vertices and
+ * `N·N·2` triangles — at 64 that is 4225 verts / 8192 tris, well under 2% of the
+ * 500k-tri/frame budget (`docs/perf-budget.md`). A flat 1×1 quad has no interior
+ * vertices to displace, so the swell needs interior subdivision to be visible;
+ * this is a PERF knob (measured against the ≥30 fps mobile floor), not art taste.
+ * Only paid when `displacement` is on (medium/high); low keeps the 1×1 quad.
+ */
+export const WATER_SEGMENTS = 64;
+
+/** The live `{value}` uniform objects the `WaterSystem` advances by reference
+ *  (G1 slice 3). The SAME objects merged into the water material in
+ *  `onBeforeCompile`, so mutating `uTime.value` here updates the running shader
+ *  with no scene traversal and no post-compile staleness. */
+export interface WaterUniforms {
+  uTime: { value: number };
+}
+
 export interface Boundaries {
   group: THREE.Group;
   /** True while (x,z) is inside the soft boundary. */
@@ -20,6 +39,10 @@ export interface Boundaries {
   /** Push a position back to the boundary ring if it strayed past it. Epic 3
    *  movement calls this so the player can't drive/fly off the world. */
   clampToBounds(pos: THREE.Vector3): void;
+  /** The live water uniforms the `WaterSystem` advances, present ONLY when
+   *  `displacement` is on (medium/high). Undefined on the low tier / the static
+   *  preview, where the water is the slice-2 surface with no `uTime`. */
+  waterUniforms?: WaterUniforms;
   dispose(): void;
 }
 
@@ -35,17 +58,34 @@ export interface Boundaries {
  * foam band (transcribing `waterSurface.ts` line-for-line). When absent (the
  * unit tests / a preview without terrain) the no-foam variant is attached: the
  * water still renders the fresnel ramp, no sampler/uniform is referenced, and no
- * three warning is emitted. EITHER way the water stays exactly one PlaneGeometry
- * / one mesh / one draw call at `seaLevel - 0.05` — triangles ±0, no `uTime`, no
- * per-frame work — and the bounds maths is unchanged.
+ * three warning is emitted.
+ *
+ * `displacement` (G1 slice 3, defaults true) is the second seam — gated by
+ * `quality.waterDisplacement` (off on low, on medium/high). When ON, the plane
+ * is subdivided to {@link WATER_SEGMENTS}×{@link WATER_SEGMENTS} (a flat quad has
+ * no interior vertices to displace) and the water patch compiles the two-sine
+ * vertex swell driven by a live `uTime` uniform; the live `{value}` object is
+ * exposed on the returned handle as {@link Boundaries.waterUniforms} so the
+ * `WaterSystem` can advance it BY REFERENCE — no scene traversal, no post-compile
+ * staleness. When OFF (low) the geometry stays the static slice-2 1×1 quad, no
+ * `uTime` is compiled, and no per-frame work is owed — so low pays ZERO extra
+ * vertex cost.
+ *
+ * EITHER way the water stays exactly one geometry / one mesh / ONE draw call at
+ * `seaLevel - 0.05`, the triangle count is fixed at mount and far under the 500k
+ * budget, and the bounds maths is unchanged.
  */
 export function buildBoundaries(
   heightAt?: (x: number, z: number) => number,
+  displacement = true,
 ): Boundaries {
   const group = new THREE.Group();
   group.name = "boundaries";
 
-  const waterGeo = new THREE.PlaneGeometry(WORLD.size * 3, WORLD.size * 3);
+  // Subdivide only when the swell is compiled — a flat quad has no interior
+  // vertices to displace, so visibility needs the grid; low keeps the 1×1 quad.
+  const segs = displacement ? WATER_SEGMENTS : 1;
+  const waterGeo = new THREE.PlaneGeometry(WORLD.size * 3, WORLD.size * 3, segs, segs);
   waterGeo.rotateX(-Math.PI / 2);
   const waterMat = new THREE.MeshStandardMaterial({
     transparent: true,
@@ -75,7 +115,17 @@ export function buildBoundaries(
     uniforms.uGroundExtent = { value: GROUND_TEXTURE_EXTENT };
   }
 
-  const patch = makeWaterPatch({ hasFoam, uniforms });
+  // The live time uniform — created ONLY when the swell is compiled. It is the
+  // SAME `{value}` object merged into the program by `onBeforeCompile`, so the
+  // `WaterSystem` advances the running shader by mutating it (no scene hunt).
+  let waterUniforms: WaterUniforms | undefined;
+  if (displacement) {
+    const uTime = { value: 0 };
+    uniforms.uTime = uTime;
+    waterUniforms = { uTime };
+  }
+
+  const patch = makeWaterPatch({ hasFoam, uniforms, displacement });
   waterMat.onBeforeCompile = patch.onBeforeCompile;
   waterMat.customProgramCacheKey = patch.customProgramCacheKey;
   // Keep the disposable texture reachable from the material for lifecycle tests
@@ -103,6 +153,7 @@ export function buildBoundaries(
     group,
     isInBounds,
     clampToBounds,
+    waterUniforms,
     dispose() {
       waterGeo.dispose();
       waterMat.dispose();

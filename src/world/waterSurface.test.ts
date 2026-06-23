@@ -5,14 +5,24 @@ import { describe, expect, it } from "vitest";
 import {
   A1,
   A2,
+  DIR2_X,
+  DIR2_Z,
   FOAM_DEPTH_END,
   FOAM_DEPTH_START,
+  K1,
+  K2,
+  S1,
+  S2,
   WATER_DEEP,
   WATER_SHALLOW,
+  WRAP_PERIOD,
   clamp01,
+  glslFloat,
   shorelineFoam,
   smoothstep,
   waterColor,
+  waveGlsl,
+  waveGradient,
   waveHeight,
 } from "./waterSurface.ts";
 
@@ -128,6 +138,198 @@ describe("waveHeight (two-sine swell)", () => {
   it("is deterministic for identical args (incl. fractional/negative)", () => {
     expect(waveHeight(-3.14, 2.72, 0.5)).toBe(waveHeight(-3.14, 2.72, 0.5));
   });
+});
+
+// --- T1: analytic gradient (single source of truth for the lit normal) -----
+// waveGradient must be the EXACT closed-form partials of waveHeight, so the
+// vertex normal recompute and the silhouette displacement can never silently
+// diverge. We pin both halves: (1) the literal closed form, and (2) a
+// finite-difference consistency check against waveHeight itself. The wave
+// constants K1/S1/K2/S2 are exported so the GLSL emitter and the gradient share
+// one source of truth (no second hand-copy of the magic numbers).
+describe("wave constants are exported (single source of truth)", () => {
+  it("K1/S1/K2/S2 are finite, positive, and distinct between the two sines", () => {
+    for (const c of [K1, S1, K2, S2]) {
+      expect(Number.isFinite(c)).toBe(true);
+      expect(c).toBeGreaterThan(0);
+    }
+    // The two sines must use distinct frequencies/speeds (crossing chop).
+    expect(K1).not.toBe(K2);
+    expect(S1).not.toBe(S2);
+  });
+});
+
+describe("waveGradient (closed-form partials of waveHeight)", () => {
+  it("returns the literal closed-form partials d/dx and d/dz", () => {
+    const cases: Array<[number, number, number]> = [
+      [0, 0, 0],
+      [1.1, 0.4, 0.9],
+      [-2.3, 3.6, 2.4],
+      [7.77, -0.001, 19.9],
+      [-3.14, 2.72, 0.5],
+    ];
+    for (const [x, z, t] of cases) {
+      // d/dx of A1*sin(x*K1+t*S1) = A1*K1*cos(x*K1+t*S1); the second term
+      // carries the 0.6 diagonal weight: A2*(0.6*K2)*cos((x*0.6+z*0.8)*K2+t*S2).
+      const phase2 = (x * 0.6 + z * 0.8) * K2 + t * S2;
+      const expectedDHdx =
+        A1 * K1 * Math.cos(x * K1 + t * S1) + A2 * (0.6 * K2) * Math.cos(phase2);
+      // d/dz: the first term has no z, so only the 0.8 diagonal weight survives.
+      const expectedDHdz = A2 * (0.8 * K2) * Math.cos(phase2);
+      const g = waveGradient(x, z, t);
+      expect(g.dHdx).toBeCloseTo(expectedDHdx, 12);
+      expect(g.dHdz).toBeCloseTo(expectedDHdz, 12);
+    }
+  });
+
+  it("matches a central finite-difference of waveHeight (dHdx and dHdz)", () => {
+    const e = 1e-4;
+    const tol = 1e-6;
+    for (let xi = -3; xi <= 3; xi++) {
+      for (let zi = -3; zi <= 3; zi++) {
+        for (let ti = 0; ti <= 4; ti++) {
+          const x = xi * 2.3 - 0.25;
+          const z = zi * 1.7 + 0.5;
+          const t = ti * 1.13;
+          const g = waveGradient(x, z, t);
+          const fdX = (waveHeight(x + e, z, t) - waveHeight(x - e, z, t)) / (2 * e);
+          const fdZ = (waveHeight(x, z + e, t) - waveHeight(x, z - e, t)) / (2 * e);
+          expect(Math.abs(g.dHdx - fdX)).toBeLessThan(tol);
+          expect(Math.abs(g.dHdz - fdZ)).toBeLessThan(tol);
+        }
+      }
+    }
+  });
+
+  it("is deterministic and allocation-light (finite, identical on a repeat)", () => {
+    const a = waveGradient(1.23, -4.56, 7.89);
+    const b = waveGradient(1.23, -4.56, 7.89);
+    expect(a.dHdx).toBe(b.dHdx);
+    expect(a.dHdz).toBe(b.dHdz);
+    expect(Number.isFinite(a.dHdx)).toBe(true);
+    expect(Number.isFinite(a.dHdz)).toBe(true);
+  });
+});
+
+describe("WRAP_PERIOD (continuous wrap for float32 precision)", () => {
+  it("is a finite, positive period", () => {
+    expect(Number.isFinite(WRAP_PERIOD)).toBe(true);
+    expect(WRAP_PERIOD).toBeGreaterThan(0);
+  });
+
+  it("makes BOTH sine terms continuous across the wrap (h(...,T) == h(...,0))", () => {
+    // Wrapping t modulo WRAP_PERIOD must not introduce a visible jump: each
+    // temporal phase (t*S1 and t*S2) must advance a whole number of 2π cycles
+    // over one period, so the surface at t=WRAP_PERIOD equals the surface at t=0.
+    const cases: Array<[number, number]> = [
+      [0, 0],
+      [1.1, 0.4],
+      [-2.3, 3.6],
+      [7.77, -0.001],
+      [-3.14, 2.72],
+    ];
+    for (const [x, z] of cases) {
+      expect(waveHeight(x, z, WRAP_PERIOD)).toBeCloseTo(waveHeight(x, z, 0), 9);
+      // The gradient must wrap continuously too (same shared period).
+      const g0 = waveGradient(x, z, 0);
+      const gT = waveGradient(x, z, WRAP_PERIOD);
+      expect(gT.dHdx).toBeCloseTo(g0.dHdx, 9);
+      expect(gT.dHdz).toBeCloseTo(g0.dHdz, 9);
+    }
+  });
+
+  it("each temporal phase completes a whole number of 2π cycles over the period", () => {
+    const n1 = (WRAP_PERIOD * S1) / (2 * Math.PI);
+    const n2 = (WRAP_PERIOD * S2) / (2 * Math.PI);
+    expect(n1).toBeCloseTo(Math.round(n1), 9);
+    expect(n2).toBeCloseTo(Math.round(n2), 9);
+    expect(Math.round(n1)).toBeGreaterThan(0);
+    expect(Math.round(n2)).toBeGreaterThan(0);
+  });
+});
+
+// --- T2: shared GLSL emitter (single source of truth for both vertex anchors) -
+// The two vertex anchors (T3) — the beginnormal_vertex normal recompute and the
+// begin_vertex y-displacement — must transcribe IDENTICAL math. They do not get
+// a second hand-copy of the magic numbers: a single emitter `waveGlsl()` builds
+// the GLSL `waveHeight` / `waveGradient` definitions BY INTERPOLATING the SAME
+// exported A1/A2/K1/S1/K2/S2 (+ the (0.6,0.8) diagonal weights DIR2_X/DIR2_Z)
+// constants, formatted by `glslFloat`. We pin (1) that the emitted GLSL carries
+// each constant's value produced from the export (never a hardcoded duplicate),
+// (2) that it defines callable `waveHeight`/`waveGradient` GLSL functions both
+// anchors can call, and (3) — the single-source guard — that a regex scan of the
+// module source finds exactly ONE literal copy of each of K1/S1/K2/S2 (the
+// `export const` declaration), so the emitter cannot have re-typed them.
+describe("glslFloat (number -> GLSL float literal)", () => {
+  it("always emits a decimal point so the literal is a GLSL float, not an int", () => {
+    // GLSL `1` is an int; the shader needs `1.0`. Integers and fractions alike
+    // must carry a `.`, or the transcription fails to compile on a strict GPU.
+    expect(glslFloat(1)).toMatch(/\./);
+    expect(glslFloat(0)).toMatch(/\./);
+    expect(glslFloat(-2)).toMatch(/\./);
+    expect(glslFloat(0.18)).toMatch(/\./);
+  });
+
+  it("round-trips back to the same number (no precision loss in the literal)", () => {
+    for (const v of [A1, A2, K1, S1, K2, S2, DIR2_X, DIR2_Z, 1, 0, -3.25]) {
+      expect(Number(glslFloat(v))).toBe(v);
+    }
+  });
+});
+
+describe("waveGlsl (shared emitter — one source of truth for both anchors)", () => {
+  const glsl = waveGlsl();
+
+  it("defines callable waveHeight and waveGradient GLSL functions", () => {
+    // Both anchors call these; the emitter owns the function bodies so the lit
+    // normal (waveGradient) and the silhouette (waveHeight) can never diverge.
+    expect(glsl).toMatch(/float\s+waveHeight\s*\(/);
+    expect(glsl).toMatch(/waveGradient\s*\(/);
+  });
+
+  it("carries every wave constant BY VALUE from the export (no hardcoded duplicate)", () => {
+    // Each constant must appear as the EXACT GLSL float literal produced from the
+    // exported number — proving the emitter interpolated the export rather than
+    // re-typing the magic number. If an export changes, the GLSL changes with it.
+    for (const c of [A1, A2, K1, S1, K2, S2, DIR2_X, DIR2_Z]) {
+      expect(glsl).toContain(glslFloat(c));
+    }
+  });
+
+  it("is deterministic — a second emit is byte-identical", () => {
+    expect(waveGlsl()).toBe(glsl);
+  });
+});
+
+describe("single source of truth — no second literal copy of the wave constants", () => {
+  // The whole point of the emitter: the four magic frequencies/speeds K1/S1/K2/S2
+  // live in EXACTLY ONE place (their `export const` line). A regex scan of the
+  // module source must find each numeric value exactly once — if a second hand-
+  // copy crept into the GLSL emitter or the gradient, this fails. (A1/A2 legitimately
+  // recur via |h| bounds prose etc., so we pin the four that the task names.)
+  const src = stripCommentsAndStrings(
+    readFileSync(join(MODULE_DIR, "waterSurface.ts"), "utf8"),
+  );
+
+  for (const [name, value] of [
+    ["K1", K1],
+    ["S1", S1],
+    ["K2", K2],
+    ["S2", S2],
+  ] as const) {
+    it(`${name} (=${value}) appears exactly once in the module source (the export)`, () => {
+      // Word-boundary the literal so 0.18 doesn't also match inside 0.189 etc.
+      const literal = String(value).replace(".", "\\.");
+      const re = new RegExp(`(?<![\\d.])${literal}(?![\\d])`, "g");
+      const hits = src.match(re) ?? [];
+      expect(
+        hits.length,
+        `${name}=${value} must appear exactly ONCE (its export const); found ` +
+          `${hits.length}. A second copy means the GLSL emitter or gradient ` +
+          `re-typed the magic number instead of interpolating the export.`,
+      ).toBe(1);
+    });
+  }
 });
 
 describe("water palette", () => {
@@ -466,9 +668,18 @@ describe("waterSurface is imported by boundaries — PR #116 tree-shaking guard 
   it("ONLY the sanctioned water-wiring files import it — no other file pulls it in", () => {
     // The inverse half of the old guard: the module stays narrowly scoped to the
     // water material assembly. boundaries.ts imports the foam-edge symbols
-    // directly; waterUniforms.ts is the sRGB→linear palette transport it owns.
-    // Any NEW importer here is unexpected and must be added knowingly (PR #116).
-    const SANCTIONED = ["world/boundaries.ts", "world/waterUniforms.ts"];
+    // directly; waterUniforms.ts is the sRGB→linear palette transport it owns;
+    // waterPatch.ts imports the shared `waveGlsl()` emitter for the G1-animation
+    // displacement anchors (one source of truth for the two-sine wave math);
+    // waterSystem.ts (G1 slice 3, T6) imports the shared `WRAP_PERIOD` so its
+    // live time accumulator wraps on the SAME continuous period the wave math
+    // closes on. Any NEW importer here is unexpected and must be added knowingly.
+    const SANCTIONED = [
+      "world/boundaries.ts",
+      "world/waterPatch.ts",
+      "world/waterSystem.ts",
+      "world/waterUniforms.ts",
+    ];
     expect(
       importers,
       "Only the water-material wiring may import ./waterSurface; an unexpected " +
