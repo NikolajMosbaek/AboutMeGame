@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import type { GameHandle } from "./GameCanvas.tsx";
 import { createDiscoveryStore } from "../discovery/discoveryStore.ts";
 import type { DiscoveryStore } from "../discovery/discoveryStore.ts";
@@ -228,5 +228,103 @@ describe("GameCanvas — Journal pause + handoff wiring (T6)", () => {
     // J was ignored — the reveal owns the foreground, no journal mounted.
     expect(journalPanelProps.length).toBe(0);
     expect(session.paused).toBe(false);
+  });
+});
+
+describe("GameCanvas — J opener + Escape precedence (T11)", () => {
+  beforeEach(() => {
+    vi.stubGlobal("ResizeObserver", StubResizeObserver);
+    journalPanelProps.length = 0;
+    // First-run onboarding correctly blocks J while it's up; mark it seen so these
+    // tests exercise the opener precedence directly, not the onboarding gate.
+    localStorage.setItem("aboutmegame.onboarding.v1", "1");
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+    localStorage.clear();
+  });
+
+  it("pressing J with nothing open mounts the journal (journalOpen true)", () => {
+    const { handle } = makeHandle();
+    render(<GameCanvas build={() => handle} showStats={false} />);
+
+    expect(journalPanelProps.length).toBe(0);
+    act(() => {
+      fireEvent.keyDown(window, { key: "j" });
+    });
+    expect(journalPanelProps.length).toBeGreaterThan(0);
+  });
+
+  it("pressing J while the menu is open is a no-op (no modal stacks behind the menu)", () => {
+    const { handle } = makeHandle();
+    render(<GameCanvas build={() => handle} showStats={false} />);
+
+    // Open the menu (Escape with nothing else up).
+    act(() => {
+      fireEvent.keyDown(window, { key: "Escape" });
+    });
+    journalPanelProps.length = 0;
+
+    act(() => {
+      fireEvent.keyDown(window, { key: "j" });
+    });
+    // J ignored — the menu owns the foreground, no journal mounted behind it.
+    expect(journalPanelProps.length).toBe(0);
+  });
+
+  it("pressing J while the journal is already open is a no-op (no re-open)", () => {
+    const { handle } = makeHandle();
+    render(<GameCanvas build={() => handle} showStats={false} />);
+
+    act(() => {
+      fireEvent.keyDown(window, { key: "j" });
+    });
+    const afterOpen = journalPanelProps.length;
+    expect(afterOpen).toBeGreaterThan(0);
+
+    // A second J must not re-trigger the opener (journalOpen already true). Any
+    // re-render of the still-mounted panel from React is fine; the guard means
+    // the keydown itself adds no state change, so no extra mount round-trips.
+    act(() => {
+      fireEvent.keyDown(window, { key: "j" });
+    });
+    expect(journalPanelProps.length).toBe(afterOpen);
+  });
+
+  it("with the journal open, Escape closes the journal and does NOT open the menu (precedence)", () => {
+    const { handle } = makeHandle();
+    render(<GameCanvas build={() => handle} showStats={false} />);
+
+    // Journal is up.
+    act(() => {
+      fireEvent.keyDown(window, { key: "j" });
+    });
+    expect(journalPanelProps.length).toBeGreaterThan(0);
+    const onClose = lastJournalProps().onClose;
+
+    // The journal owns Escape while topmost: GameCanvas's Escape handler must
+    // early-return on journalOpen, so it neither opens the menu nor double-handles
+    // the key — the JournalPanel's own Escape (its onClose) is the only closer.
+    act(() => {
+      fireEvent.keyDown(window, { key: "Escape" });
+    });
+    // No SettingsMenu mounted behind the journal.
+    expect(screen.queryByRole("dialog", { name: /settings|menu|paused/i })).toBeNull();
+
+    // The panel's own onClose (what its Escape calls) clears journalOpen and
+    // unmounts the journal without ever popping the menu.
+    const beforeClose = journalPanelProps.length;
+    act(() => {
+      onClose();
+    });
+    const afterClose = journalPanelProps.length;
+    // The journal stopped rendering (unmounted)…
+    expect(afterClose).toBe(beforeClose);
+    // …and a subsequent J re-opens it, proving the menu never claimed Escape.
+    act(() => {
+      fireEvent.keyDown(window, { key: "j" });
+    });
+    expect(journalPanelProps.length).toBeGreaterThan(afterClose);
   });
 });
