@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { loadContent, contentById, parseInteraction } from "./contentModel.ts";
 import type { GuessOption, PoiInteraction } from "./contentModel.ts";
-import { buildDiscoverablePois } from "./discoverablePois.ts";
+import { buildDiscoverablePois, toJournalPoi } from "./discoverablePois.ts";
 import { POI_ANCHORS } from "../world/worldConfig.ts";
 import * as THREE from "three";
 
@@ -271,6 +271,28 @@ describe("POI placement binding (#36)", () => {
     expect(pois.find((p) => p.id === guessId)?.interaction).toEqual(guess);
     vi.doUnmock("./contentModel.ts");
     vi.resetModules();
+  });
+});
+
+describe("toJournalPoi projection (M3)", () => {
+  it("drops THREE position while preserving every other field", () => {
+    const poi = buildDiscoverablePois(() => new THREE.Vector3(1, 2, 3))[0];
+    const journal = toJournalPoi(poi);
+
+    // The position-free seam: NavSystem keeps the Vector3, the React journal
+    // never sees it (so THREE cannot leak into the DOM shell).
+    expect("position" in journal).toBe(false);
+    expect(journal).toEqual({
+      id: poi.id,
+      order: poi.order,
+      title: poi.title,
+      teaser: poi.teaser,
+      body: poi.body,
+      color: poi.color,
+      interaction: poi.interaction,
+    });
+    // The source POI is not mutated by the projection.
+    expect(poi.position).toBeInstanceOf(THREE.Vector3);
   });
 });
 
