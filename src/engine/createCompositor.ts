@@ -5,6 +5,7 @@ import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPa
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import type { QualityConfig } from "../perf/quality.ts";
 import type { RenderDelegate } from "./types.ts";
+import { configureCompositorColor } from "./compositorColor.ts";
 
 /**
  * The post-processing compositor — the only place an `EffectComposer` (and any
@@ -34,14 +35,16 @@ const BLOOM_THRESHOLD = 0.85;
  *
  * Chain: `RenderPass(scene,camera)` → `UnrealBloomPass` → `OutputPass`.
  *
- * Colour ownership moves to the chain while it is the one presenting: the
- * renderer is switched to `NoToneMapping` / `LinearSRGBColorSpace` so the
- * `RenderPass` writes *linear* HDR into the composer's HalfFloat targets, bloom
- * adds light in that linear space, and `OutputPass` applies ACES + sRGB exactly
- * once at the end. This keeps the base (non-glowing) pixels identical to the
- * plain low path — only the added light differs — and avoids a double tone-map.
- * The plain low path is untouched: `createRenderer` still sets ACES + sRGB and
- * the renderer presents directly.
+ * Colour ownership stays at `ACESFilmicToneMapping` / `SRGBColorSpace` (the same
+ * values `createRenderer` sets) so `OutputPass` picks them up and applies ACES +
+ * sRGB exactly once at the end of the chain — see `configureCompositorColor` for
+ * why neutralising the renderer to `NoToneMapping` / linear would instead turn
+ * `OutputPass` into a pass-through and present a raw, un-encoded (dark) buffer.
+ * The intermediate `EffectComposer` targets are linear `HalfFloatType`, so the
+ * `RenderPass` writes scene-linear HDR and bloom adds light in that linear space;
+ * only the final present is tone-mapped + encoded. This keeps the base
+ * (non-glowing) pixels identical to the plain low path — only the added light
+ * differs — and avoids a double tone-map. The plain low path is untouched.
  */
 export function createBloomCompositor(
   renderer: THREE.WebGLRenderer,
@@ -49,10 +52,15 @@ export function createBloomCompositor(
   camera: THREE.Camera,
   quality: QualityConfig,
 ): Compositor {
-  // Hand final tone-mapping + encoding to OutputPass while the chain presents.
-  // RenderPass now renders linear; bloom sums in linear HDR; OutputPass encodes.
-  renderer.toneMapping = THREE.NoToneMapping;
-  renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
+  // Final tone-mapping + encoding is applied by OutputPass at the end of the
+  // chain. OutputPass derives its tone-map + sRGB-encode shader defines from the
+  // renderer's own `toneMapping` / `outputColorSpace`, so these MUST stay at the
+  // renderer's existing ACES + sRGB — leaving them there is what makes OutputPass
+  // encode once. (Neutralising to NoToneMapping / linear would make OutputPass a
+  // pass-through that presents a raw, un-encoded, dark buffer.) RenderPass writes
+  // into linear HalfFloat targets, so it renders scene-linear HDR; bloom sums in
+  // linear HDR; OutputPass tone-maps + encodes the final present exactly once.
+  configureCompositorColor(renderer);
 
   const composer = new EffectComposer(renderer);
   // The composer normally bakes `renderer.getPixelRatio()` into an internal

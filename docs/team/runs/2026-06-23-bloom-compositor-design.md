@@ -108,20 +108,37 @@ matches the low path), bloom buffer **half effective resolution on medium** and
 **full on high** — achieved by owned `bloomPass.setSize`, **not** by the
 constructor.
 
-## Tone-mapping ownership: NoToneMapping/LinearSRGB → OutputPass
+## Tone-mapping ownership: renderer stays ACES+sRGB → OutputPass reads it
 
-`OutputPass` is **mandatory** and terminates the chain. On the compositor path the
-renderer's output ownership is handed to the chain (`createCompositor.ts:54-55`):
-`renderer.toneMapping = NoToneMapping`, `renderer.outputColorSpace =
-LinearSRGBColorSpace`. So `RenderPass` writes **linear** HDR into the composer's
-HalfFloat targets, `UnrealBloomPass` adds light in that linear space, and
-`OutputPass` applies **ACES + sRGB exactly once** at the end of the chain.
+`OutputPass` is **mandatory** and terminates the chain, and it owns the final
+ACES + sRGB encode. **Correction to the original design (it had this backwards):**
+on the compositor path the renderer is LEFT at `ACESFilmicToneMapping` /
+`SRGBColorSpace` — the same values `createRenderer` sets — via the WebGL-free
+helper `configureCompositorColor` (`src/engine/compositorColor.ts`). It is **not**
+neutralised to `NoToneMapping` / `LinearSRGBColorSpace`.
 
-The plain **low** path is untouched: `createRenderer` still sets ACES + sRGB and
-the renderer presents directly. This is the boundary the design draws — the
-compositor reconfigures the renderer's output ownership *only when it is the one
-presenting*. It prevents the double-tone-map / washed-out divergence and keeps the
-base (non-glowing) pixels identical across tiers — only the added light differs.
+The reason is how `OutputPass.render` works in three r169 (`OutputPass.js:42-69`):
+it derives its shader defines FROM the renderer's own `toneMapping` /
+`outputColorSpace` at render time. `SRGB_TRANSFER` is set only when
+`ColorManagement.getTransfer(outputColorSpace) === SRGBTransfer` (true for sRGB,
+**false** for linear), and a tone-mapping define only for a *named* tone mode
+(`NoToneMapping` is not one). Neutralising the renderer would therefore make
+`OutputPass` set NEITHER define and become a **pass-through** that presents a raw,
+un-encoded (dark/under-exposed) buffer — the bug the first cut shipped and review
+caught. Leaving the renderer at ACES + sRGB is exactly what makes `OutputPass`
+tone-map + encode once.
+
+The intermediate `EffectComposer` targets are linear `HalfFloatType`, so
+`RenderPass` still writes **scene-linear** HDR (the renderer applies no
+tone-map/encode when drawing into a linear render target), `UnrealBloomPass` adds
+light in linear space, and `OutputPass` applies **ACES + sRGB exactly once** at
+the end of the chain.
+
+The plain **low** path is untouched: `createRenderer` sets ACES + sRGB and the
+renderer presents directly. Keeping the compositor path on the *same* ACES + sRGB
+is what makes the base (non-glowing) pixels track the low baseline across tiers —
+only the added light differs (re-verified: high -9.7%, medium -3.7% base-exposure
+vs low, the residual being the deliberate fog/shadow/prop tier knobs).
 
 ## Emissive promotion: scoped to the two genuine sources
 
@@ -134,7 +151,7 @@ sources**, with the bloom threshold tuned **high** (`threshold 0.85`, `strength
   its post-tonemap luminance clears the high threshold while keeping the additive
   `depthWrite:false` look.
 - **Tower lamp** — `emissiveIntensity` nudged **0.9 → 1.6** so it reliably clears
-  the threshold under the new linear→OutputPass chain.
+  the threshold under the linear-HDR → OutputPass chain.
 
 `placed[]` and the `landmark:<poiId>` group naming are untouched (guarded by
 `landmarks.test.ts`).
