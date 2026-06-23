@@ -72,3 +72,37 @@ describe("MOB1 #148 — earlier run-log draft states the truthful bundled scope"
     expect(log).not.toContain("input.ts untouched");
   });
 });
+
+/*
+ * MOB1 #148 — baseline-honesty lint over the run log (T2).
+ *
+ * Per converge decision AC3/AC4 the run log MUST quote the true current green
+ * baseline of `npm test`, not the stale "69 files / 613 tests" figure that
+ * predates the committed tokens.css / quality / run-log / eager-mount tests.
+ * The corrected baseline this run is 72 files / 642 tests (the +3 files / +29
+ * tests over the original brief's "69 files / 613 tests" are tokens.css.test.ts,
+ * tokens.safeArea.quality.test.ts, tokens.safeArea.runlog.test.ts, and the
+ * eager-mount input.test.ts additions). This lint pins the log to that corrected
+ * figure and forbids the stale strings re-appearing.
+ */
+describe("MOB1 #148 — run log quotes the true current green test baseline", () => {
+  it("states the corrected baseline file count (72 files)", () => {
+    const log = readFileSync(RUNLOG, "utf8");
+    expect(log).toContain("72 files");
+  });
+
+  it("states the corrected baseline test count (642 tests)", () => {
+    const log = readFileSync(RUNLOG, "utf8");
+    expect(log).toContain("642 tests");
+  });
+
+  it("no longer carries the stale '69 files' baseline figure", () => {
+    const log = readFileSync(RUNLOG, "utf8");
+    expect(log).not.toContain("69 files");
+  });
+
+  it("no longer carries the stale '613 tests' baseline figure", () => {
+    const log = readFileSync(RUNLOG, "utf8");
+    expect(log).not.toContain("613 tests");
+  });
+});

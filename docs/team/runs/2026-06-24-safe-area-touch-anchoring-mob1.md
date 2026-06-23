@@ -44,9 +44,12 @@ MOB1 re-anchoring framing and the scope correction above.
   of the run; the slice adds the token layer (now present, per the diff).
 - `index.html:7` carries `viewport-fit=cover` (confirmed; left unchanged).
 - Baseline `npm test` is green; the true current baseline after the committed
-  slices is **70+ files / 620+ tests** (the earlier "69 files / 613 tests"
-  figure is stale — it predates the new `tokens.css` / eager-mount tests). "Stay
-  green" is measured against a fully-green baseline.
+  slices is **72 files / 642 tests** (verified via `npm test` this run: Test
+  Files 72 passed, Tests 642 passed). The earlier stale figure is retired — it
+  predated the new `tokens.css`, `tokens.safeArea.quality`,
+  `tokens.safeArea.runlog`, and eager-mount `input.test.ts` additions, so the
+  +3 files / +29 tests over it are those committed tests. "Stay green" is
+  measured against a fully-green baseline.
 - The touch DOM nodes are constructed in `src/movement/input.ts`; `.reveal-prompt`
   is a className in `src/ui/RevealPanel.tsx`. Re-anchoring itself is class-targeted
   CSS; the **first-tap repair** is the `input.ts` eager-mount change (slice #151).
