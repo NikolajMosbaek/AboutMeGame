@@ -182,6 +182,85 @@ describe("JournalPanel (T7)", () => {
     void container;
   });
 
+  it("activating an unlocked entry drains the interact edge BEFORE openPoi, re-deriving body/interaction from journalPois, and does not clear the journal", () => {
+    // poi-a is discovered, so its row is an enabled button on the unlocked branch.
+    const calls: string[] = [];
+    const onClose = vi.fn(() => calls.push("close"));
+    const consumeInteract = vi.fn(() => {
+      calls.push("consumeInteract");
+      return false;
+    });
+    const { store } = renderPanel({ discoveredIds: ["poi-a"], onClose, consumeInteract });
+    const openPoi = vi.spyOn(store, "openPoi").mockImplementation(() => {
+      calls.push("openPoi");
+    });
+
+    const btn = screen.getByRole("button", { name: /The Arrivals Gate/ });
+    act(() => {
+      btn.click();
+    });
+
+    // consumeInteract drained the queued edge exactly once, strictly before the
+    // open commit (flaw one): the next DiscoverySystem.update can't close it.
+    expect(consumeInteract).toHaveBeenCalledTimes(1);
+    expect(openPoi).toHaveBeenCalledTimes(1);
+    expect(calls).toEqual(["consumeInteract", "openPoi"]);
+
+    // The open input is re-derived in full from the position-free journalPois
+    // projection at select time — never carried on a (maskable) row — so the
+    // body and interaction reach the reveal.
+    expect(openPoi).toHaveBeenCalledWith({
+      id: "poi-a",
+      order: 1,
+      title: "The Arrivals Gate",
+      body: "Welcome, traveller.",
+      interaction: undefined,
+    });
+
+    // The activate itself does NOT close/clear the journal (flaw three): a
+    // GameCanvas effect clears journalOpen only once store.open is observed
+    // non-null, so the journal pause reason overlaps the reveal reason.
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("re-derives a present interaction from journalPois into the open input", () => {
+    // An entry carrying a highlight interaction: the open action must forward it
+    // intact (re-derived from journalPois, not a row), so the reveal path gets
+    // the full OpenPoiInput {id, order, title, body, interaction}.
+    const pois: JournalPoi[] = [
+      {
+        id: "poi-h",
+        order: 1,
+        title: "The Highlight",
+        teaser: "Look here.",
+        body: "The body.",
+        color: 0x112233,
+        interaction: { type: "highlight", emphasis: "The point." },
+      },
+    ];
+    const store = createDiscoveryStore(pois.length);
+    act(() => store.setDiscovered(["poi-h"]));
+    const openPoi = vi.spyOn(store, "openPoi");
+    render(
+      <JournalPanel
+        store={store}
+        journalPois={pois}
+        onClose={vi.fn()}
+        consumeInteract={vi.fn(() => false)}
+      />,
+    );
+    act(() => {
+      screen.getByRole("button", { name: /The Highlight/ }).click();
+    });
+    expect(openPoi).toHaveBeenCalledWith({
+      id: "poi-h",
+      order: 1,
+      title: "The Highlight",
+      body: "The body.",
+      interaction: { type: "highlight", emphasis: "The point." },
+    });
+  });
+
   it("does nothing when a locked entry is activated (zero openPoi calls)", () => {
     // Locked rows are disabled native buttons — not clickable — and even a
     // forced click cannot open undiscovered content (the open path lives only on
