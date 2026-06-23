@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import * as THREE from "three";
 import { buildSky } from "./sky.ts";
+import { WORLD } from "./worldConfig.ts";
 
 // G3 slice 2 — buildSky() live-mutation handles (#119).
 //
@@ -61,5 +62,47 @@ describe("buildSky() handle identity (T2, one source of truth)", () => {
 
     // Reached via instanceof THREE.Mesh because the dome Mesh is unnamed.
     expect(sky.dome).toBe(domeMesh(sky.group).material);
+  });
+});
+
+describe("buildSky() shipped NOON defaults (T3, bit-exact)", () => {
+  it("dome uniforms carry the shipped NOON gradient values", () => {
+    const sky = buildSky(new THREE.Scene());
+
+    // The future day cycle (slice 3) drives these by mutating .value in place;
+    // this slice must hand back today's NOON gradient byte-for-byte.
+    expect(sky.dome.uniforms.topColor.value.getHex()).toBe(0x3a78c2);
+    expect(sky.dome.uniforms.bottomColor.value.getHex()).toBe(0xcfe4f2);
+    expect(sky.dome.uniforms.offset.value).toBe(20);
+    expect(sky.dome.uniforms.exponent.value).toBe(0.7);
+  });
+
+  it("sun is the shipped warm key DirectionalLight at the island-scaled position", () => {
+    const sky = buildSky(new THREE.Scene());
+
+    expect(sky.sun).toBeInstanceOf(THREE.DirectionalLight);
+    expect(sky.sun.color.getHex()).toBe(0xfff1d6);
+    expect(sky.sun.intensity).toBe(1.6);
+
+    // Position is COMPUTED from WORLD.islandRadius (not a literal), so the test
+    // tracks the config rather than baking in a hand-multiplied value.
+    const expected = new THREE.Vector3(0.6, 1, 0.4).multiplyScalar(WORLD.islandRadius);
+    expect(sky.sun.position.x).toBe(expected.x);
+    expect(sky.sun.position.y).toBe(expected.y);
+    expect(sky.sun.position.z).toBe(expected.z);
+  });
+
+  it("with quality.fog=true, fog carries the shipped NOON haze colour and density", () => {
+    const sky = buildSky(new THREE.Scene(), { shadows: true, shadowMapSize: 2048, fog: true });
+
+    expect(sky.fog).toBeInstanceOf(THREE.FogExp2);
+    expect(sky.fog!.color.getHex()).toBe(0xcfe4f2);
+    expect(sky.fog!.density).toBe(0.0022);
+  });
+
+  it("horizon is the construction-time NOON haze snapshot", () => {
+    const sky = buildSky(new THREE.Scene());
+
+    expect(sky.horizon.getHex()).toBe(0xcfe4f2);
   });
 });
