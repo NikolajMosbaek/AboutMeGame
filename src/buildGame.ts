@@ -74,7 +74,14 @@ export function buildGame(
   // Nav hints — registered after the camera so it reads the updated view matrix.
   const nav = createNavStore();
   engine.addSystem(
-    new NavSystem(engine, movement.vehicle, discovery.pois, nav, discovery.store),
+    new NavSystem(
+      engine,
+      movement.vehicle,
+      discovery.pois,
+      nav,
+      discovery.store,
+      () => settings.getSnapshot().showDiscoveredMarkers,
+    ),
   );
 
   // Visual juice (#53): a particle pop at a landmark the instant it's revealed.
