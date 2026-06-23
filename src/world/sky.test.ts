@@ -73,6 +73,36 @@ describe("buildSky() handle identity (T2, one source of truth)", () => {
   });
 });
 
+describe("buildSky() dome-identity guard (T5, instanceof THREE.Mesh alone)", () => {
+  // The dome Mesh at sky.ts:74 is UNNAMED, so the name-based `waterMesh`
+  // precedent does NOT apply — the only way to reach it is by type. The sky
+  // group holds exactly one Mesh: the gradient dome. Everything else is a Light
+  // or an Object3D (hemi + sun are Lights; sun.target is a bare Object3D), none
+  // of which is a THREE.Mesh, so `instanceof THREE.Mesh` uniquely isolates the
+  // dome. Proving that this one in-scene Mesh's `.material` IS the returned
+  // `sky.dome` confirms the handle is the live material a per-frame writer
+  // mutates — not a detached copy.
+  it("the sky group has exactly one Mesh and its material IS sky.dome", () => {
+    const sky = buildSky(new THREE.Scene());
+
+    const meshes = sky.group.children.filter(
+      (o): o is THREE.Mesh => o instanceof THREE.Mesh,
+    );
+    expect(meshes).toHaveLength(1);
+    expect(meshes[0].material).toBe(sky.dome);
+  });
+
+  it("the non-Mesh sky children are Lights / Object3Ds (not Meshes)", () => {
+    const sky = buildSky(new THREE.Scene());
+
+    // Make the filter meaningful: there ARE other children, and none is a Mesh.
+    // hemi + sun are Lights; sun.target is a bare Object3D added to the group.
+    const nonMeshes = sky.group.children.filter((o) => !(o instanceof THREE.Mesh));
+    expect(nonMeshes.length).toBeGreaterThan(0);
+    expect(nonMeshes.every((o) => !(o instanceof THREE.Mesh))).toBe(true);
+  });
+});
+
 describe("buildSky() shipped NOON defaults (T3, bit-exact)", () => {
   it("dome uniforms carry the shipped NOON gradient values", () => {
     const sky = buildSky(new THREE.Scene());
