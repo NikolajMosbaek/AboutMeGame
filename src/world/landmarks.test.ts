@@ -46,6 +46,44 @@ function countMeshes(object: THREE.Object3D): number {
   return n;
 }
 
+// Expected merged-stone silhouette extent per archetype, as inclusive [min,max]
+// bands on each axis (world units). Derived from the baked local-space geometry
+// in landmarks.ts: e.g. the gate's two pillars sit at x=-4/x=+4 so the stone span
+// is ~10 wide; the station's posts sit at x=±5/z=±3; the ring's 8 posts ride a
+// radius-6 circle so the stone spans ~13 on x AND z. These spans only hold if
+// every sub-primitive's transform was baked into its geometry before
+// mergeGeometries — an un-baked primitive collapses to the origin and shrinks the
+// affected axis below its lower band (the regression this guards). Bands carry a
+// generous tolerance around the measured values so they assert "right silhouette
+// size", not exact dimensions.
+const EXPECTED_STONE_SPAN: Record<
+  LandmarkArchetype,
+  { x: [number, number]; y: [number, number]; z: [number, number] }
+> = {
+  // 2 pillars at x=±4 (w=2) + lintel w=12: span ~10 wide, 9 tall.
+  gate: { x: [9, 13], y: [8, 11], z: [1.5, 3] },
+  // single slab w=3, h=12.
+  monolith: { x: [2.5, 4], y: [11, 13], z: [1, 2] },
+  // single cone-ish shaft r≈3.4, h=14.
+  tower: { x: [5, 8], y: [13, 15], z: [5, 8] },
+  // single hall 10×7×8.
+  foundry: { x: [9, 11], y: [6, 8], z: [7, 9] },
+  // long wall 22×11×3.
+  dam: { x: [20, 24], y: [10, 12], z: [2.5, 4] },
+  // platform 12 wide + posts at x=±5/z=±3, posts h=5 reach y≈5.5.
+  station: { x: [11, 14], y: [5, 7], z: [6, 9] },
+  // 8 posts on a radius-6 circle (post w=1.4): span ~13 on x and z, 6 tall.
+  ring: { x: [12, 15], y: [5, 7], z: [12, 15] },
+  // single frame 14×10×1.
+  mirror: { x: [13, 15], y: [9, 11], z: [0.5, 2] },
+};
+
+/** The merged stone mesh = the unnamed child whose material is NOT the white
+ *  emissive accent (mirrors mergedMeshes(); the discrete beacon/lamp excluded). */
+function mergedStoneMesh(object: THREE.Object3D): THREE.Mesh | undefined {
+  return mergedMeshes(object).stone;
+}
+
 // Stone tint stamped on every stone-set source vertex (mirrors STONE_BASE in
 // landmarks.ts). The wayfinding guard asserts an accent vertex differs from this.
 const STONE_BASE = 0xb9b2a6;
@@ -290,6 +328,59 @@ describe("landmarks", () => {
           !eq(lampTriple, stoneTriple),
           `${anchor.poiId} lamp signature colour differs from stone base`,
         ).toBe(true);
+      }
+    }
+  });
+
+  // Transform-baking regression guard (G4, T5): mergeGeometries merges RAW
+  // geometry and ignores Object3D transforms, so every sub-primitive's transform
+  // (translate/rotate/scale) must be baked into its geometry BEFORE the merge. If
+  // it is not, the primitive collapses to the local origin — the merged stone
+  // mesh shrinks on the affected axis and the silhouette is wrong, yet the
+  // name/position contract tests would still pass. This computes each landmark's
+  // merged stone bounding box and asserts (a) it is defined and non-degenerate
+  // (every axis span > epsilon, i.e. not collapsed to a point) and (b) the span
+  // sits inside the archetype's expected silhouette size band — so an un-baked
+  // pillar/post/lintel that collapsed to the origin fails here.
+  it("bakes sub-primitive transforms: merged stone bounding box spans the archetype silhouette (not collapsed)", () => {
+    const EPS = 1e-3;
+    for (const anchor of POI_ANCHORS) {
+      const placed = landmarks.placed.find((p) => p.poiId === anchor.poiId)!;
+      const stone = mergedStoneMesh(placed.object);
+      expect(stone, `${anchor.poiId} merged stone mesh`).toBeInstanceOf(THREE.Mesh);
+
+      stone!.geometry.computeBoundingBox();
+      const box = stone!.geometry.boundingBox;
+      expect(box, `${anchor.poiId} stone bounding box`).not.toBeNull();
+
+      const span = {
+        x: box!.max.x - box!.min.x,
+        y: box!.max.y - box!.min.y,
+        z: box!.max.z - box!.min.z,
+      };
+
+      // Non-degenerate: not collapsed to a point/origin on any axis.
+      expect(span.x, `${anchor.poiId} stone x span`).toBeGreaterThan(EPS);
+      expect(span.y, `${anchor.poiId} stone y span`).toBeGreaterThan(EPS);
+      expect(span.z, `${anchor.poiId} stone z span`).toBeGreaterThan(EPS);
+
+      // Matches the archetype's expected silhouette size band — an un-baked
+      // transform would pull an axis below its lower bound.
+      const band = EXPECTED_STONE_SPAN[anchor.archetype];
+      for (const axis of ["x", "y", "z"] as const) {
+        const [lo, hi] = band[axis];
+        expect(
+          span[axis],
+          `${anchor.poiId} (${anchor.archetype}) stone ${axis} span ${span[
+            axis
+          ].toFixed(2)} outside [${lo}, ${hi}]`,
+        ).toBeGreaterThanOrEqual(lo);
+        expect(
+          span[axis],
+          `${anchor.poiId} (${anchor.archetype}) stone ${axis} span ${span[
+            axis
+          ].toFixed(2)} outside [${lo}, ${hi}]`,
+        ).toBeLessThanOrEqual(hi);
       }
     }
   });
