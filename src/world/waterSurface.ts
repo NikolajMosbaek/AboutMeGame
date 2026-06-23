@@ -20,6 +20,36 @@ export const A1 = 0.06;
 /** Secondary ripple amplitude, world units. Art-tunable. */
 export const A2 = 0.04;
 
+// Fixed, distinct wave directions, spatial frequencies and temporal speeds for
+// the two sines. The directions are non-parallel so the crests cross instead of
+// reinforcing into a single ridge; baked-in constants keep `waveHeight` a pure,
+// deterministic scalar with no per-call allocation.
+const K1 = 0.18; // primary wavenumber
+const S1 = 0.9; // primary phase speed
+const K2 = 0.27; // secondary wavenumber
+const S2 = 1.3; // secondary phase speed
+
+/**
+ * Vertical displacement of the water surface at world `(x, z)` and time `t`.
+ *
+ * A sum of EXACTLY two sines along distinct directions, frequencies and speeds:
+ * the first runs along +x, the second along the (0.6, 0.8) diagonal, so their
+ * crests cross into a gentle chop rather than a single ridge. Pure, branch-free
+ * and allocation-free (scalars only), and deterministic — no `Math.random` /
+ * `Date.now`. Bounded by construction: `|waveHeight| <= A1 + A2`, since each
+ * `sin` term is in [-1, 1].
+ *
+ * Amplitudes {@link A1}/{@link A2} are art-tunable — the later visual slice can
+ * scale the visible swell by editing them without touching this signature, and
+ * this maps line-for-line onto the GLSL `onBeforeCompile` vertex patch.
+ */
+export function waveHeight(x: number, z: number, t: number): number {
+  return (
+    A1 * Math.sin(x * K1 + t * S1) +
+    A2 * Math.sin((x * 0.6 + z * 0.8) * K2 + t * S2)
+  );
+}
+
 // --- Foam band -------------------------------------------------------------
 // Edge ordering is load-bearing: FOAM_DEPTH_START < FOAM_DEPTH_END so the foam
 // term is `1 - smoothstep(START, END, depth)`. GLSL `smoothstep` is undefined
