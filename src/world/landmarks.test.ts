@@ -232,6 +232,70 @@ describe("landmarks", () => {
     }
   });
 
+  // Bloom-mesh exclusion (G4, T10): the prior tests prove the beacon (all 13) and
+  // the tower lamp SURVIVE as named meshes with their materials intact; this
+  // proves the other half of the contract — neither is folded into the merge, so
+  // each keeps its OWN dedicated material distinct (by ===) from the two shared
+  // structure materials. The shared-pair count test above excludes them BY NAME,
+  // which only holds if they are genuinely separate meshes; this test makes that
+  // separation positive: it gathers the two shared structure materials, then
+  // asserts every beacon material and the tower lamp material is identity-distinct
+  // from both — a merge that accidentally reused a shared material for a beacon or
+  // lamp (collapsing them into the merged set) would fail here even though the
+  // by-name count test would not. BeaconPulseSystem mutates each beacon material's
+  // opacity per frame, so a beacon sharing the structure material would also bleed
+  // that pulse onto the merged stone/accent meshes — guarded against here.
+  it("keeps beacon + lamp materials discrete from the shared structure pair (T10, not folded into the merge)", () => {
+    expect(landmarks.placed).toHaveLength(13);
+
+    // The two shared structure materials, gathered exactly as the count test does:
+    // the unnamed merged stone/accent meshes only.
+    const shared = new Set<THREE.Material>();
+    for (const p of landmarks.placed) {
+      p.object.traverse((o) => {
+        if (!(o instanceof THREE.Mesh)) return;
+        if (o.name === "beacon" || o.name === "lamp") return;
+        shared.add(o.material as THREE.Material);
+      });
+    }
+    expect(shared.size, "shared structure material pair").toBe(2);
+
+    // Every beacon keeps its own MeshBasicMaterial, identity-distinct from both
+    // shared structure materials — i.e. the beacon was NOT merged in.
+    for (const p of landmarks.placed) {
+      const beacon = p.object.getObjectByName("beacon") as THREE.Mesh | null;
+      expect(beacon, `${p.poiId} beacon mesh`).toBeInstanceOf(THREE.Mesh);
+      const mat = beacon!.material as THREE.Material;
+      expect(mat, `${p.poiId} beacon material`).toBeInstanceOf(
+        THREE.MeshBasicMaterial,
+      );
+      expect(
+        shared.has(mat),
+        `${p.poiId} beacon material is one of the shared structure pair (folded into the merge)`,
+      ).toBe(false);
+    }
+
+    // The tower lamp keeps its own emissive MeshStandardMaterial, identity-distinct
+    // from both shared structure materials — its accent role is the lamp itself, so
+    // it must NOT be the shared accent material reused.
+    const tower = POI_ANCHORS.find((a) => a.archetype === "tower")!;
+    const placed = landmarks.placed.find((p) => p.poiId === tower.poiId)!;
+    const lamp = placed.object.getObjectByName("lamp") as THREE.Mesh | null;
+    expect(lamp, "tower lamp mesh").toBeInstanceOf(THREE.Mesh);
+    const lampMat = lamp!.material as THREE.MeshStandardMaterial;
+    expect(lampMat).toBeInstanceOf(THREE.MeshStandardMaterial);
+    expect(
+      shared.has(lampMat),
+      "tower lamp material is one of the shared structure pair (folded into the merge)",
+    ).toBe(false);
+    // The lamp carries the signature colour directly (vertexColors off), unlike the
+    // shared accent material whose hue rides the vertex `color` attribute — another
+    // signal it is its own dedicated material, not the shared accent reused.
+    expect(lampMat.vertexColors, "tower lamp uses its own non-vertex-colour material").toBe(
+      false,
+    );
+  });
+
   // Draw-call discipline: after the G4 merge each landmark renders as ONE stone
   // mesh + ONE accent mesh + ONE beacon. Counting THREE.Mesh children headlessly
   // (no renderer.info / no WebGL) is the proxy for per-landmark draw calls, since
