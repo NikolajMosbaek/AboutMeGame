@@ -138,7 +138,13 @@ headless-testable pure logic plus thin React panels — no rendering work.
   system — explicitly capped at one-pick-then-reveal, no score. Content/code
   coupling mitigated by optional fields with a plain default (incremental authoring).
 
-### M3 — Free-Roam Loop Polish: Recall, Re-read & Wayfinding  *(top unfinished mechanics item)*
+### M3 — Free-Roam Loop Polish: Recall, Re-read & Wayfinding  — ✅ SHIPPED (PR #113, 2026-06-23)
+
+> **Done — do not pull.** Journal overlay (HUD book button + `J`) with locked
+> placeholders for undiscovered POIs, re-open of discovered entries via the
+> existing reveal path with sim pause, no re-chime on revisit, and a persisted
+> `showDiscoveredMarkers` settings toggle (default off). Issue #75 closed.
+> **All mechanics epics (M1–M3) are now shipped.**
 
 - **Goal / value:** Once a landmark is discovered its nav marker disappears
   (markers only show undiscovered POIs) and there's no way back to re-read it — the
