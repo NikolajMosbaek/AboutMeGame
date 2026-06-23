@@ -275,3 +275,111 @@ describe("JournalPanel (T7)", () => {
     expect(store.getSnapshot().open).toBeNull();
   });
 });
+
+// A full 13-landmark, position-free fixture (the real world has 13). Built
+// out-of-order so the panel must sort by `order`; each title/teaser is unique so
+// its presence in the DOM is an unambiguous unlock probe.
+const ALL_13: JournalPoi[] = Array.from({ length: 13 }, (_, i) => {
+  const order = i + 1;
+  return {
+    id: `poi-${String(order).padStart(2, "0")}`,
+    order,
+    title: `Landmark ${order} Title`,
+    teaser: `Landmark ${order} teaser.`,
+    body: `Landmark ${order} body.`,
+    color: 0x100000 + order,
+  };
+}).reverse(); // reversed so input order != render order
+
+const LOCK = "Undiscovered landmark";
+
+/** Render the journal over a 13-landmark store seeded with the given discovered
+ *  ids — modelling exactly how `buildGame`/GameCanvas constructs the store (the
+ *  persisted set restored before first render) so seeding *is* reload reflection. */
+function render13(discoveredIds: string[]) {
+  const store = createDiscoveryStore(ALL_13.length);
+  if (discoveredIds.length) act(() => store.setDiscovered(discoveredIds));
+  const utils = render(
+    <JournalPanel
+      store={store}
+      journalPois={ALL_13}
+      onClose={vi.fn()}
+      consumeInteract={vi.fn(() => false)}
+    />,
+  );
+  return { store, ...utils };
+}
+
+describe("JournalPanel live-update + reload reflection (T15)", () => {
+  it("all-locked first visit: an empty discovered set renders all 13 as locked rows with no titles/teasers in the DOM", () => {
+    render13([]);
+    // 13 disabled, generically-labelled lock rows — and nothing else.
+    const locked = screen.getAllByRole("button", { name: LOCK });
+    expect(locked).toHaveLength(13);
+    for (const b of locked) expect(b.hasAttribute("disabled")).toBe(true);
+    // No real content text leaked through the structural mask.
+    for (const poi of ALL_13) {
+      expect(screen.queryByText(poi.title)).toBeNull();
+      expect(screen.queryByText(poi.teaser)).toBeNull();
+      expect(screen.queryByText(poi.body)).toBeNull();
+    }
+  });
+
+  it("live-updates the affected rows as landmarks are discovered (useSyncExternalStore on the store)", () => {
+    const { store } = render13([]);
+    expect(screen.getAllByRole("button", { name: LOCK })).toHaveLength(13);
+
+    // Discover one — only that row flips to an enabled button carrying its title
+    // + teaser; the other 12 stay locked. No re-mount, no prop change: the panel
+    // reflects the store live via useSyncExternalStore.
+    act(() => store.setDiscovered(["poi-01"]));
+    expect(screen.getAllByRole("button", { name: LOCK })).toHaveLength(12);
+    const one = screen.getByRole("button", { name: /Landmark 1 Title/ });
+    expect(one.hasAttribute("disabled")).toBe(false);
+    expect(one.textContent).toContain("Landmark 1 teaser.");
+
+    // Discover a second; both unlocked rows now show, 11 remain locked.
+    act(() => store.setDiscovered(["poi-01", "poi-07"]));
+    expect(screen.getAllByRole("button", { name: LOCK })).toHaveLength(11);
+    expect(screen.getByRole("button", { name: /Landmark 7 Title/ })).toBeTruthy();
+    // The first unlock is unaffected by the second discovery.
+    expect(screen.getByRole("button", { name: /Landmark 1 Title/ }).textContent).toContain(
+      "Landmark 1 teaser.",
+    );
+  });
+
+  it("reload reflection: a store seeded from persisted discovery renders those rows unlocked on first render (no live event needed)", () => {
+    // Modelling a reload: the persisted set is restored into the store BEFORE the
+    // panel mounts. The very first render must already show those rows unlocked —
+    // the panel's initial read goes through useSyncExternalStore's getSnapshot.
+    render13(["poi-02", "poi-05"]);
+    expect(screen.getAllByRole("button", { name: LOCK })).toHaveLength(11);
+    const two = screen.getByRole("button", { name: /Landmark 2 Title/ });
+    const five = screen.getByRole("button", { name: /Landmark 5 Title/ });
+    expect(two.hasAttribute("disabled")).toBe(false);
+    expect(two.textContent).toContain("Landmark 2 teaser.");
+    expect(five.hasAttribute("disabled")).toBe(false);
+    expect(five.textContent).toContain("Landmark 5 teaser.");
+  });
+
+  it("all-13-discovered: every row is an enabled button with title + teaser and zero locked placeholders remain", () => {
+    render13(ALL_13.map((p) => p.id));
+    // No locked rows survive.
+    expect(screen.queryAllByRole("button", { name: LOCK })).toHaveLength(0);
+    // Every landmark shows its real title + teaser, in `order` (the fixture was
+    // built reversed, so this also pins the sort).
+    const contentButtons = screen
+      .getAllByRole("button")
+      .filter((b) => /Landmark \d+ Title/.test(b.textContent ?? ""));
+    expect(contentButtons).toHaveLength(13);
+    expect(contentButtons.map((b) => b.textContent)).toEqual(
+      Array.from({ length: 13 }, (_, i) =>
+        expect.stringContaining(`Landmark ${i + 1} Title`),
+      ),
+    );
+    for (const poi of ALL_13) {
+      expect(screen.getByText(poi.title)).toBeTruthy();
+      expect(screen.getByText(poi.teaser)).toBeTruthy();
+    }
+  });
+});
