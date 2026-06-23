@@ -55,7 +55,7 @@ export function buildWorld(
   });
   scene.add(sky.group);
 
-  const boundaries = buildBoundaries();
+  const boundaries = buildBoundaries(terrain.heightAt);
   scene.add(boundaries.group);
 
   const landmarks = buildLandmarks(terrain);
