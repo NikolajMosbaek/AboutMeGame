@@ -24,10 +24,18 @@ export const A2 = 0.04;
 // the two sines. The directions are non-parallel so the crests cross instead of
 // reinforcing into a single ridge; baked-in constants keep `waveHeight` a pure,
 // deterministic scalar with no per-call allocation.
-const K1 = 0.18; // primary wavenumber
-const S1 = 0.9; // primary phase speed
-const K2 = 0.27; // secondary wavenumber
-const S2 = 1.3; // secondary phase speed
+//
+// EXPORTED so the GLSL `onBeforeCompile` emitter and {@link waveGradient} read
+// the SAME numbers as {@link waveHeight} — one source of truth, never a second
+// hand-copy of the magic constants in shader text or in the analytic gradient.
+/** Primary wavenumber (spatial frequency along +x). */
+export const K1 = 0.18;
+/** Primary phase speed (temporal frequency of the +x sine). */
+export const S1 = 0.9;
+/** Secondary wavenumber (spatial frequency along the (0.6,0.8) diagonal). */
+export const K2 = 0.27;
+/** Secondary phase speed (temporal frequency of the diagonal sine). */
+export const S2 = 1.3;
 
 /**
  * Vertical displacement of the water surface at world `(x, z)` and time `t`.
@@ -49,6 +57,71 @@ export function waveHeight(x: number, z: number, t: number): number {
     A2 * Math.sin((x * 0.6 + z * 0.8) * K2 + t * S2)
   );
 }
+
+/**
+ * Analytic surface gradient of {@link waveHeight} — its exact closed-form
+ * partials `∂h/∂x` and `∂h/∂z` at world `(x, z)` and time `t`.
+ *
+ * Differentiating the two-sine {@link waveHeight} term by term:
+ * - `d/dx[ A1·sin(x·K1 + t·S1) ] = A1·K1·cos(x·K1 + t·S1)`
+ * - the diagonal sine `A2·sin((x·0.6 + z·0.8)·K2 + t·S2)` has inner derivative
+ *   `0.6·K2` in x and `0.8·K2` in z (the (0.6, 0.8) crest direction), so it
+ *   contributes `A2·(0.6·K2)·cos(φ)` to `∂h/∂x` and `A2·(0.8·K2)·cos(φ)` to
+ *   `∂h/∂z`, sharing the single phase `φ = (x·0.6 + z·0.8)·K2 + t·S2`.
+ *
+ * The first sine carries no z, so `∂h/∂z` has only the diagonal term. This is
+ * the SINGLE SOURCE OF TRUTH for the lit vertex normal: the visual slice forms
+ * `objectNormal = normalize(vec3(-dHdx, 1, -dHdz))` from these same partials so
+ * the shaded normal can never diverge from the displaced silhouette (both flow
+ * from the same {@link A1}/{@link A2}/{@link K1}/{@link S1}/{@link K2}/{@link S2}
+ * constants). Pure, deterministic, branch-free; allocates one small result
+ * object per call (off the per-frame path — used only by the build-time emitter
+ * and the headless gradient tests).
+ */
+export function waveGradient(
+  x: number,
+  z: number,
+  t: number,
+): { dHdx: number; dHdz: number } {
+  const phase2 = (x * 0.6 + z * 0.8) * K2 + t * S2;
+  const cos2 = Math.cos(phase2);
+  return {
+    dHdx: A1 * K1 * Math.cos(x * K1 + t * S1) + A2 * (0.6 * K2) * cos2,
+    dHdz: A2 * (0.8 * K2) * cos2,
+  };
+}
+
+// --- Time wrap (float32 precision guard) -----------------------------------
+// The live system accumulates time as a scalar; on a long-lived tab that scalar
+// would grow without bound and lose precision in the `sin()` argument on a
+// mediump mobile GPU. Wrapping the accumulator modulo a shared period keeps the
+// argument small. The period must be common to BOTH sines so neither term jumps
+// at the wrap: each temporal phase must complete a WHOLE number of 2π cycles
+// over one period. With speeds S1 = 0.9 and S2 = 1.3, S1/S2 = 9/13, so the
+// smallest common period is `2π·9/S1 = 2π·13/S2 = 20π` — both phases close on an
+// exact cycle, making `waveHeight(x, z, WRAP_PERIOD) == waveHeight(x, z, 0)`.
+/**
+ * Shared continuous wrap period for the time accumulator, in the same time
+ * units as {@link waveHeight}'s `t`. Derived (not hand-typed) as the smallest
+ * `T` for which both `T·S1` and `T·S2` are whole multiples of `2π`, so wrapping
+ * `t` modulo `T` is seamless for BOTH sine terms — no visible jump at the wrap.
+ */
+export const WRAP_PERIOD = (() => {
+  // n_i = T·S_i / (2π) must be integers. The smallest T comes from the smallest
+  // integers (n1, n2) with n1/n2 = S1/S2. Recover them by scaling S1/S2 to
+  // integers via their precision (S1=0.9, S2=1.3 → tenths → 9/13, already
+  // coprime), then T = 2π·n1/S1.
+  const SCALE = 10; // both speeds are exact in tenths
+  let m1 = Math.round(S1 * SCALE);
+  let m2 = Math.round(S2 * SCALE);
+  const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b));
+  const g = gcd(m1, m2);
+  m1 /= g;
+  m2 /= g;
+  // Whole-cycle counts (m1, m2) with m1/m2 = S1/S2, so T·S1 = 2π·m1 and
+  // T·S2 = 2π·m2 are the SAME T by construction. Compute it from S1.
+  return (2 * Math.PI * m1) / S1;
+})();
 
 // --- Foam band -------------------------------------------------------------
 // Edge ordering is load-bearing: FOAM_DEPTH_START < FOAM_DEPTH_END so the foam
