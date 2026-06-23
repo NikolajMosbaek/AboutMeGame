@@ -38,9 +38,15 @@ export default tseslint.config(
       // Allow unused args prefixed with _ (e.g. `_ctx` in System.update) and
       // unused destructured bindings prefixed with _ (e.g. the `_position` drop
       // in `toJournalPoi`, where rest-destructuring is the idiomatic field omit).
+      // `ignoreRestSiblings` covers the rest-destructure discard regardless of
+      // name; `varsIgnorePattern`/`argsIgnorePattern` cover the `_`-prefix idiom.
       "@typescript-eslint/no-unused-vars": [
         "error",
-        { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
+        {
+          argsIgnorePattern: "^_",
+          varsIgnorePattern: "^_",
+          ignoreRestSiblings: true,
+        },
       ],
     },
   },
