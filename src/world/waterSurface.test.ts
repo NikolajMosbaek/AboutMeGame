@@ -1,3 +1,6 @@
+import { readFileSync, readdirSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   A1,
@@ -12,6 +15,50 @@ import {
   waterColor,
   waveHeight,
 } from "./waterSurface.ts";
+
+// Directory of THIS test file, used to read source for the static (grep-style)
+// isolation/tree-shaking guards below. Declared up top so the `describe`
+// factories — which run synchronously at registration — can read it.
+const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
+
+/** Strip `//` and block comments only, preserving string/template literals.
+ * Used by the import scan (which must read the quoted module specifier) so a
+ * commented-out `import "three"` is ignored but a real one is not. */
+function stripComments(src: string): string {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, " ") // block comments (incl. jsdoc)
+    .replace(/\/\/[^\n]*/g, " "); // line comments
+}
+
+/** Strip comments AND string/template literals so keyword scans (`three`,
+ * `document`, `Math.random`, …) don't trip over prose in jsdoc or token
+ * strings like `#2e6f9e`. Destroys import specifiers — never use it for the
+ * import scan; use {@link stripComments} there. */
+function stripCommentsAndStrings(src: string): string {
+  return stripComments(src)
+    .replace(/"(?:[^"\\]|\\.)*"/g, '""') // double-quoted strings
+    .replace(/'(?:[^'\\]|\\.)*'/g, "''") // single-quoted strings
+    .replace(/`(?:[^`\\]|\\.)*`/g, "``"); // template literals
+}
+
+/** Collect the module specifier of every `import ... from "x"` / `import "x"` /
+ * dynamic `import("x")` / `require("x")` in code (comments stripped, strings
+ * preserved so the specifier survives). */
+function importSpecifiers(src: string): string[] {
+  const code = stripComments(src);
+  const specs: string[] = [];
+  const patterns = [
+    /\bimport\b[^;]*?\bfrom\s*["']([^"']+)["']/g, // import ... from "x"
+    /\bimport\s*["']([^"']+)["']/g, // bare import "x"
+    /\bimport\s*\(\s*["']([^"']+)["']\s*\)/g, // dynamic import("x")
+    /\brequire\s*\(\s*["']([^"']+)["']\s*\)/g, // require("x")
+  ];
+  for (const re of patterns) {
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(code)) !== null) specs.push(m[1]);
+  }
+  return specs;
+}
 
 describe("smoothstep (GLSL-equivalent)", () => {
   it("clamps both tails", () => {
@@ -222,5 +269,167 @@ describe("shorelineFoam (1 - smoothstep(START, END, depth))", () => {
 
   it("is deterministic for identical args (incl. fractional)", () => {
     expect(shorelineFoam(0.73)).toBe(shorelineFoam(0.73));
+  });
+});
+
+// --- T5: cross-function determinism + degenerate-input guard ---------------
+// One consolidated suite proving every exported function is pure and total:
+// a second identical call returns bit-identical output (`toBe`), including
+// fractional/negative coords, and NaN/Infinity/out-of-range fresnel and depth
+// flow through the clamps to finite, in-gamut results. No Math.random/Date.now.
+describe("determinism across all exports", () => {
+  it("waveHeight returns toBe-identical output on a second identical call (fractional/negative)", () => {
+    const cases: Array<[number, number, number]> = [
+      [-3.14, 2.72, 0.5],
+      [0.0, 0.0, 0.0],
+      [-12.7, -8.3, 4.21],
+      [7.77, -0.001, 19.9],
+    ];
+    for (const [x, z, t] of cases) {
+      expect(waveHeight(x, z, t)).toBe(waveHeight(x, z, t));
+    }
+  });
+
+  it("waterColor returns toBe-identical channels on a second identical call (fractional)", () => {
+    for (const f of [-0.4, 0.0, 0.137, 0.5, 1.0, 1.6]) {
+      const a: [number, number, number] = [0, 0, 0];
+      const b: [number, number, number] = [0, 0, 0];
+      waterColor(f, a);
+      waterColor(f, b);
+      expect(a[0]).toBe(b[0]);
+      expect(a[1]).toBe(b[1]);
+      expect(a[2]).toBe(b[2]);
+    }
+  });
+
+  it("shorelineFoam returns toBe-identical output on a second identical call (fractional/negative)", () => {
+    for (const d of [-2.5, 0.0, 0.31, 0.73, 1.49, 12.3]) {
+      expect(shorelineFoam(d)).toBe(shorelineFoam(d));
+    }
+  });
+
+  it("the shared helpers are deterministic too (clamp01, smoothstep)", () => {
+    expect(clamp01(0.327)).toBe(clamp01(0.327));
+    expect(clamp01(-9.1)).toBe(clamp01(-9.1));
+    expect(smoothstep(2, 5, 3.3)).toBe(smoothstep(2, 5, 3.3));
+    expect(smoothstep(0, 1, -0.7)).toBe(smoothstep(0, 1, -0.7));
+  });
+
+  it("uses no nondeterministic source (no Math.random / Date.now in the module)", () => {
+    const src = readFileSync(join(MODULE_DIR, "waterSurface.ts"), "utf8");
+    const code = stripCommentsAndStrings(src);
+    expect(code).not.toMatch(/Math\s*\.\s*random/);
+    expect(code).not.toMatch(/Date\s*\.\s*now/);
+    expect(code).not.toMatch(/\bnew\s+Date\b/);
+    expect(code).not.toMatch(/performance\s*\.\s*now/);
+  });
+});
+
+describe("degenerate inputs stay finite and in-gamut", () => {
+  const DEGENERATE = [NaN, Infinity, -Infinity, 1e308, -1e308];
+
+  it("clamp01 maps any degenerate scalar into [0,1]", () => {
+    for (const v of DEGENERATE) {
+      const c = clamp01(v);
+      expect(Number.isFinite(c)).toBe(true);
+      expect(c).toBeGreaterThanOrEqual(0);
+      expect(c).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("smoothstep stays finite in [0,1] for degenerate x (interpolant clamp)", () => {
+    for (const x of DEGENERATE) {
+      const s = smoothstep(2, 5, x);
+      expect(Number.isFinite(s)).toBe(true);
+      expect(s).toBeGreaterThanOrEqual(0);
+      expect(s).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("waterColor keeps all channels finite and in-gamut for degenerate/out-of-range fresnel", () => {
+    const out: [number, number, number] = [0, 0, 0];
+    for (const f of [...DEGENERATE, -50, 50]) {
+      waterColor(f, out);
+      for (let c = 0; c < 3; c++) {
+        expect(Number.isFinite(out[c])).toBe(true);
+        expect(out[c]).toBeGreaterThanOrEqual(0);
+        expect(out[c]).toBeLessThanOrEqual(1);
+      }
+    }
+  });
+
+  it("shorelineFoam stays finite in [0,1] for degenerate/out-of-range depth", () => {
+    for (const d of [...DEGENERATE, -50, 50]) {
+      const v = shorelineFoam(d);
+      expect(Number.isFinite(v)).toBe(true);
+      expect(v).toBeGreaterThanOrEqual(0);
+      expect(v).toBeLessThanOrEqual(1);
+    }
+  });
+});
+
+// --- T5: import isolation + tree-shaking guard -----------------------------
+// The headless seam only holds if the module imports nothing outside `src/world`
+// (no `three`/DOM/WebGL) AND no world-wiring file imports it — so the bundler
+// tree-shakes it out until the later visual slice pulls it in. Asserted by
+// reading the source rather than runtime probing, mirroring the static contract.
+describe("import isolation (headless, world-only)", () => {
+  const src = readFileSync(join(MODULE_DIR, "waterSurface.ts"), "utf8");
+
+  it("imports nothing — and certainly nothing outside src/world", () => {
+    const specs = importSpecifiers(src);
+    // Every import must resolve within the same folder (relative `./…`); a bare
+    // specifier (`three`, `react`, …) or any `../` escape fails the seam.
+    for (const spec of specs) {
+      expect(
+        spec.startsWith("./"),
+        `forbidden import of "${spec}" — module must only import from src/world`,
+      ).toBe(true);
+    }
+    // This slice's module is fully self-contained: it imports nothing at all.
+    expect(specs).toHaveLength(0);
+  });
+
+  it("contains no three / DOM / WebGL / AudioContext reference in its code", () => {
+    const code = stripCommentsAndStrings(src);
+    expect(code).not.toMatch(/\bthree\b/i);
+    expect(code).not.toMatch(/\bTHREE\b/);
+    expect(code).not.toMatch(/\bwindow\b/);
+    expect(code).not.toMatch(/\bdocument\b/);
+    expect(code).not.toMatch(/\bWebGL/);
+    expect(code).not.toMatch(/\bcanvas\b/i);
+    expect(code).not.toMatch(/\bAudioContext\b/);
+    expect(code).not.toMatch(/\bnavigator\b/);
+  });
+});
+
+describe("tree-shaking guard (module stays unimported by world wiring)", () => {
+  it("no other src file imports ./waterSurface, so it is tree-shaken out of the bundle", () => {
+    const srcRoot = join(MODULE_DIR, "..");
+    const offenders: string[] = [];
+
+    const walk = (dir: string): void => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          walk(full);
+          continue;
+        }
+        if (!/\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/.test(entry.name)) continue;
+        // The module itself and its own test legitimately reference it.
+        if (entry.name === "waterSurface.ts") continue;
+        if (entry.name === "waterSurface.test.ts") continue;
+        const specs = importSpecifiers(readFileSync(full, "utf8"));
+        if (specs.some((s) => /(^|\/)waterSurface(\.ts)?$/.test(s))) {
+          offenders.push(full);
+        }
+      }
+    };
+    walk(srcRoot);
+
+    expect(
+      offenders,
+      `waterSurface is imported by: ${offenders.join(", ")} — it must stay unimported this slice`,
+    ).toEqual([]);
   });
 });
