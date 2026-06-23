@@ -130,6 +130,38 @@ describe("landmarks", () => {
     expect(mat.emissiveIntensity).toBeGreaterThan(0.9);
   });
 
+  // Material economy (G4, T3): the per-landmark merge collapses ~39 bespoke
+  // material instances into exactly TWO shared MeshStandardMaterials (stone +
+  // emissive accent), reused by === across all 13 landmarks' merged meshes. The
+  // discrete beacon (MeshBasicMaterial) and the tower lamp (its own emissive
+  // MeshStandardMaterial) are NOT part of that shared pair, so they are excluded
+  // by name — collecting only the unnamed merged stone/accent meshes. A stray
+  // per-landmark material (the regression this guards) would push the identity
+  // Set past 2.
+  it("shares exactly two merged-mesh materials (stone + accent) by identity across all 13 landmarks", () => {
+    expect(landmarks.placed).toHaveLength(13);
+    const shared = new Set<THREE.Material>();
+    for (const p of landmarks.placed) {
+      p.object.traverse((o) => {
+        if (!(o instanceof THREE.Mesh)) return;
+        // Exclude the discrete bloom meshes — only the merged stone/accent
+        // meshes (left unnamed by mergeSet) belong to the shared pair.
+        if (o.name === "beacon" || o.name === "lamp") return;
+        expect(Array.isArray(o.material), `${p.poiId} uses a material array`).toBe(
+          false,
+        );
+        shared.add(o.material as THREE.Material);
+      });
+    }
+    expect(shared.size).toBe(2);
+    for (const mat of shared) {
+      expect(mat).toBeInstanceOf(THREE.MeshStandardMaterial);
+      const std = mat as THREE.MeshStandardMaterial;
+      expect(std.vertexColors).toBe(true);
+      expect(std.flatShading).toBe(true);
+    }
+  });
+
   // Draw-call discipline: after the G4 merge each landmark renders as ONE stone
   // mesh + ONE accent mesh + ONE beacon. Counting THREE.Mesh children headlessly
   // (no renderer.info / no WebGL) is the proxy for per-landmark draw calls, since
