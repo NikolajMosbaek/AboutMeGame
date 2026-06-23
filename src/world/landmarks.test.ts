@@ -35,4 +35,17 @@ describe("landmarks", () => {
       expect(p.position.y).toBeGreaterThanOrEqual(WORLD.seaLevel);
     }
   });
+
+  // The beacon is the bloom source for the medium/high compositor path: its
+  // material must stay an additive, non-depth-writing translucent overlay so
+  // brightening it for bloom never turns it into an opaque occluder.
+  it("keeps the beacon additive, transparent and depthWrite:false (bloom invariant)", () => {
+    const beacon = landmarks.placed[0]!.object.getObjectByName("beacon");
+    expect(beacon).toBeInstanceOf(THREE.Mesh);
+    const mat = (beacon as THREE.Mesh).material as THREE.MeshBasicMaterial;
+    expect(mat).toBeInstanceOf(THREE.MeshBasicMaterial);
+    expect(mat.blending).toBe(THREE.AdditiveBlending);
+    expect(mat.transparent).toBe(true);
+    expect(mat.depthWrite).toBe(false);
+  });
 });
