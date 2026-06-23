@@ -41,6 +41,7 @@ const engineStub = {
   start() {},
   stop() {},
   advanceTime() {},
+  renderFromView() {},
   getState: () => ({}),
   dispose() {},
 };

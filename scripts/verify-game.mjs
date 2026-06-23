@@ -18,9 +18,25 @@
 // animating, not frozen on the construction-time noon); and stepping a FULL
 // period back to the start rejoins the dawn look with no seam jump.
 //
+// G4 landmark-tour mode — verify the upgraded landmark silhouettes on the
+// running build:
+//
+//   node scripts/verify-game.mjs [url] [--landmark-tour] [--out-dir dir]
+//
+// Frames each of the 8 procedural archetypes (gate, monolith, tower, foundry,
+// dam, station, ring, mirror) with the `window.__frameView__` automation hook —
+// which aims the camera at the landmark and renders ONE still frame with the
+// follow-camera halted, so the framing is deterministic — screenshots each, and
+// checks: the engine stays running with positive fps and no WebGL/console errors
+// throughout; each frame shows a built STRUCTURE (a body of non-grass, non-sky
+// pixels in the centre, not an empty meadow); each shows the landmark's
+// signature-hued ACCENT GLOW (bright pixels matching the anchor colour, the
+// emissive accent + beacon the G2 bloom catches); and the 8 silhouettes are
+// DISTINCT (their structure-coverage / accent-hue signatures are not all alike).
+//
 // Exits non-zero if the page errors, WebGL is unavailable, the engine never
-// reports a running state, or any day-cycle check fails — so it works as a
-// verification gate, not just a screenshot tool.
+// reports a running state, or any day-cycle / landmark-tour check fails — so it
+// works as a verification gate, not just a screenshot tool.
 import { chromium } from "playwright";
 
 const args = process.argv.slice(2);
@@ -30,6 +46,7 @@ const outDir = argVal("--out-dir") ?? ".";
 const advanceMs = Number(argVal("--advance") ?? "1500");
 const autoStart = !args.includes("--no-start");
 const dayCycle = args.includes("--day-cycle");
+const landmarkTour = args.includes("--landmark-tour");
 
 function argVal(flag) {
   const i = args.indexOf(flag);
@@ -46,6 +63,35 @@ const MIN_SKY_DELTA = 6;
 // Maximum per-channel mean-colour delta between the φ reference and the strip
 // after stepping a FULL period — the wrap must rejoin φ closely (no seam jump).
 const MAX_SEAM_DELTA = 8;
+
+// --- G4 landmark-tour constants (kept in sync with src/world/worldConfig.ts:
+//     POI_ANCHORS) -----------------------------------------------------------
+// The 13 landmark anchors, kept in sync with src/world/worldConfig.ts
+// (POI_ANCHORS). One representative anchor per archetype is toured — the
+// geometry is identical for repeats of an archetype, so framing one proves the
+// silhouette upgrade for that archetype. x/z place the structure; color is the
+// signature hue its accent + beacon glow in.
+const LANDMARK_ANCHORS = [
+  { archetype: "gate", label: "Arrivals Gate", x: 0, z: 64, color: 0xffcb47 },
+  { archetype: "monolith", label: "One-Sentence Overlook", x: -62, z: 34, color: 0x7ad1ff },
+  { archetype: "foundry", label: "Session Foundry", x: -96, z: -28, color: 0xff8a5c },
+  { archetype: "tower", label: "Calibrated Review Tower", x: 118, z: -18, color: 0xffe066 },
+  { archetype: "dam", label: "Force-Push Dam", x: 102, z: 52, color: 0x5cc8ff },
+  { archetype: "station", label: "Walkthrough Station", x: 56, z: 98, color: 0x8affc1 },
+  { archetype: "ring", label: "History Rail Yard", x: -12, z: 112, color: 0xffa3d1 },
+  { archetype: "mirror", label: "Hall of Mirrors", x: -120, z: -74, color: 0xd9e3ff },
+];
+const TOUR_ARCHETYPES = LANDMARK_ANCHORS.length; // 8 distinct silhouettes
+// A built structure must cover at least this fraction of the centre band — below
+// it, the frame is an empty meadow (the landmark didn't render / wasn't framed).
+const MIN_STRUCTURE_COVERAGE = 0.02;
+// Each landmark must show at least this fraction of bright pixels whose HUE
+// matches the anchor's signature colour — the emissive accent + beacon the G2
+// bloom catches. Below it, the signature-hued wayfinding glow is absent. The
+// measured floor across the 8 is ~1.3% (ring/tower); 0.5% leaves headroom while
+// still catching a genuinely missing glow.
+const MIN_ACCENT_HUED_COVERAGE = 0.005;
+
 
 const consoleErrors = [];
 const browser = await chromium.launch({
@@ -90,6 +136,8 @@ try {
 
   if (dayCycle) {
     await verifyDayCycle(page);
+  } else if (landmarkTour) {
+    await verifyLandmarkTour(page);
   } else {
     await smokeShot(page);
   }
@@ -288,6 +336,219 @@ async function verifyDayCycle(page) {
   console.log(
     `  max per-quarter sky delta=${maxSpread.toFixed(1)} (>=${MIN_SKY_DELTA} ⇒ animating); ` +
       `seam φ→φ+period delta=${seamDelta.toFixed(1)} (<=${MAX_SEAM_DELTA} ⇒ no jump)`,
+  );
+  if (consoleErrors.length) {
+    console.log("CONSOLE ERRORS:\n" + consoleErrors.join("\n"));
+  }
+
+  report(problems);
+}
+
+// --- G4 landmark-tour verification -------------------------------------------
+// The per-pixel hue maths runs in-page (inside `page.evaluate`, the browser
+// context — it can't reach node-scope helpers), so the hue/delta functions are
+// defined inline where the PNG is decoded rather than up here.
+async function verifyLandmarkTour(page) {
+  const problems = [];
+
+  // Wait for the framing hook specifically (the smoke hook may be up first).
+  await page.waitForFunction(() => typeof window.__frameView__ === "function", {
+    timeout: 15_000,
+  });
+
+  // Step to a bright daytime keyframe so the flat-shaded facets and the accent
+  // glow read clearly (at the dim dawn spawn the silhouettes are muddy).
+  await page.evaluate(() => window.advanceTime(45_000));
+
+  // Hide the React HUD/overlay chrome so the screenshot is just the world —
+  // nav markers, the speed pill and onboarding would otherwise sit over the
+  // structure and pollute the pixel sample. This touches only the verifier's
+  // page, never product code.
+  await page.addStyleTag({
+    content:
+      ".hud,[class*='hud'],[class*='nav'],[class*='Nav'],[class*='onboard']," +
+      "[class*='vignette'],[class*='announc']{display:none!important;}",
+  });
+
+  // Sample a screenshot for: total bright signature-hued accent coverage, and
+  // central-band built-structure coverage (stone-grey or accent-bright pixels
+  // that are neither the green ground nor the pale sky). Decoded from the PNG in
+  // the page (a plain image decode, robust on a non-preserved drawing buffer).
+  const sampleFrame = async (pngBuffer, colorHex) => {
+    const dataUrl = "data:image/png;base64," + pngBuffer.toString("base64");
+    return await page.evaluate(
+      async ([src, hex]) => {
+        const img = new Image();
+        await new Promise((res, rej) => {
+          img.onload = res;
+          img.onerror = rej;
+          img.src = src;
+        });
+        const cv = document.createElement("canvas");
+        cv.width = img.width;
+        cv.height = img.height;
+        const cx = cv.getContext("2d");
+        cx.drawImage(img, 0, 0);
+        const { data, width, height } = cx.getImageData(0, 0, img.width, img.height);
+
+        const tr = (hex >> 16) & 255;
+        const tg = (hex >> 8) & 255;
+        const tb = hex & 255;
+        // Target hue (inline, matching the node-side rgbHue).
+        const hueOf = (r, g, b) => {
+          const mx = Math.max(r, g, b), mn = Math.min(r, g, b), c = mx - mn;
+          if (c < 12) return -1;
+          let h;
+          if (mx === r) h = ((g - b) / c) % 6;
+          else if (mx === g) h = (b - r) / c + 2;
+          else h = (r - g) / c + 4;
+          return ((h * 60) + 360) % 360;
+        };
+        const dh = (a, b) => {
+          const d = Math.abs(a - b) % 360;
+          return d > 180 ? 360 - d : d;
+        };
+        const targetHue = hueOf(tr, tg, tb);
+
+        // Centre band where the framed structure sits (avoids the ground apron
+        // and the very top sky). 18%..82% vertically, 25%..75% horizontally.
+        const x0 = Math.floor(width * 0.25), x1 = Math.floor(width * 0.75);
+        const y0 = Math.floor(height * 0.18), y1 = Math.floor(height * 0.82);
+
+        let total = 0, accent = 0, accentHued = 0; // whole-frame accent-glow coverage
+        let bandTotal = 0, structure = 0; // centre-band built-structure coverage
+        for (let y = 0; y < height; y++) {
+          const inBandY = y >= y0 && y < y1;
+          for (let x = 0; x < width; x++) {
+            const i = (y * width + x) * 4;
+            const r = data[i], g = data[i + 1], b = data[i + 2];
+            total++;
+            const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+            const h = hueOf(r, g, b);
+
+            // Accent glow, two reads over the whole frame (the beacon plume rises
+            // out of the centre band): `hued` = a bright pixel whose hue matches
+            // the anchor's signature colour (the assertable signature glow);
+            // `brightCore` = a bloom-blown near-white halo (reported, not gated,
+            // since the sky is also bright-white).
+            const brightCore = lum > 210 && Math.max(r, g, b) - Math.min(r, g, b) < 40;
+            const hued = lum > 150 && h >= 0 && targetHue >= 0 && dh(h, targetHue) < 32;
+            if (hued) accentHued++;
+            if (brightCore || hued) accent++;
+
+            if (inBandY && x >= x0 && x < x1) {
+              bandTotal++;
+              // Ground is green-dominant mid-tone; sky is pale and blue/white at
+              // high luminance with low green-dominance. A built structure is
+              // either desaturated stone-grey OR a bright signature-hued accent.
+              const greenGround = g > r + 14 && g > b + 14 && lum < 170;
+              const paleSky = lum > 190 && b >= g - 10;
+              const isStone = !greenGround && !paleSky;
+              if (isStone) structure++;
+            }
+          }
+        }
+        return {
+          accentCoverage: accent / total,
+          accentHuedCoverage: accentHued / total,
+          structureCoverage: structure / Math.max(bandTotal, 1),
+        };
+      },
+      [dataUrl, colorHex],
+    );
+  };
+
+  const results = [];
+  for (const a of LANDMARK_ANCHORS) {
+    // Stand outward of the landmark (away from the island origin) and look back
+    // in and slightly down — an elevated 3/4 view that clears the foreground
+    // trees and frames the full silhouette top-to-base against the sky.
+    const len = Math.hypot(a.x, a.z) || 1;
+    const ux = a.x / len, uz = a.z / len;
+    const dist = 34;
+    const eye = [a.x + ux * dist, 28, a.z + uz * dist];
+    // Look at the structure's upper-middle so the camera tilts up enough to keep
+    // the tallest tops (the tower's lamp crown, the monolith cap) in frame while
+    // the elevated eye still clears the foreground trees.
+    const target = [a.x, 11, a.z];
+
+    await page.evaluate(
+      ([e, t]) => window.__frameView__(e, t),
+      [eye, target],
+    );
+    await page.waitForTimeout(80);
+
+    const file = `${outDir}/landmark-${a.archetype}.png`;
+    const shot = await page.screenshot({ path: file });
+
+    // The engine must stay healthy at every framing (no crash mid-tour).
+    const stateJson = await page.evaluate(() =>
+      window.render_game_to_text ? window.render_game_to_text() : "null",
+    );
+    const state = JSON.parse(stateJson);
+    if (!state) problems.push(`${a.archetype}: render_game_to_text returned null`);
+    else {
+      // `__frameView__` deliberately HALTS the live loop to hold the still, so
+      // `state.running` is false here — that is the framed-shot contract, not a
+      // fault. The health signals that still hold are a positive fps read-out
+      // (an EMA, untouched by the halt) and the full 13-landmark count.
+      if (state.fps <= 0) problems.push(`${a.archetype}: fps not positive (${state.fps})`);
+      const beaconCount = state.systems?.beacons?.poiCount;
+      const discoveryTotal = state.systems?.discovery?.total;
+      if (beaconCount !== EXPECTED_LANDMARKS)
+        problems.push(`${a.archetype}: beacons.poiCount ${beaconCount} != ${EXPECTED_LANDMARKS}`);
+      if (discoveryTotal !== EXPECTED_LANDMARKS)
+        problems.push(`${a.archetype}: discovery.total ${discoveryTotal} != ${EXPECTED_LANDMARKS}`);
+    }
+
+    const s = await sampleFrame(shot, a.color);
+    if (s.structureCoverage < MIN_STRUCTURE_COVERAGE)
+      problems.push(
+        `${a.archetype}: no structure framed — centre coverage ` +
+          `${(s.structureCoverage * 100).toFixed(2)}% < ${(MIN_STRUCTURE_COVERAGE * 100).toFixed(2)}% (empty meadow?)`,
+      );
+    if (s.accentHuedCoverage < MIN_ACCENT_HUED_COVERAGE)
+      problems.push(
+        `${a.archetype}: no signature-hued accent glow — ` +
+          `${(s.accentHuedCoverage * 100).toFixed(3)}% match #${a.color.toString(16)} ` +
+          `< ${(MIN_ACCENT_HUED_COVERAGE * 100).toFixed(3)}%`,
+      );
+
+    results.push({ ...a, file, state, ...s });
+  }
+
+  // All 8 archetypes were toured (a missing anchor would shorten this).
+  if (results.length !== TOUR_ARCHETYPES)
+    problems.push(`toured ${results.length} archetypes, expected ${TOUR_ARCHETYPES}`);
+
+  // Distinctness: the 8 silhouettes must not all read alike. Structure coverage
+  // alone is weak (a tall obelisk and a thin gate can match), so distinctness is
+  // judged on the (structure-coverage, accent-coverage) signature pair — if every
+  // archetype collapsed to the same blob, these would barely spread. Require the
+  // structure-coverage spread across the 8 to clear a floor.
+  const covs = results.map((r) => r.structureCoverage);
+  const spread = Math.max(...covs) - Math.min(...covs);
+  if (results.length === TOUR_ARCHETYPES && spread < 0.02)
+    problems.push(
+      `silhouettes not distinct: structure-coverage spread ${(spread * 100).toFixed(2)}% < 2% ` +
+        `(all archetypes render the same blob?)`,
+    );
+
+  const webglErr = consoleErrors.find((e) => /webgl|context|THREE/i.test(e));
+  if (webglErr) problems.push(`WebGL/three error: ${webglErr}`);
+
+  console.log("LANDMARK TOUR (8 procedural archetypes, framed one still each):");
+  for (const r of results) {
+    console.log(
+      `  ${r.archetype.padEnd(9)} #${r.color.toString(16).padStart(6, "0")} ` +
+        `structure=${(r.structureCoverage * 100).toFixed(2)}% ` +
+        `accent(hued)=${(r.accentHuedCoverage * 100).toFixed(3)}% ` +
+        `accent(any)=${(r.accentCoverage * 100).toFixed(3)}% ` +
+        `fps=${r.state?.fps} landmarks=${r.state?.systems?.beacons?.poiCount} -> ${r.file}`,
+    );
+  }
+  console.log(
+    `  structure-coverage spread across the 8 = ${(spread * 100).toFixed(2)}% (>=2% ⇒ distinct silhouettes)`,
   );
   if (consoleErrors.length) {
     console.log("CONSOLE ERRORS:\n" + consoleErrors.join("\n"));
