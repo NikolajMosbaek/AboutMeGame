@@ -289,7 +289,12 @@ export function GameCanvas({
       {game && (
         <>
           <SpeedVignette hud={game.hud} settings={game.settings} />
-          <Hud hud={game.hud} discovery={game.discovery.store} onOpenMenu={() => setMenuOpen(true)} />
+          <Hud
+            hud={game.hud}
+            discovery={game.discovery.store}
+            onOpenMenu={() => setMenuOpen(true)}
+            onOpenJournal={() => setJournalOpen(true)}
+          />
           <DiscoveryAnnouncer store={game.discovery.store} />
           <NavMarkers nav={game.nav} />
           <RevealPanel store={game.discovery.store} pois={game.discovery.pois} />
