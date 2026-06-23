@@ -5,6 +5,8 @@ import { describe, expect, it } from "vitest";
 import {
   A1,
   A2,
+  DIR2_X,
+  DIR2_Z,
   FOAM_DEPTH_END,
   FOAM_DEPTH_START,
   K1,
@@ -15,9 +17,11 @@ import {
   WATER_SHALLOW,
   WRAP_PERIOD,
   clamp01,
+  glslFloat,
   shorelineFoam,
   smoothstep,
   waterColor,
+  waveGlsl,
   waveGradient,
   waveHeight,
 } from "./waterSurface.ts";
@@ -242,6 +246,90 @@ describe("WRAP_PERIOD (continuous wrap for float32 precision)", () => {
     expect(Math.round(n1)).toBeGreaterThan(0);
     expect(Math.round(n2)).toBeGreaterThan(0);
   });
+});
+
+// --- T2: shared GLSL emitter (single source of truth for both vertex anchors) -
+// The two vertex anchors (T3) — the beginnormal_vertex normal recompute and the
+// begin_vertex y-displacement — must transcribe IDENTICAL math. They do not get
+// a second hand-copy of the magic numbers: a single emitter `waveGlsl()` builds
+// the GLSL `waveHeight` / `waveGradient` definitions BY INTERPOLATING the SAME
+// exported A1/A2/K1/S1/K2/S2 (+ the (0.6,0.8) diagonal weights DIR2_X/DIR2_Z)
+// constants, formatted by `glslFloat`. We pin (1) that the emitted GLSL carries
+// each constant's value produced from the export (never a hardcoded duplicate),
+// (2) that it defines callable `waveHeight`/`waveGradient` GLSL functions both
+// anchors can call, and (3) — the single-source guard — that a regex scan of the
+// module source finds exactly ONE literal copy of each of K1/S1/K2/S2 (the
+// `export const` declaration), so the emitter cannot have re-typed them.
+describe("glslFloat (number -> GLSL float literal)", () => {
+  it("always emits a decimal point so the literal is a GLSL float, not an int", () => {
+    // GLSL `1` is an int; the shader needs `1.0`. Integers and fractions alike
+    // must carry a `.`, or the transcription fails to compile on a strict GPU.
+    expect(glslFloat(1)).toMatch(/\./);
+    expect(glslFloat(0)).toMatch(/\./);
+    expect(glslFloat(-2)).toMatch(/\./);
+    expect(glslFloat(0.18)).toMatch(/\./);
+  });
+
+  it("round-trips back to the same number (no precision loss in the literal)", () => {
+    for (const v of [A1, A2, K1, S1, K2, S2, DIR2_X, DIR2_Z, 1, 0, -3.25]) {
+      expect(Number(glslFloat(v))).toBe(v);
+    }
+  });
+});
+
+describe("waveGlsl (shared emitter — one source of truth for both anchors)", () => {
+  const glsl = waveGlsl();
+
+  it("defines callable waveHeight and waveGradient GLSL functions", () => {
+    // Both anchors call these; the emitter owns the function bodies so the lit
+    // normal (waveGradient) and the silhouette (waveHeight) can never diverge.
+    expect(glsl).toMatch(/float\s+waveHeight\s*\(/);
+    expect(glsl).toMatch(/waveGradient\s*\(/);
+  });
+
+  it("carries every wave constant BY VALUE from the export (no hardcoded duplicate)", () => {
+    // Each constant must appear as the EXACT GLSL float literal produced from the
+    // exported number — proving the emitter interpolated the export rather than
+    // re-typing the magic number. If an export changes, the GLSL changes with it.
+    for (const c of [A1, A2, K1, S1, K2, S2, DIR2_X, DIR2_Z]) {
+      expect(glsl).toContain(glslFloat(c));
+    }
+  });
+
+  it("is deterministic — a second emit is byte-identical", () => {
+    expect(waveGlsl()).toBe(glsl);
+  });
+});
+
+describe("single source of truth — no second literal copy of the wave constants", () => {
+  // The whole point of the emitter: the four magic frequencies/speeds K1/S1/K2/S2
+  // live in EXACTLY ONE place (their `export const` line). A regex scan of the
+  // module source must find each numeric value exactly once — if a second hand-
+  // copy crept into the GLSL emitter or the gradient, this fails. (A1/A2 legitimately
+  // recur via |h| bounds prose etc., so we pin the four that the task names.)
+  const src = stripCommentsAndStrings(
+    readFileSync(join(MODULE_DIR, "waterSurface.ts"), "utf8"),
+  );
+
+  for (const [name, value] of [
+    ["K1", K1],
+    ["S1", S1],
+    ["K2", K2],
+    ["S2", S2],
+  ] as const) {
+    it(`${name} (=${value}) appears exactly once in the module source (the export)`, () => {
+      // Word-boundary the literal so 0.18 doesn't also match inside 0.189 etc.
+      const literal = String(value).replace(".", "\\.");
+      const re = new RegExp(`(?<![\\d.])${literal}(?![\\d])`, "g");
+      const hits = src.match(re) ?? [];
+      expect(
+        hits.length,
+        `${name}=${value} must appear exactly ONCE (its export const); found ` +
+          `${hits.length}. A second copy means the GLSL emitter or gradient ` +
+          `re-typed the magic number instead of interpolating the export.`,
+      ).toBe(1);
+    });
+  }
 });
 
 describe("water palette", () => {
