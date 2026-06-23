@@ -71,6 +71,35 @@ export const WATER_SHALLOW = [0x2e / 255, 0x6f / 255, 0x9e / 255] as const;
 export const WATER_DEEP = [0x19 / 255, 0x3d / 255, 0x57 / 255] as const;
 
 /**
+ * Art-direction depth/fresnel colour ramp, written into the caller-owned `out`
+ * and returned — allocates nothing on the hot path. Per channel it is the
+ * linear `mix(WATER_SHALLOW, WATER_DEEP, clamp01(fresnel))`, branch-free:
+ * `fresnel = 0` (head-on view) yields the lighter {@link WATER_SHALLOW},
+ * `fresnel = 1` (grazing view) the darker {@link WATER_DEEP}.
+ *
+ * `fresnel` is a caller-supplied ART-DIRECTION ramp parameter, NOT a physical
+ * Fresnel term, and this slice does NOT compute it: the real fresnel is the
+ * in-shader `pow(1 - dot(N, V), p)` added in a later visual slice, which then
+ * feeds its result in here. Authoring the ramp this way (rather than inverting
+ * the input) avoids a doubly-inverted result downstream.
+ *
+ * The palette endpoints are sRGB-authored to match the renderer's
+ * `SRGBColorSpace` convention, so the later `onBeforeCompile` patch can feed
+ * them straight into a GLSL `vec3 mix()`. `clamp01` keeps degenerate or
+ * out-of-range `fresnel` (NaN/Infinity/<0/>1) finite and in-gamut.
+ */
+export function waterColor(
+  fresnel: number,
+  out: [number, number, number],
+): [number, number, number] {
+  const f = clamp01(fresnel);
+  out[0] = WATER_SHALLOW[0] + (WATER_DEEP[0] - WATER_SHALLOW[0]) * f;
+  out[1] = WATER_SHALLOW[1] + (WATER_DEEP[1] - WATER_SHALLOW[1]) * f;
+  out[2] = WATER_SHALLOW[2] + (WATER_DEEP[2] - WATER_SHALLOW[2]) * f;
+  return out;
+}
+
+/**
  * Clamp a scalar to [0,1]. Branch-free in spirit, GLSL `clamp(x,0,1)` exact.
  * NaN folds to 0 (neither comparison is true → final branch), keeping callers
  * finite and in-gamut on degenerate input.

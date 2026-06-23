@@ -6,6 +6,7 @@ import {
   WATER_SHALLOW,
   clamp01,
   smoothstep,
+  waterColor,
   waveHeight,
 } from "./waterSurface.ts";
 
@@ -97,5 +98,70 @@ describe("water palette", () => {
       expect(c).toBeGreaterThanOrEqual(0);
       expect(c).toBeLessThanOrEqual(1);
     }
+  });
+});
+
+describe("waterColor (art-direction depth/fresnel ramp)", () => {
+  it("fresnel=0 (head-on) channel-equals WATER_SHALLOW", () => {
+    const out: [number, number, number] = [0, 0, 0];
+    waterColor(0, out);
+    expect(out[0]).toBeCloseTo(WATER_SHALLOW[0], 6);
+    expect(out[1]).toBeCloseTo(WATER_SHALLOW[1], 6);
+    expect(out[2]).toBeCloseTo(WATER_SHALLOW[2], 6);
+  });
+
+  it("fresnel=1 (grazing) channel-equals WATER_DEEP", () => {
+    const out: [number, number, number] = [0, 0, 0];
+    waterColor(1, out);
+    expect(out[0]).toBeCloseTo(WATER_DEEP[0], 6);
+    expect(out[1]).toBeCloseTo(WATER_DEEP[1], 6);
+    expect(out[2]).toBeCloseTo(WATER_DEEP[2], 6);
+  });
+
+  it("fresnel=0.5 is a monotonic blend strictly between the endpoints per channel", () => {
+    const out: [number, number, number] = [0, 0, 0];
+    waterColor(0.5, out);
+    for (let c = 0; c < 3; c++) {
+      const lo = Math.min(WATER_SHALLOW[c], WATER_DEEP[c]);
+      const hi = Math.max(WATER_SHALLOW[c], WATER_DEEP[c]);
+      expect(out[c]).toBeGreaterThan(lo);
+      expect(out[c]).toBeLessThan(hi);
+      // Linear mix at 0.5 is the exact per-channel midpoint.
+      expect(out[c]).toBeCloseTo((WATER_SHALLOW[c] + WATER_DEEP[c]) / 2, 6);
+    }
+  });
+
+  it("writes into and returns the caller-owned out (allocates nothing)", () => {
+    const out: [number, number, number] = [9, 9, 9];
+    const ret = waterColor(0.3, out);
+    expect(ret).toBe(out);
+  });
+
+  it("is deterministic for identical args", () => {
+    const a: [number, number, number] = [0, 0, 0];
+    const b: [number, number, number] = [0, 0, 0];
+    waterColor(0.37, a);
+    waterColor(0.37, b);
+    expect(a[0]).toBe(b[0]);
+    expect(a[1]).toBe(b[1]);
+    expect(a[2]).toBe(b[2]);
+  });
+
+  it("clamps out-of-range and degenerate fresnel to a finite, in-gamut colour", () => {
+    const out: [number, number, number] = [0, 0, 0];
+    for (const f of [-3, 7, NaN, Infinity, -Infinity]) {
+      waterColor(f, out);
+      for (let c = 0; c < 3; c++) {
+        expect(Number.isFinite(out[c])).toBe(true);
+        expect(out[c]).toBeGreaterThanOrEqual(0);
+        expect(out[c]).toBeLessThanOrEqual(1);
+      }
+    }
+    // Above-range fresnel clamps to the deep endpoint.
+    waterColor(7, out);
+    expect(out[0]).toBeCloseTo(WATER_DEEP[0], 6);
+    // Below-range fresnel clamps to the shallow endpoint.
+    waterColor(-3, out);
+    expect(out[0]).toBeCloseTo(WATER_SHALLOW[0], 6);
   });
 });
