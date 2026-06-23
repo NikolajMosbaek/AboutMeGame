@@ -49,6 +49,29 @@ describe("landmarks", () => {
     expect(mat.depthWrite).toBe(false);
   });
 
+  // The silhouette/material upgrade (G4) merges each landmark's stone and accent
+  // sub-primitives into shared meshes, but every beacon must survive un-merged as
+  // a discrete, named THREE.Mesh — BeaconPulseSystem looks them up by name and
+  // the bloom invariant must hold for all 13, not just placed[0]. This strengthens
+  // the single-landmark bloom check above to the whole set, so a merge that
+  // accidentally folds in or drops a beacon fails here.
+  it("keeps all 13 beacons discrete, named, additive/transparent/depthWrite:false meshes", () => {
+    expect(landmarks.placed).toHaveLength(13);
+    for (const p of landmarks.placed) {
+      const beacon = p.object.getObjectByName("beacon");
+      expect(beacon, `${p.poiId} beacon`).toBeInstanceOf(THREE.Mesh);
+      const mat = (beacon as THREE.Mesh).material as THREE.MeshBasicMaterial;
+      expect(mat, `${p.poiId} beacon material`).toBeInstanceOf(
+        THREE.MeshBasicMaterial,
+      );
+      expect(mat.blending, `${p.poiId} beacon blending`).toBe(
+        THREE.AdditiveBlending,
+      );
+      expect(mat.transparent, `${p.poiId} beacon transparent`).toBe(true);
+      expect(mat.depthWrite, `${p.poiId} beacon depthWrite`).toBe(false);
+    }
+  });
+
   // The tower lamp is the second genuine bloom source. Its emissive must carry
   // the signature colour and its intensity must sit above 0.9 so the lamp
   // reliably clears the tuned-high bloom threshold under the new
