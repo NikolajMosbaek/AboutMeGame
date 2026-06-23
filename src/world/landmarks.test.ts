@@ -46,6 +46,38 @@ function countMeshes(object: THREE.Object3D): number {
   return n;
 }
 
+// Stone tint stamped on every stone-set source vertex (mirrors STONE_BASE in
+// landmarks.ts). The wayfinding guard asserts an accent vertex differs from this.
+const STONE_BASE = 0xb9b2a6;
+
+/** Collect the per-vertex `color` triples of every vertex on a geometry. */
+function vertexColorTriples(geo: THREE.BufferGeometry): Array<[number, number, number]> {
+  const attr = geo.getAttribute("color");
+  const out: Array<[number, number, number]> = [];
+  if (!attr) return out;
+  for (let i = 0; i < attr.count; i++) {
+    out.push([attr.getX(i), attr.getY(i), attr.getZ(i)]);
+  }
+  return out;
+}
+
+/**
+ * The merged stone/accent meshes are the unnamed children whose material is the
+ * shared stone vs emissive accent material — the accent material carries a white
+ * emissive (0xffffff). The discrete beacon/lamp are named and excluded.
+ */
+function mergedMeshes(object: THREE.Object3D): { stone?: THREE.Mesh; accent?: THREE.Mesh } {
+  const result: { stone?: THREE.Mesh; accent?: THREE.Mesh } = {};
+  object.traverse((o) => {
+    if (!(o instanceof THREE.Mesh)) return;
+    if (o.name === "beacon" || o.name === "lamp") return;
+    const mat = o.material as THREE.MeshStandardMaterial;
+    if (mat.emissive && mat.emissive.getHex() === 0xffffff) result.accent = o;
+    else result.stone = o;
+  });
+  return result;
+}
+
 // buildLandmarks only needs a Terrain (geometry maths) — runs headless.
 describe("landmarks", () => {
   const terrain = buildTerrain();
@@ -183,6 +215,82 @@ describe("landmarks", () => {
         count,
         `${archetype} mesh count exceeds pre-refactor ${PRE_REFACTOR_MESH_COUNT[archetype]}`,
       ).toBeLessThanOrEqual(PRE_REFACTOR_MESH_COUNT[archetype]);
+    }
+  });
+
+  // Wayfinding-from-distance, made testable (G4, T4): the signature hue rides a
+  // per-vertex `color` attribute so the one shared emissive accent material glows
+  // in each landmark's signature colour. Every merged stone/accent geometry must
+  // therefore carry a non-empty `color` attribute, and each landmark's accent
+  // colour must derive from `anchor.color` and differ from the neutral stone base
+  // — otherwise the merge would ship colourless geometry and every landmark would
+  // bloom the same white, defeating navigation. The tower carries its signature
+  // colour on the discrete `lamp` (its accent IS the lamp), so for that archetype
+  // the lamp's emissive is the accent-colour source rather than a merged mesh.
+  it("stamps a signature-colour vertex attribute on every merged geometry (wayfinding)", () => {
+    expect(landmarks.placed).toHaveLength(13);
+    const stoneBase = new THREE.Color(STONE_BASE);
+    const stoneTriple: [number, number, number] = [
+      stoneBase.r,
+      stoneBase.g,
+      stoneBase.b,
+    ];
+    const eq = (a: [number, number, number], b: [number, number, number]) =>
+      Math.abs(a[0] - b[0]) < 1e-4 &&
+      Math.abs(a[1] - b[1]) < 1e-4 &&
+      Math.abs(a[2] - b[2]) < 1e-4;
+
+    for (const anchor of POI_ANCHORS) {
+      const placed = landmarks.placed.find((p) => p.poiId === anchor.poiId)!;
+      const { stone, accent } = mergedMeshes(placed.object);
+
+      // Every landmark has a merged stone mesh; its `color` attribute is non-empty.
+      expect(stone, `${anchor.poiId} merged stone mesh`).toBeInstanceOf(THREE.Mesh);
+      const stoneColors = vertexColorTriples(stone!.geometry);
+      expect(
+        stoneColors.length,
+        `${anchor.poiId} stone color attribute count`,
+      ).toBeGreaterThan(0);
+
+      // The signature colour derives from anchor.color and differs from the stone
+      // base — sourced from the merged accent geometry, or the lamp on the tower.
+      const sig = new THREE.Color(anchor.color);
+      const sigTriple: [number, number, number] = [sig.r, sig.g, sig.b];
+
+      if (accent) {
+        const accentColors = vertexColorTriples(accent.geometry);
+        expect(
+          accentColors.length,
+          `${anchor.poiId} accent color attribute count`,
+        ).toBeGreaterThan(0);
+        expect(
+          accentColors.some((c) => eq(c, sigTriple)),
+          `${anchor.poiId} accent has a vertex in anchor.color`,
+        ).toBe(true);
+        expect(
+          accentColors.some((c) => eq(c, sigTriple)) && !eq(sigTriple, stoneTriple),
+          `${anchor.poiId} accent signature colour differs from stone base`,
+        ).toBe(true);
+      } else {
+        // No merged accent mesh (tower): the lamp carries the signature colour.
+        const lamp = placed.object.getObjectByName("lamp") as THREE.Mesh | null;
+        expect(lamp, `${anchor.poiId} has neither merged accent nor lamp`).toBeInstanceOf(
+          THREE.Mesh,
+        );
+        const lampMat = lamp!.material as THREE.MeshStandardMaterial;
+        const lampTriple: [number, number, number] = [
+          lampMat.emissive.r,
+          lampMat.emissive.g,
+          lampMat.emissive.b,
+        ];
+        expect(eq(lampTriple, sigTriple), `${anchor.poiId} lamp emissive == anchor.color`).toBe(
+          true,
+        );
+        expect(
+          !eq(lampTriple, stoneTriple),
+          `${anchor.poiId} lamp signature colour differs from stone base`,
+        ).toBe(true);
+      }
     }
   });
 });
