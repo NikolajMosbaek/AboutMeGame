@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import * as THREE from "three";
 import { buildSky } from "./sky.ts";
 import { WORLD } from "./worldConfig.ts";
@@ -163,6 +163,91 @@ describe("buildSky() fog-fork regression (T4, horizon is not the live handle)", 
     // By-value: same NOON haze hex — proves they were equal to begin with, so
     // the distinct-instance check is meaningful (not passing on a colour diff).
     expect(sky.fog!.color.getHex()).toBe(sky.horizon.getHex());
+  });
+});
+
+describe("buildSky() dispose() unchanged contract (T6, no new disposal path)", () => {
+  // dispose() is byte-identical to main: it closes over the `domeGeo` / `domeMat`
+  // locals (reached here through the dome Mesh) and nulls scene.fog, and NOTHING
+  // else. The prior round's "null the fog reference" was DROPPED — the Quality
+  // critic flagged it as asymmetric, ineffective against a cached/destructured
+  // handle, and a `this`-binding robustness regression smuggled into a no-op
+  // slice. These tests pin that revision:
+  //   (a) domeGeo.dispose() + domeMat.dispose() exactly once, scene.fog === null;
+  //   (b) dispose() is `this`-INDEPENDENT — a detached `const d = sky.dispose`
+  //       call does not throw and still nulls scene.fog;
+  //   (c) NO field-nulling — sky.dome / sky.fog still reference the (now-disposed)
+  //       objects, documented as dangling/invalid-to-read, not nulled.
+  //
+  // jsdom has no WebGL, so we spy on the real instances buildSky created (the
+  // dome material is sky.dome; its geometry is reached through the dome Mesh),
+  // mirroring boundaries.dispose.test.ts.
+
+  it("disposes the dome geometry and material exactly once and nulls scene.fog (a)", () => {
+    const scene = new THREE.Scene();
+    const sky = buildSky(scene, { shadows: true, shadowMapSize: 2048, fog: true });
+    // Fog is live on scene before dispose, so the null is observable.
+    expect(scene.fog).toBe(sky.fog);
+
+    const geo = domeMesh(sky.group).geometry as THREE.BufferGeometry;
+    const geoDispose = vi.spyOn(geo, "dispose");
+    const matDispose = vi.spyOn(sky.dome, "dispose");
+
+    sky.dispose();
+
+    expect(geoDispose).toHaveBeenCalledTimes(1);
+    expect(matDispose).toHaveBeenCalledTimes(1);
+    expect(scene.fog).toBeNull();
+  });
+
+  it("is `this`-INDEPENDENT — a detached `const d = sky.dispose; d()` does not throw and still nulls scene.fog (b)", () => {
+    const scene = new THREE.Scene();
+    const sky = buildSky(scene, { shadows: true, shadowMapSize: 2048, fog: true });
+
+    const matDispose = vi.spyOn(sky.dome, "dispose");
+
+    // Detach the method from its object — if dispose() leaned on `this`, this
+    // call would throw. It must not: dispose closes over locals only.
+    const d = sky.dispose;
+    d();
+
+    expect(matDispose).toHaveBeenCalledTimes(1);
+    expect(scene.fog).toBeNull();
+    // The field is NOT nulled by the detached call either — see (c).
+    expect(sky.dome).not.toBeNull();
+  });
+
+  it("does NOT null the returned handles — sky.dome / sky.fog still reference the (now-disposed) objects (c)", () => {
+    const scene = new THREE.Scene();
+    const sky = buildSky(scene, { shadows: true, shadowMapSize: 2048, fog: true });
+
+    const domeBefore = sky.dome;
+    const fogBefore = sky.fog;
+    expect(fogBefore).toBeInstanceOf(THREE.FogExp2);
+
+    sky.dispose();
+
+    // No field-nulling: the handles still point at the same (now-disposed)
+    // objects. They are documented as dangling/invalid-to-read after dispose,
+    // NOT nulled — nulling the returned-object field would protect nothing
+    // because a cached/destructured handle (what slice-3's writer holds) dangles
+    // regardless, so it would be test theater. This is the Quality-critic
+    // revision: dispose body byte-identical to main, no field-nulling.
+    expect(sky.dome).not.toBeNull();
+    expect(sky.dome).toBe(domeBefore);
+    expect(sky.fog).not.toBeNull();
+    expect(sky.fog).toBe(fogBefore);
+  });
+
+  it("with quality.fog=false, dispose() still nulls scene.fog and does not throw", () => {
+    const scene = new THREE.Scene();
+    const sky = buildSky(scene, { shadows: false, shadowMapSize: 1024, fog: false });
+
+    // No fog was assigned; dispose must still be a clean no-throw and leave
+    // scene.fog null (the unchanged `scene.fog = null` body).
+    expect(sky.fog).toBeNull();
+    expect(() => sky.dispose()).not.toThrow();
+    expect(scene.fog).toBeNull();
   });
 });
 
