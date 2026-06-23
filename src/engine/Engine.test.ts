@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import * as THREE from "three";
 import { Engine, type EngineOptions } from "./Engine.ts";
 import type { FrameContext, FrameScheduler, RendererLike, System } from "./types.ts";
 
@@ -157,6 +158,58 @@ describe("Engine", () => {
     engine.dispose();
     expect(sys.disposed).toBe(true);
     expect(renderer.dispose).toHaveBeenCalledOnce();
+  });
+
+  describe("renderFromView (automation/verification camera seam)", () => {
+    it("aims the camera at a view and renders one frame without ticking systems", () => {
+      const { engine, render } = makeEngine();
+      const sys = new RecordingSystem();
+      engine.addSystem(sys);
+
+      engine.renderFromView([10, 20, 30], [0, 5, 0]);
+
+      // The camera was placed at the eye and is looking toward the target — the
+      // forward axis points from eye to target, so a back-projected ray hits it.
+      expect(engine.camera.position.toArray()).toEqual([10, 20, 30]);
+      const fwd = engine.camera.getWorldDirection(new THREE.Vector3());
+      const toTarget = new THREE.Vector3(0, 5, 0)
+        .sub(engine.camera.position)
+        .normalize();
+      expect(fwd.dot(toTarget)).toBeCloseTo(1, 5);
+
+      // One render presented, and NO system was ticked — so a camera-following
+      // system can't overwrite the framed view before the screenshot.
+      expect(render).toHaveBeenCalledTimes(1);
+      expect(render).toHaveBeenCalledWith(engine.scene, engine.camera);
+      expect(sys.dts.length).toBe(0);
+    });
+
+    it("halts the live loop so the framed view persists for the screenshot", () => {
+      const { engine, sched } = makeEngine();
+      const sys = new RecordingSystem();
+      engine.addSystem(sys);
+      engine.start();
+      expect(sched.pending).toBe(1);
+
+      engine.renderFromView([1, 2, 3], [0, 0, 0]);
+
+      // The loop is stopped, so no further scheduled frame can re-run the camera
+      // rig and move the camera off the framed landmark.
+      expect(sched.pending).toBe(0);
+      sched.flush(100);
+      expect(sys.dts.length).toBe(0);
+    });
+
+    it("presents through the compositor when one is injected", () => {
+      const compositor = { render: vi.fn(), setSize: vi.fn(), dispose: vi.fn() };
+      const { engine, render } = makeEngine({ compositor });
+
+      engine.renderFromView([5, 5, 5], [0, 0, 0]);
+
+      expect(compositor.render).toHaveBeenCalledTimes(1);
+      expect(compositor.render).toHaveBeenCalledWith(engine.scene, engine.camera);
+      expect(render).not.toHaveBeenCalled();
+    });
   });
 
   describe("injected compositor render delegate", () => {

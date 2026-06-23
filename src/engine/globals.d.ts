@@ -12,6 +12,13 @@ declare global {
     render_game_to_text?: () => string;
     /** The live state object (handy in the devtools console). */
     __ENGINE_STATE__?: () => EngineState;
+    /** Aim the camera at a view (eye → target) and render one frame, halting the
+     *  live loop so a camera-following system can't overwrite it. The Playwright
+     *  smoke verifier calls this to frame each landmark deterministically. */
+    __frameView__?: (
+      eye: [number, number, number],
+      target: [number, number, number],
+    ) => void;
   }
 }
 

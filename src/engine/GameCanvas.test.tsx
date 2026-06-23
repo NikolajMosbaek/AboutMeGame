@@ -45,6 +45,7 @@ const engineStub = {
   start() {},
   stop() {},
   advanceTime() {},
+  renderFromView: vi.fn(),
   getState: () => ({}),
   dispose() {},
 };
@@ -135,6 +136,34 @@ describe("GameCanvas — handle seam shape (T13)", () => {
     // consumeInteract is the queued-edge drain the journal calls before openPoi.
     expect(typeof handle.discovery.consumeInteract).toBe("function");
     expect(handle.discovery.consumeInteract()).toBe(false);
+  });
+});
+
+describe("GameCanvas — verifier camera-framing hook (__frameView__)", () => {
+  beforeEach(() => {
+    vi.stubGlobal("ResizeObserver", StubResizeObserver);
+    engineStub.renderFromView.mockClear();
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+    delete (window as { __frameView__?: unknown }).__frameView__;
+  });
+
+  it("installs __frameView__ on mount, forwards to the engine, and removes it on unmount", () => {
+    const { handle } = makeHandle();
+    const { unmount } = render(<GameCanvas build={() => handle} showStats={false} />);
+
+    // The Playwright smoke verifier reaches the framing hook on `window`.
+    expect(typeof window.__frameView__).toBe("function");
+
+    // It forwards the eye/target straight to the engine's render-one-frame seam.
+    window.__frameView__!([10, 20, 30], [0, 5, 0]);
+    expect(engineStub.renderFromView).toHaveBeenCalledWith([10, 20, 30], [0, 5, 0]);
+
+    // The hook is a mount-scoped automation seam — gone once the world tears down.
+    unmount();
+    expect(window.__frameView__).toBeUndefined();
   });
 });
 

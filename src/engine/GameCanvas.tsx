@@ -164,6 +164,10 @@ export function GameCanvas({
     window.advanceTime = (ms: number) => eng.advanceTime(ms);
     window.render_game_to_text = () => JSON.stringify(eng.getState());
     window.__ENGINE_STATE__ = () => eng.getState();
+    // Deterministic camera framing for the Playwright smoke verifier — aim at a
+    // landmark and render one still frame, with the follow camera halted so the
+    // framed view holds for the screenshot. No-op on simulation state.
+    window.__frameView__ = (eye, target) => eng.renderFromView(eye, target);
 
     eng.start();
     setEngine(eng);
@@ -174,6 +178,7 @@ export function GameCanvas({
       delete window.advanceTime;
       delete window.render_game_to_text;
       delete window.__ENGINE_STATE__;
+      delete window.__frameView__;
       eng.dispose(); // also disposes the injected compositor (frees its GPU targets)
       rendererRef.current = null;
       compositorRef.current = null;

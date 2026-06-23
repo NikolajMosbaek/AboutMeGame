@@ -166,6 +166,26 @@ export class Engine {
     this.lastTimeMs = null;
   }
 
+  /**
+   * Place the camera at `eye` looking at `target` and present ONE frame, without
+   * ticking any system. The live loop is halted first, so the framed view
+   * persists — a camera-following system (Epic 3's `CameraRigSystem`) can't
+   * overwrite it before the screenshot is taken. This is a pure
+   * verification/automation seam (the develop-web-game convention, like
+   * `advanceTime`): the Playwright smoke verifier calls it to frame each landmark
+   * deterministically. It changes no simulation state — it only re-aims the
+   * camera and renders — and adds no per-frame cost, since it runs only when the
+   * harness invokes it.
+   */
+  renderFromView(eye: [number, number, number], target: [number, number, number]): void {
+    this.stop();
+    this.camera.position.set(eye[0], eye[1], eye[2]);
+    this.camera.up.set(0, 1, 0);
+    this.camera.lookAt(target[0], target[1], target[2]);
+    this.camera.updateProjectionMatrix();
+    this.render();
+  }
+
   /** One simulation step: clamp dt, update fps, advance every system, render. */
   private tick(rawDt: number, render = true): void {
     const dt = Math.min(Math.max(rawDt, 0), this.maxDt);
