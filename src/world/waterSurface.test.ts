@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -403,33 +403,37 @@ describe("import isolation (headless, world-only)", () => {
   });
 });
 
-describe("tree-shaking guard (module stays unimported by world wiring)", () => {
-  it("no other src file imports ./waterSurface, so it is tree-shaken out of the bundle", () => {
-    const srcRoot = join(MODULE_DIR, "..");
-    const offenders: string[] = [];
+// --- PR #116 contract change (G1 slice 2) ----------------------------------
+// The original guard asserted NO src file imports `./waterSurface`, so the
+// bundler tree-shook it out until a wiring slice pulled it in. That slice is
+// now here: `waterUniforms.ts` (the colour-space transport, T1) imports the
+// palette and is in turn consumed by the water `onBeforeCompile` patch. So the
+// guard is intentionally flipped — from "stays unimported" to a positive
+// assertion that the real consumer re-USES the palette/foam symbols rather than
+// re-declaring the centralised hex (AC1, AC10).
+describe("waterSurface is the single source of truth for the water look", () => {
+  const consumerPath = join(MODULE_DIR, "waterUniforms.ts");
+  const consumerSrc = readFileSync(consumerPath, "utf8");
 
-    const walk = (dir: string): void => {
-      for (const entry of readdirSync(dir, { withFileTypes: true })) {
-        const full = join(dir, entry.name);
-        if (entry.isDirectory()) {
-          walk(full);
-          continue;
-        }
-        if (!/\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/.test(entry.name)) continue;
-        // The module itself and its own test legitimately reference it.
-        if (entry.name === "waterSurface.ts") continue;
-        if (entry.name === "waterSurface.test.ts") continue;
-        const specs = importSpecifiers(readFileSync(full, "utf8"));
-        if (specs.some((s) => /(^|\/)waterSurface(\.ts)?$/.test(s))) {
-          offenders.push(full);
-        }
-      }
-    };
-    walk(srcRoot);
+  it("the water uniforms transport imports the palette from ./waterSurface", () => {
+    const specs = importSpecifiers(consumerSrc);
+    expect(specs.some((s) => /(^|\/)waterSurface(\.ts)?$/.test(s))).toBe(true);
+  });
 
-    expect(
-      offenders,
-      `waterSurface is imported by: ${offenders.join(", ")} — it must stay unimported this slice`,
-    ).toEqual([]);
+  it("re-uses WATER_SHALLOW / WATER_DEEP rather than re-declaring them", () => {
+    const code = stripCommentsAndStrings(consumerSrc);
+    expect(code).toMatch(/\bWATER_SHALLOW\b/);
+    expect(code).toMatch(/\bWATER_DEEP\b/);
+  });
+
+  it("re-declares NO centralised palette hex (0x2e6f9e / 0x193d57)", () => {
+    // The conversion is a transport step, not a second declaration of the
+    // Water token; the hex must live ONLY in waterSurface.ts (AC1).
+    const code = stripCommentsAndStrings(consumerSrc);
+    expect(code).not.toMatch(/0x2e6f9e/i);
+    expect(code).not.toMatch(/0x193d57/i);
+    // Nor the per-channel decomposition (0x2e/255 etc.) of those tokens.
+    expect(code).not.toMatch(/0x2e\s*\/\s*255/i);
+    expect(code).not.toMatch(/0x19\s*\/\s*255/i);
   });
 });
