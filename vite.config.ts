@@ -21,9 +21,13 @@ export default defineConfig(({ command, isPreview }) => ({
       output: {
         // Split the rarely-changing engine vendor (three) into its own chunk so
         // a game-code change doesn't bust its cache, and the main chunk stays
-        // small. See docs/perf-budget.md.
-        manualChunks: {
-          three: ["three"],
+        // small. An id-based matcher (not the bare `{ three: ["three"] }`
+        // specifier) is required so three's add-on modules — notably
+        // `three/examples/jsm/postprocessing/*`, which resolve to distinct ids —
+        // fold into the same vendor chunk instead of leaking into the entry
+        // chunk. See docs/perf-budget.md.
+        manualChunks(id) {
+          if (/node_modules\/three\//.test(id)) return "three";
         },
       },
     },
