@@ -390,6 +390,37 @@ describe("makeWaterPatch — displacement variant (G1 animation, two vertex anch
     // Still namespaced under `water-`.
     for (const k of keys) expect(k).toMatch(/^water-/);
   });
+
+  it("(T4) the four {hasFoam}x{displacement} keys are mutually distinct, water- namespaced, and the no-displacement keys are unchanged", () => {
+    const key = (hasFoam: boolean, displacement: boolean) =>
+      makeWaterPatch({ hasFoam, uniforms: {}, displacement }).customProgramCacheKey();
+
+    const variants = [
+      key(false, false),
+      key(false, true),
+      key(true, false),
+      key(true, true),
+    ];
+    // Every one of the four logical variants gets its own program slot — no two
+    // collide, so three can never serve an undisplaced program to a displaced
+    // mesh (or vice versa), nor a foam program to a no-foam mesh.
+    expect(new Set(variants).size).toBe(4);
+    // Each is a non-empty, `water-`-namespaced string (so none collides with the
+    // stock MeshStandard programs that cache under three's default empty key).
+    for (const k of variants) {
+      expect(k).not.toBe("");
+      expect(k).toMatch(/^water-/);
+    }
+
+    // REGRESSION LOCK: adding the displacement axis must NOT have perturbed the
+    // pre-existing slice-2 (no-displacement) keys — a changed key there would
+    // silently invalidate the cached static-water programs. Pin the exact values.
+    expect(key(false, false)).toBe("water-nofoam-v1");
+    expect(key(true, false)).toBe("water-foam-v1");
+    // The displacement variants carry the `-disp` axis suffix.
+    expect(key(false, true)).toBe("water-nofoam-disp-v1");
+    expect(key(true, true)).toBe("water-foam-disp-v1");
+  });
 });
 
 describe("makeWaterPatch — uniform wiring", () => {
