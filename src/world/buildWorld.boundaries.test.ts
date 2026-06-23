@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Engine } from "../engine/Engine.ts";
 import type { RendererLike } from "../engine/types.ts";
+import { QUALITY_TIERS } from "../perf/quality.ts";
 
 // Wrap the real buildBoundaries in a spy so we can assert HOW buildWorld calls
 // it (G1 slice 2, #116, T8) while keeping the genuine water/bounds behaviour —
@@ -48,6 +49,35 @@ describe("buildWorld → boundaries heightAt seam (#116, T8)", () => {
     expect(heightArg).toBe(world.terrain.heightAt);
     // The default quality is high, which animates the water.
     expect(dispArg).toBe(true);
+
+    world.dispose();
+    engine.dispose();
+  });
+
+  it("registers NO WaterSystem on low (waterDisplacement false)", () => {
+    // Low protects mobile fill rate: no subdivided grid, no swell clock. With
+    // displacement off, `buildBoundaries` exposes no `waterUniforms`, so
+    // buildWorld must NOT install the per-frame WaterSystem at all.
+    const engine = new Engine({ renderer: stubRenderer() });
+    expect(QUALITY_TIERS.low.waterDisplacement).toBe(false);
+    const world = buildWorld(engine, QUALITY_TIERS.low);
+
+    expect(engine.getSystem("water")).toBeUndefined();
+    expect(world.boundaries.waterUniforms).toBeUndefined();
+
+    world.dispose();
+    engine.dispose();
+  });
+
+  it("registers a WaterSystem on medium/high (waterDisplacement true)", () => {
+    // Medium/high compile the vertex swell and expose the live `uTime` uniform,
+    // so buildWorld installs exactly one WaterSystem to advance it.
+    const engine = new Engine({ renderer: stubRenderer() });
+    expect(QUALITY_TIERS.high.waterDisplacement).toBe(true);
+    const world = buildWorld(engine, QUALITY_TIERS.high);
+
+    expect(engine.getSystem("water")).toBeDefined();
+    expect(world.boundaries.waterUniforms).toBeDefined();
 
     world.dispose();
     engine.dispose();
