@@ -4,9 +4,33 @@ import { WORLD } from "./worldConfig.ts";
 export interface Sky {
   /** Add to the scene: the sky dome + lights. */
   group: THREE.Group;
+  /**
+   * The gradient dome's material — the live seam for the sky colours. A
+   * per-frame writer (the day cycle, G3) drives the gradient by mutating the
+   * uniform values IN PLACE: `dome.uniforms.topColor.value`/`bottomColor.value`
+   * are `THREE.Color`s (use `.copy()`/`.set()`), `offset.value`/`exponent.value`
+   * are numbers. ONLY `.uniforms.<name>.value` in-place mutation is supported —
+   * never reassign `.uniforms` and never call `dome.dispose()` (the Sky owns it).
+   * After `dispose()` this references a disposed material and must not be read.
+   */
+  dome: THREE.ShaderMaterial;
   /** The sun — shared so VFX/time-of-day (Epic 7) can reach it. */
   sun: THREE.DirectionalLight;
-  /** Horizon colour, reused for fog so the world fades into the sky. */
+  /**
+   * The live fog instance — the SAME object assigned to `scene.fog` — or `null`
+   * on a tier with fog disabled. This, NOT `horizon`, is the supported per-frame
+   * fog path: `sky.fog?.color.copy(...)`. `FogExp2` deep-copies its colour at
+   * construction (and the dome builds it from `horizon.getHex()`), so `horizon`
+   * is a detached snapshot — mutating `horizon` would never reach running fog.
+   * After `dispose()` this references a disposed fog and must not be read.
+   */
+  fog: THREE.FogExp2 | null;
+  /**
+   * Horizon colour as captured at construction time — the NOON haze value the
+   * dome bottom and the initial fog were built from. NOT a live handle: it is a
+   * detached snapshot, so writing to it does NOT update the running fog (use
+   * `fog` for that). Kept for callers that want the original horizon colour.
+   */
   horizon: THREE.Color;
   dispose(): void;
 }
@@ -94,11 +118,18 @@ export function buildSky(scene: THREE.Scene, quality: SkyQuality = DEFAULT_SKY_Q
   group.add(sun.target);
 
   const horizon = SKY_BOTTOM.clone();
-  if (quality.fog) scene.fog = new THREE.FogExp2(horizon.getHex(), 0.0022);
+  // The live fog instance — the SAME object assigned to scene.fog, returned as
+  // `fog` so a per-frame writer mutates it directly (`fog.color.copy(...)`)
+  // instead of hunting the scene. FogExp2 deep-copies its colour, so `horizon`
+  // is a detached snapshot and is NOT a live-fog handle.
+  const fog = quality.fog ? new THREE.FogExp2(horizon.getHex(), 0.0022) : null;
+  if (fog) scene.fog = fog;
 
   return {
     group,
+    dome: domeMat,
     sun,
+    fog,
     horizon,
     dispose() {
       domeGeo.dispose();
