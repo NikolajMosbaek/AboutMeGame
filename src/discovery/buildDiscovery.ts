@@ -14,6 +14,14 @@ export interface Discovery {
   pois: DiscoverablePoi[];
   /** Wipe all progress (#41 "Reset progress" in the settings menu). */
   reset(): void;
+  /**
+   * Drain the queued interact edge, returning whether one was pending. The
+   * journal calls this synchronously before `store.openPoi` so the very next
+   * `DiscoverySystem.update` doesn't consume a stale Enter/e press and close the
+   * just-opened reveal one tick later. Forwards to `InputController.consumeInteract`
+   * — the same edge `DiscoverySystem.update` reads — so it shares one source of truth.
+   */
+  consumeInteract(): boolean;
 }
 
 /**
@@ -43,5 +51,10 @@ export function buildDiscovery(
   );
   engine.addSystem(system);
 
-  return { store, pois, reset: () => system.reset() };
+  return {
+    store,
+    pois,
+    reset: () => system.reset(),
+    consumeInteract: () => movement.input.consumeInteract(),
+  };
 }

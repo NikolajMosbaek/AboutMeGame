@@ -28,6 +28,10 @@ export interface GameHandle {
     store: DiscoveryStore;
     reset(): void;
     pois: { id: string; order: number; title: string }[];
+    /** Drain the queued interact edge before opening a reveal from the journal,
+     *  so the next `DiscoverySystem.update` can't consume a stale Enter/e press
+     *  and close it one tick later. */
+    consumeInteract(): boolean;
   };
   hud: HudStore;
   nav: NavStore;

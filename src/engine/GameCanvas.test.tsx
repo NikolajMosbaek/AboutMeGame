@@ -72,6 +72,7 @@ function makeHandle(): { handle: GameHandle; store: DiscoveryStore; resetCalls: 
         resetCalls += 1;
         store.setDiscovered([]);
       },
+      consumeInteract: () => false,
     },
     hud: createHudStore(),
     nav: createNavStore(),

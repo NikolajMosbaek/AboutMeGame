@@ -98,3 +98,19 @@ describe("buildGame audio/fx wiring", () => {
     engine.dispose();
   });
 });
+
+describe("buildGame discovery.consumeInteract seam", () => {
+  it("drains the queued interact edge: returns true once then false", () => {
+    const { engine, overlay } = makeEngineAndOverlay();
+    const game = buildGame(engine, overlay, undefined, undefined);
+
+    // Simulate an Enter keydown — input.ts sets interactQueued on the edge.
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+
+    // The handle drains the SAME edge DiscoverySystem.update would consume.
+    expect(game.discovery.consumeInteract()).toBe(true);
+    expect(game.discovery.consumeInteract()).toBe(false);
+
+    engine.dispose();
+  });
+});
