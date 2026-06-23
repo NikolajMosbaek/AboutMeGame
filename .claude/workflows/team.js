@@ -135,9 +135,32 @@ const ROUNDTABLE = [
   'ux-lead',
 ]
 
+// ---- resilience wrapper ----
+// A schema agent() call THROWS when it exceeds the StructuredOutput retry cap (an
+// intermittent per-attempt formatting fluke where the model wraps its tool input in a
+// `{ "raw": ... }` envelope). Everything below is written assuming a failed call returns
+// null instead — every critical step has an `if (!x) { halt }` guard and the roundtable
+// uses `.filter(Boolean)`. So wrap every call: a throw degrades to null (letting those
+// guards/filters work as intended), and idempotent calls get a second attempt first
+// because a fresh roll almost always formats cleanly. `tries = 1` is used for the
+// side-effectful calls (implement/fix commit code, the scribe writes a file) so a retry
+// can never double-commit.
+async function agentSafe(prompt, opts, tries = 2) {
+  for (let attempt = 1; attempt <= tries; attempt++) {
+    try {
+      const r = await agent(prompt, opts)
+      if (r != null) return r
+      log(`agentSafe: ${(opts && (opts.label || opts.agentType)) || '?'} returned null (attempt ${attempt}/${tries})`)
+    } catch (e) {
+      log(`agentSafe: ${(opts && (opts.label || opts.agentType)) || '?'} threw (attempt ${attempt}/${tries}) — ${String((e && e.message) || e).slice(0, 140)}`)
+    }
+  }
+  return null
+}
+
 // ---- Intake ----
 phase('Intake')
-const intake = await agent(
+const intake = await agentSafe(
   `Intake for the AboutMeGame team. ${scopeDirective}\n\n${NO_HARNESS_EDITS}\n\nProduce the problem statement (scoped exactly to the requested feature when one was given), testable acceptance criteria, and whether this is the bootstrap run.`,
   { agentType: 'product-owner', phase: 'Intake', schema: INTAKE_SCHEMA }
 )
@@ -149,7 +172,7 @@ const problemBlock = `PROBLEM:\n${intake.problemStatement}\n\nACCEPTANCE CRITERI
 phase('Roundtable')
 const positions = (await parallel(
   ROUNDTABLE.map(role => () =>
-    agent(
+    agentSafe(
       `Roundtable position from your role.\n\n${problemBlock}\n\nGive your independent position. Do not assume any other role's input.`,
       { agentType: role, label: `position:${role}`, phase: 'Roundtable', schema: POSITION_SCHEMA }
     )
@@ -168,12 +191,12 @@ for (let round = 1; round <= CONVERGE_MAX_ROUNDS; round++) {
   const priorFlaw = critique && critique.materialFlaw
     ? `\n\nThe Quality critic found this material flaw last round — your revision MUST address it:\n${(critique.issues || []).map(i => `- ${i}`).join('\n')}`
     : ''
-  consensus = await agent(
+  consensus = await agentSafe(
     `Synthesize ONE design from these roundtable positions.\n\n${problemBlock}\n\nPOSITIONS:\n${positionsBlock}${priorFlaw}`,
     { agentType: 'tech-lead', label: `synthesize:r${round}`, phase: 'Converge', schema: CONSENSUS_SCHEMA }
   )
   if (!consensus) { log(`HALT in Converge: the tech-lead synthesize agent returned no result on round ${round} (likely an API/session limit). Stopping the run.`); return { halted: true, phase: 'Converge', reason: 'synthesize agent returned null' } }
-  critique = await agent(
+  critique = await agentSafe(
     `Adversarially critique this design. Try to refute it; default to materialFlaw=true if genuinely uncertain.\n\n${problemBlock}\n\nDESIGN:\n${consensus.summary}\nDECISIONS:\n${(consensus.decisions || []).map(d => `- ${d}`).join('\n')}`,
     { agentType: 'senior-eng-quality', label: `critique:r${round}`, phase: 'Converge', schema: CRITIQUE_SCHEMA }
   )
@@ -186,7 +209,7 @@ const designBlock = `DESIGN:\n${consensus.summary}\nDECISIONS:\n${(consensus.dec
 
 // ---- Plan ----
 phase('Plan')
-const plan = await agent(
+const plan = await agentSafe(
   `Decompose the agreed design into atomic, ordered, independently verifiable tasks. Each task needs id, title, owner (frontend|backend|graphics|sound|quality|junior|ux), dependsOn (task ids), and the first test to write. Use the graphics owner for Three.js/WebGL/GLSL/rendering work and the sound owner for Web Audio / SFX / music / audio work.\n\n${NO_HARNESS_EDITS}\nEvery task must touch only product code/docs — never plan a task that modifies the harness, agents, or process.\n\n${designBlock}`,
   { agentType: 'tech-lead', phase: 'Plan', schema: PLAN_SCHEMA }
 )
@@ -205,9 +228,10 @@ while (done.size < tasks.length && guard <= tasks.length) {
   const batch = ready.length ? ready : tasks.filter(t => !done.has(t.id)) // break cycles: take remaining
   for (const t of batch) {
     const agentType = OWNER_TO_AGENT[t.owner] || 'junior-eng'
-    const result = await agent(
+    const result = await agentSafe(
       `Implement this task test-first, then commit.\n\n${designBlock}\n\nTASK ${t.id}: ${t.title}\nFirst test to write: ${t.testFirst}\nImplement ONLY this task. Read docs/team/charter.md for the stack, test command, and conventions.\n\n${NO_HARNESS_EDITS}`,
-      { agentType, label: `impl:${t.id}:${t.owner}`, phase: 'Implement' }
+      { agentType, label: `impl:${t.id}:${t.owner}`, phase: 'Implement' },
+      1
     )
     implemented.push({ id: t.id, owner: t.owner, summary: result })
     done.add(t.id)
@@ -220,11 +244,11 @@ let verify = null
 let ux = null
 for (let round = 1; round <= VERIFY_MAX_ROUNDS; round++) {
   const checks = await parallel([
-    () => agent(
+    () => agentSafe(
       `Verify the implementation. Read docs/team/charter.md for the test command. Run the full test suite and review the diff (git diff main...HEAD). HARD GUARDRAIL: run \`git diff --name-only main...HEAD\` — if ANY changed path is under \`.claude/\` (harness, agents, workflows, skills, settings, hooks), set reviewPass=false and add a failure like "harness self-modification: <path> — feature runs must not change the team's own files"; this is an automatic fail regardless of test results.\n\n${designBlock}`,
       { agentType: 'senior-eng-quality', label: `verify:tests:r${round}`, phase: 'Verify', schema: VERIFY_SCHEMA }
     ),
-    () => agent(
+    () => agentSafe(
       `Verify the running build against the agreed design and acceptance criteria. Build/run via the documented command.\n\n${designBlock}`,
       { agentType: 'ux-lead', label: `verify:ux:r${round}`, phase: 'Verify', schema: UX_SCHEMA }
     ),
@@ -239,15 +263,17 @@ for (let round = 1; round <= VERIFY_MAX_ROUNDS; round++) {
   const uxGaps = (ux && ux.gaps) || []
   const fixes = []
   if (testFailures.length) {
-    fixes.push(() => agent(
+    fixes.push(() => agentSafe(
       `Tests/review failed. Fix these specific issues, test-first, and commit:\n${testFailures.map(f => `- ${f}`).join('\n')}\n\n${designBlock}\nRead docs/team/charter.md for the stack and test command.`,
-      { agentType: 'senior-eng-quality', label: `fix:tests:r${round}`, phase: 'Implement' }
+      { agentType: 'senior-eng-quality', label: `fix:tests:r${round}`, phase: 'Implement' },
+      1
     ))
   }
   if (uxGaps.length) {
-    fixes.push(() => agent(
+    fixes.push(() => agentSafe(
       `The UX review found gaps against the agreed design. Fix these specific issues, test-first, and commit:\n${uxGaps.map(f => `- ${f}`).join('\n')}\n\n${designBlock}\nRead docs/team/charter.md for the stack and test command.`,
-      { agentType: 'senior-eng-frontend', label: `fix:ux:r${round}`, phase: 'Implement' }
+      { agentType: 'senior-eng-frontend', label: `fix:ux:r${round}`, phase: 'Implement' },
+      1
     ))
   }
   for (const f of fixes) { await f() }
@@ -257,7 +283,7 @@ const gatesGreen = !!(verify && verify.testsPass && verify.reviewPass && ux && u
 
 // ---- Ship ----
 phase('Ship')
-const ship = await agent(
+const ship = await agentSafe(
   `Ship this work. Ensure all changes are committed on a feature branch (NOT main), push, and open a PR to main with a summary of the design and what changed. ${gatesGreen && autoMerge ? 'All gates passed and auto-merge is ON — merge the PR after opening it (squash). Never force-push.' : 'Do NOT merge — leave the PR open for review.'} Report the branch, PR url, and whether it was merged.`,
   { agentType: 'tech-lead', phase: 'Ship', schema: SHIP_SCHEMA }
 )
@@ -277,7 +303,7 @@ const runRecord = {
   gatesGreen,
   ship,
 }
-const runLog = await agent(
+const runLog = await agentSafe(
   `Write a decision-log markdown file recording this team run. Determine today's date with the shell (date +%Y-%m-%d) and a short kebab-case slug from the feature. Write the file to docs/team/runs/<date>-<slug>.md with these sections: Feature, Acceptance Criteria, Roundtable Positions, Consensus Design, Critique history, Task Plan, Implementation summary, Verification result, Ship (branch/PR/merged). Then return ONLY the path you wrote. Data:\n\n${JSON.stringify(runRecord)}`,
   { agentType: 'tech-lead', label: 'scribe', phase: 'Ship' }
 )
