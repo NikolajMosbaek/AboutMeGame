@@ -2,7 +2,49 @@ import { afterAll, describe, expect, it } from "vitest";
 import * as THREE from "three";
 import { buildTerrain } from "./terrain.ts";
 import { buildLandmarks } from "./landmarks.ts";
-import { POI_ANCHORS, WORLD } from "./worldConfig.ts";
+import {
+  POI_ANCHORS,
+  WORLD,
+  type LandmarkArchetype,
+} from "./worldConfig.ts";
+
+// G4 silhouette/material upgrade target: each landmark's sub-primitives merge
+// into ONE stone mesh + ONE accent mesh, plus the discrete un-merged beacon —
+// three renderable THREE.Mesh children per group regardless of archetype. The
+// tower's lamp IS its accent (no extra mesh) and the mirror's accent replaces
+// the deleted glass plate, so neither regresses past 3.
+const TARGET_MESH_COUNT: Record<LandmarkArchetype, number> = {
+  gate: 3,
+  monolith: 3,
+  tower: 3,
+  foundry: 3,
+  dam: 3,
+  station: 3,
+  ring: 3,
+  mirror: 3,
+};
+
+// Today's (pre-refactor) renderable-mesh count per archetype: every structure
+// sub-primitive is its own Mesh plus the beacon. The merge must not increase any
+// archetype's count, so the new target must stay <= these documented numbers.
+const PRE_REFACTOR_MESH_COUNT: Record<LandmarkArchetype, number> = {
+  gate: 4, // 2 pillars + lintel + beacon
+  monolith: 3, // slab + cap + beacon
+  tower: 3, // shaft + lamp + beacon
+  foundry: 3, // hall + chimney + beacon
+  dam: 3, // wall + sluice + beacon
+  station: 7, // platform + roof + 4 posts + beacon
+  ring: 9, // 8 posts + beacon
+  mirror: 3, // frame + glass + beacon
+};
+
+function countMeshes(object: THREE.Object3D): number {
+  let n = 0;
+  object.traverse((o) => {
+    if (o instanceof THREE.Mesh) n++;
+  });
+  return n;
+}
 
 // buildLandmarks only needs a Terrain (geometry maths) — runs headless.
 describe("landmarks", () => {
@@ -86,5 +128,29 @@ describe("landmarks", () => {
     expect(mat).toBeInstanceOf(THREE.MeshStandardMaterial);
     expect(mat.emissive.getHex()).toBe(tower.color);
     expect(mat.emissiveIntensity).toBeGreaterThan(0.9);
+  });
+
+  // Draw-call discipline: after the G4 merge each landmark renders as ONE stone
+  // mesh + ONE accent mesh + ONE beacon. Counting THREE.Mesh children headlessly
+  // (no renderer.info / no WebGL) is the proxy for per-landmark draw calls, since
+  // the two structure materials are shared across all 13. The count must hit the
+  // fixed target AND never exceed today's per-archetype count, so a stray accent
+  // mesh on tower/mirror (the Quality flaw) or any regression fails here.
+  it("renders each archetype as the fixed per-archetype mesh-count target, never above today's", () => {
+    for (const archetype of Object.keys(
+      TARGET_MESH_COUNT,
+    ) as LandmarkArchetype[]) {
+      const anchor = POI_ANCHORS.find((a) => a.archetype === archetype);
+      expect(anchor, `no anchor uses archetype ${archetype}`).toBeDefined();
+      const placed = landmarks.placed.find((p) => p.poiId === anchor!.poiId)!;
+      const count = countMeshes(placed.object);
+      expect(count, `${archetype} mesh count`).toBe(
+        TARGET_MESH_COUNT[archetype],
+      );
+      expect(
+        count,
+        `${archetype} mesh count exceeds pre-refactor ${PRE_REFACTOR_MESH_COUNT[archetype]}`,
+      ).toBeLessThanOrEqual(PRE_REFACTOR_MESH_COUNT[archetype]);
+    }
   });
 });

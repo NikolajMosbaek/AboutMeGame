@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { POI_ANCHORS, type LandmarkArchetype } from "./worldConfig.ts";
 import type { Terrain } from "./terrain.ts";
 
@@ -18,6 +19,9 @@ export interface Landmarks {
   dispose(): void;
 }
 
+/** Neutral stone tint stamped on every stone-set source vertex. */
+const STONE_BASE = 0xb9b2a6;
+
 /**
  * Place the 13 landmarks (#20). Each anchor gets a distinct procedural structure
  * (its `archetype`) plus a tall, glowing sky-beacon in its signature colour, so
@@ -26,12 +30,41 @@ export interface Landmarks {
  * `landmark:<poiId>` and recorded in `placed`, so Epic 4 attaches reveal
  * triggers and Epic 5 draws nav hints to the same positions. No content text
  * lives here — only the world geometry.
+ *
+ * G4 — each archetype's richer sub-primitives are baked into local-space
+ * geometry and merged per-landmark into ONE stone mesh + ONE accent mesh via
+ * `mergeGeometries`, both drawn with TWO shared materials (stone + emissive
+ * accent, `vertexColors:true`). The signature hue rides a per-vertex `color`
+ * attribute, so the one shared accent material glows in each landmark's
+ * signature colour and catches the G2 bloom — no per-landmark material
+ * explosion. The beacon (all 13) and the tower lamp stay discrete, named,
+ * un-merged meshes: BeaconPulseSystem, both bloom invariants and the discovery
+ * anchor depend on those exactly.
  */
 export function buildLandmarks(terrain: Terrain): Landmarks {
   const group = new THREE.Group();
   group.name = "landmarks";
   const disposables: Array<{ dispose(): void }> = [];
   const placed: PlacedLandmark[] = [];
+
+  // Two shared materials, created once per call (DI seam, not module-level
+  // singletons) — a rebuild after dispose() gets fresh materials. The accent
+  // material is emissive white modulated by the per-vertex signature colour, so
+  // it glows in each landmark's hue from one instance; tuned just under the
+  // tower lamp so the lamp stays the brightest source.
+  const stone = new THREE.MeshStandardMaterial({
+    flatShading: true,
+    roughness: 0.7,
+    vertexColors: true,
+  });
+  const accent = new THREE.MeshStandardMaterial({
+    flatShading: true,
+    roughness: 0.5,
+    vertexColors: true,
+    emissive: 0xffffff,
+    emissiveIntensity: 1.0,
+  });
+  disposables.push(stone, accent);
 
   for (const anchor of POI_ANCHORS) {
     const y = Math.max(terrain.heightAt(anchor.x, anchor.z), 0.2);
@@ -41,7 +74,13 @@ export function buildLandmarks(terrain: Terrain): Landmarks {
     landmark.name = `landmark:${anchor.poiId}`;
     landmark.position.copy(position);
 
-    const structure = buildArchetype(anchor.archetype, anchor.color, disposables);
+    const structure = buildArchetype(
+      anchor.archetype,
+      anchor.color,
+      stone,
+      accent,
+      disposables,
+    );
     landmark.add(structure);
     landmark.add(buildBeacon(anchor.color, disposables));
 
@@ -96,34 +135,46 @@ function buildBeacon(color: number, disposables: Array<{ dispose(): void }>): TH
   return beacon;
 }
 
-function mat(
-  color: number,
-  disposables: Array<{ dispose(): void }>,
-  opts: Partial<THREE.MeshStandardMaterialParameters> = {},
-): THREE.MeshStandardMaterial {
-  const m = new THREE.MeshStandardMaterial({
-    color,
-    flatShading: true,
-    roughness: 0.7,
-    ...opts,
-  });
-  disposables.push(m);
-  return m;
+/**
+ * Stamp a uniform per-vertex `color` on a geometry and convert it to
+ * non-indexed so every merge source shares `{position,normal,uv,color}` and
+ * `mergeGeometries` returns non-null. No `mergeVertices` — flat shading wants
+ * hard normals. The geometry is mutated in place and returned.
+ */
+function prep(geo: THREE.BufferGeometry, color: number): THREE.BufferGeometry {
+  const flat = geo.index ? geo.toNonIndexed() : geo;
+  if (flat !== geo) geo.dispose();
+  const n = flat.getAttribute("position").count;
+  const c = new THREE.Color(color);
+  const colors = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    colors[i * 3] = c.r;
+    colors[i * 3 + 1] = c.g;
+    colors[i * 3 + 2] = c.b;
+  }
+  flat.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+  return flat;
 }
 
-function track<T extends THREE.BufferGeometry>(
-  geo: T,
-  disposables: Array<{ dispose(): void }>,
-): T {
-  disposables.push(geo);
-  return geo;
-}
-
-function mesh(
-  geo: THREE.BufferGeometry,
+/**
+ * Collect a landmark's local-space sub-primitives, split into a stone set and
+ * an accent set, then merge each set into a single mesh. Transforms are baked
+ * into each source geometry BEFORE merge (`mergeGeometries` ignores Object3D
+ * transforms), so nothing collapses to the origin. Source geometries are
+ * consumed by the merge (copied into a new buffer) and disposed immediately;
+ * only the two merged geometries are tracked for disposal.
+ */
+function mergeSet(
+  sources: THREE.BufferGeometry[],
   material: THREE.Material,
-): THREE.Mesh {
-  const m = new THREE.Mesh(geo, material);
+  disposables: Array<{ dispose(): void }>,
+): THREE.Mesh | null {
+  if (sources.length === 0) return null;
+  const merged = mergeGeometries(sources, false);
+  for (const s of sources) s.dispose();
+  if (!merged) return null;
+  disposables.push(merged);
+  const m = new THREE.Mesh(merged, material);
   m.castShadow = true;
   m.receiveShadow = true;
   return m;
@@ -133,99 +184,115 @@ function mesh(
 function buildArchetype(
   archetype: LandmarkArchetype,
   color: number,
+  stone: THREE.Material,
+  accent: THREE.Material,
   d: Array<{ dispose(): void }>,
 ): THREE.Group {
   const g = new THREE.Group();
-  const stone = mat(0xb9b2a6, d);
-  const accent = mat(color, d, { roughness: 0.5, metalness: 0.1 });
+  // Local-space sub-primitives split by material; each transform is baked into
+  // the geometry below, then merged into one stone mesh + one accent mesh.
+  const stoneSrc: THREE.BufferGeometry[] = [];
+  const accentSrc: THREE.BufferGeometry[] = [];
+
+  const box = (
+    w: number,
+    h: number,
+    dep: number,
+    x: number,
+    y: number,
+    z: number,
+    accentFace: boolean,
+  ) => {
+    const geo = new THREE.BoxGeometry(w, h, dep);
+    geo.translate(x, y, z);
+    (accentFace ? accentSrc : stoneSrc).push(
+      prep(geo, accentFace ? color : STONE_BASE),
+    );
+  };
 
   switch (archetype) {
     case "gate": {
-      const pillar = track(new THREE.BoxGeometry(2, 9, 2), d);
-      const left = mesh(pillar, stone);
-      left.position.set(-4, 4.5, 0);
-      const right = mesh(pillar, stone);
-      right.position.set(4, 4.5, 0);
-      const lintel = mesh(track(new THREE.BoxGeometry(12, 2, 2.4), d), accent);
-      lintel.position.set(0, 10, 0);
-      g.add(left, right, lintel);
+      box(2, 9, 2, -4, 4.5, 0, false);
+      box(2, 9, 2, 4, 4.5, 0, false);
+      box(12, 2, 2.4, 0, 10, 0, true);
       break;
     }
     case "monolith": {
-      const slab = mesh(track(new THREE.BoxGeometry(3, 12, 1.4), d), stone);
-      slab.position.y = 6;
-      const cap = mesh(track(new THREE.BoxGeometry(4, 1, 2.4), d), accent);
-      cap.position.y = 12.5;
-      g.add(slab, cap);
+      box(3, 12, 1.4, 0, 6, 0, false);
+      box(4, 1, 2.4, 0, 12.5, 0, true);
       break;
     }
     case "tower": {
-      const shaft = mesh(track(new THREE.CylinderGeometry(2.4, 3.4, 14, 10), d), stone);
-      shaft.position.y = 7;
-      const lamp = mesh(track(new THREE.IcosahedronGeometry(2.2, 0), d), accent);
+      const shaft = new THREE.CylinderGeometry(2.4, 3.4, 14, 10);
+      shaft.translate(0, 7, 0);
+      stoneSrc.push(prep(shaft, STONE_BASE));
+      // The lamp stays a discrete, named, un-merged emissive mesh — the second
+      // genuine bloom source. Its emissive carries the signature colour and is
+      // pushed past 1.0 so its post-tonemap luminance clears the tuned-high
+      // bloom threshold; guarded by landmarks.test.ts. The tower's accent role
+      // IS this lamp, so the archetype needs no separate merged accent mesh.
+      const lampGeo = new THREE.IcosahedronGeometry(2.2, 0);
+      const lampMat = new THREE.MeshStandardMaterial({
+        color,
+        flatShading: true,
+        roughness: 0.5,
+        metalness: 0.1,
+        emissive: new THREE.Color(color),
+        emissiveIntensity: 1.6,
+      });
+      d.push(lampGeo, lampMat);
+      const lamp = new THREE.Mesh(lampGeo, lampMat);
+      lamp.castShadow = true;
+      lamp.receiveShadow = true;
       lamp.position.y = 15;
       lamp.name = "lamp";
-      // The lamp is the second genuine bloom source (with the beacon) on the
-      // medium/high compositor path. Under the linear + OutputPass chain the
-      // bloom threshold is tuned high so ordinary lit stone, sky and water do
-      // not glow; push the lamp's emissive past 1.0 so its post-tonemap
-      // luminance reliably clears that threshold — guarded by landmarks.test.ts.
-      (lamp.material as THREE.MeshStandardMaterial).emissive = new THREE.Color(color);
-      (lamp.material as THREE.MeshStandardMaterial).emissiveIntensity = 1.6;
-      g.add(shaft, lamp);
+      g.add(lamp);
       break;
     }
     case "foundry": {
-      const hall = mesh(track(new THREE.BoxGeometry(10, 7, 8), d), stone);
-      hall.position.y = 3.5;
-      const chimney = mesh(track(new THREE.CylinderGeometry(1.2, 1.6, 12, 8), d), accent);
-      chimney.position.set(3.5, 6, -2.5);
-      g.add(hall, chimney);
+      box(10, 7, 8, 0, 3.5, 0, false);
+      const chimney = new THREE.CylinderGeometry(1.2, 1.6, 12, 8);
+      chimney.translate(3.5, 6, -2.5);
+      accentSrc.push(prep(chimney, color));
       break;
     }
     case "dam": {
-      const wall = mesh(track(new THREE.BoxGeometry(22, 11, 3), d), stone);
-      wall.position.y = 5.5;
-      const sluice = mesh(track(new THREE.BoxGeometry(4, 8, 3.6), d), accent);
-      sluice.position.y = 4;
-      g.add(wall, sluice);
+      box(22, 11, 3, 0, 5.5, 0, false);
+      box(4, 8, 3.6, 0, 4, 0, true);
       break;
     }
     case "station": {
-      const platform = mesh(track(new THREE.BoxGeometry(12, 1.2, 7), d), stone);
-      platform.position.y = 0.6;
-      const roof = mesh(track(new THREE.BoxGeometry(13, 0.6, 8), d), accent);
-      roof.position.y = 6;
+      box(12, 1.2, 7, 0, 0.6, 0, false);
+      box(13, 0.6, 8, 0, 6, 0, true);
       for (const px of [-5, 5]) {
         for (const pz of [-3, 3]) {
-          const post = mesh(track(new THREE.BoxGeometry(0.6, 5, 0.6), d), stone);
-          post.position.set(px, 3, pz);
-          g.add(post);
+          box(0.6, 5, 0.6, px, 3, pz, false);
         }
       }
-      g.add(platform, roof);
       break;
     }
     case "ring": {
       const count = 8;
-      const ringGeo = track(new THREE.BoxGeometry(1.4, 6, 1.4), d);
       for (let i = 0; i < count; i++) {
         const a = (i / count) * Math.PI * 2;
-        const post = mesh(ringGeo, i % 2 === 0 ? stone : accent);
-        post.position.set(Math.cos(a) * 6, 3, Math.sin(a) * 6);
-        g.add(post);
+        box(1.4, 6, 1.4, Math.cos(a) * 6, 3, Math.sin(a) * 6, i % 2 !== 0);
       }
       break;
     }
     case "mirror": {
-      const frame = mesh(track(new THREE.BoxGeometry(14, 10, 1), d), stone);
-      frame.position.y = 5;
-      const glassMat = mat(0xdfe9ff, d, { metalness: 0.9, roughness: 0.08 });
-      const glass = mesh(track(new THREE.BoxGeometry(12, 8, 0.4), d), glassMat);
-      glass.position.set(0, 5, 0.6);
-      g.add(frame, glass);
+      box(14, 10, 1, 0, 5, 0, false);
+      // The reflective face folds into the accent vertex-colour path: a bright
+      // cool signature accent on the shared emissive accent material replaces
+      // the deleted bespoke metalness glass plate (owner's call — the flat
+      // low-poly look does not need literal metalness).
+      box(12, 8, 0.4, 0, 5, 0.6, true);
       break;
     }
   }
+
+  const stoneMesh = mergeSet(stoneSrc, stone, d);
+  if (stoneMesh) g.add(stoneMesh);
+  const accentMesh = mergeSet(accentSrc, accent, d);
+  if (accentMesh) g.add(accentMesh);
   return g;
 }
