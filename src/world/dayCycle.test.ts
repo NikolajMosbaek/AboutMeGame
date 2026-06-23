@@ -391,13 +391,15 @@ describe("import isolation (headless, world-only, no ./waterSurface)", () => {
   });
 });
 
-// --- (h) tree-shaking guard — unused-but-exported (no-bytes contract) ---------
-// The no-bytes claim rests on NO non-test src file importing ./dayCycle yet: the
-// bundler tree-shakes the whole module out until the G3 slice-2 dome/light/fog
-// refactor pulls it in. We walk src/ (the same nonTestSourceFiles walk
-// waterSurface.test.ts uses) and assert the importer set is empty. When slice 2
-// lands, this guard FLIPS to a positive "sky/buildWorld imports it" assertion —
-// the named, intentional contract change, exactly as PR #116 did for water.
+// --- (h) tree-shaking guard — imported by exactly world/dayCycleSystem.ts -----
+// The G3 "living sky" slice wires the pure palette into the world via ONE
+// production importer: world/dayCycleSystem.ts (buildWorld → dayCycleSystem →
+// dayCycle is the chain that defeats tree-shaking). We walk src/ (the same
+// nonTestSourceFiles walk waterSurface.test.ts uses) and assert the importer set
+// equals exactly that file — nothing else may pull dayCycle in, and sky.ts in
+// particular stays import-free (locked separately by sky.test.ts:262). This is
+// the named, intentional contract FLIP from the earlier no-bytes guard (which
+// asserted an empty importer set), exactly as PR #116 did for water.
 const SRC_ROOT = join(MODULE_DIR, "..");
 
 /** Walk `src/` and return every non-test `.ts`/`.tsx` file (absolute path). */
@@ -423,18 +425,19 @@ function isDayCycleSpec(spec: string): boolean {
   return /(^|\/)dayCycle(\.ts)?$/.test(spec);
 }
 
-describe("tree-shaking guard — dayCycle is unused-but-exported (no bundle bytes yet)", () => {
+describe("dayCycle is imported by exactly world/dayCycleSystem.ts", () => {
   const importers = nonTestSourceFiles(SRC_ROOT)
     .filter((f) => importSpecifiers(readFileSync(f, "utf8")).some(isDayCycleSpec))
     .map((f) => relative(SRC_ROOT, f).split("\\").join("/"))
     .sort();
 
-  it("NO non-test src file imports ./dayCycle yet (slice 1 ships zero bundle delta)", () => {
+  it("exactly world/dayCycleSystem.ts imports ./dayCycle (the single production importer)", () => {
     expect(
       importers,
-      "dayCycle.ts must stay unimported by production code until G3 slice 2 wires " +
-        "it (then this guard flips to a positive importer assertion). Found: " +
+      "dayCycle.ts must be imported by exactly world/dayCycleSystem.ts — the single " +
+        "production importer that wires the pure palette to the live sky handles and " +
+        "defeats tree-shaking (buildWorld → dayCycleSystem → dayCycle). Found: " +
         `[${importers.join(", ")}]`,
-    ).toEqual([]);
+    ).toEqual(["world/dayCycleSystem.ts"]);
   });
 });

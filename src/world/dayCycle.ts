@@ -6,11 +6,11 @@
 // by interpolating a small fixed cyclic sRGB keyframe table component-wise. It
 // mirrors the shape of `waterSurface.ts` / `noise.ts` / `terrain.ts`: named
 // exports, art-tunable constants up top, jsdoc per export, and it imports nothing
-// outside `src/world`. Like `waterSurface.ts` before its G1 wiring slice, this is
-// authored UNUSED-BUT-EXPORTED on purpose — no production file imports it yet, so
-// the bundler tree-shakes it out of the shipped bundle (zero bytes) until the G3
-// slice-2 dome/light/fog refactor imports it. Authoring the source of truth first
-// lets that refactor be a provable no-op at noon.
+// outside `src/world`. It is imported by exactly one production file —
+// `world/dayCycleSystem.ts`, the G3 per-frame writer that feeds these palettes
+// into the live sky handles (`buildWorld → dayCycleSystem → dayCycle` is the
+// chain that pulls it into the shipped bundle). The single-importer contract is
+// locked by the guard at dayCycle.test.ts; `sky.ts` itself stays import-free.
 //
 // The NOON keyframe is anchored bit-exact to today's shipped look in `sky.ts`:
 //   domeTop  = SKY_TOP    = #3a78c2
