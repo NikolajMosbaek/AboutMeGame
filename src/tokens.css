@@ -895,7 +895,12 @@ body {
   -webkit-overflow-scrolling: touch;
   max-width: 44rem;
   margin: 0 auto;
-  padding: var(--space-4) var(--space-3) var(--space-4);
+  padding: var(--space-4) var(--space-3);
+  /* This page scrolls and has no centred-dialog max-height; its only
+     end-of-document dismiss control (the .text-view__footer back link) would
+     otherwise strand under the home indicator. Floor the bottom pad at the
+     base --space-4 and ADD the safe-area inset on a notch. */
+  padding-bottom: max(var(--space-4), calc(var(--space-4) + var(--safe-bottom)));
 }
 
 .text-view__header {
