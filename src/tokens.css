@@ -273,8 +273,8 @@ body {
 /* ----- Runtime stats overlay (#14) ----- */
 .stats-overlay {
   position: fixed;
-  top: var(--space-1);
-  left: var(--space-1);
+  top: max(var(--space-1), var(--safe-top));
+  left: max(var(--space-1), var(--safe-left));
   display: flex;
   gap: var(--space-2);
   padding: 0.25rem 0.6rem;
@@ -354,8 +354,8 @@ body {
 /* ----- Discovery UI (#38) ----- */
 .discovery-progress {
   position: fixed;
-  top: var(--space-1);
-  right: var(--space-2);
+  top: max(var(--space-1), var(--safe-top));
+  right: max(var(--space-2), var(--safe-right));
   padding: 0.3rem 0.7rem;
   font: 700 0.85rem var(--font-ui);
   color: var(--color-fg);
@@ -583,7 +583,7 @@ body {
 /* ----- In-game HUD (#42) + progress (#45) ----- */
 .hud-telemetry {
   position: fixed;
-  top: var(--space-1);
+  top: max(var(--space-1), var(--safe-top));
   left: 50%;
   transform: translateX(-50%);
   display: flex;
@@ -620,8 +620,8 @@ body {
 
 .hud-top-right {
   position: fixed;
-  top: var(--space-1);
-  right: var(--space-1);
+  top: max(var(--space-1), var(--safe-top));
+  right: max(var(--space-1), var(--safe-right));
   display: flex;
   align-items: center;
   gap: var(--space-1);
@@ -1068,7 +1068,7 @@ body {
   /* Telemetry can get crowded against the menu cluster — shrink + ease its
      left edge so the three pieces don't collide on a narrow bar. */
   .hud-telemetry {
-    left: var(--space-1);
+    left: max(var(--space-1), var(--safe-left));
     transform: none;
     gap: var(--space-1);
     padding: 0.25rem 0.5rem;
