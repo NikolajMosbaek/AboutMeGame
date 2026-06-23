@@ -1,7 +1,15 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import * as THREE from "three";
 import { buildSky } from "./sky.ts";
 import { WORLD } from "./worldConfig.ts";
+
+// Directory of THIS test file, used to read sky.ts as text for the static
+// (grep-style) no-production-import guard below. Mirrors the source-reading
+// pattern in dayCycle.test.ts / waterSurface.test.ts.
+const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
 
 // G3 slice 2 — buildSky() live-mutation handles (#119).
 //
@@ -104,5 +112,24 @@ describe("buildSky() shipped NOON defaults (T3, bit-exact)", () => {
     const sky = buildSky(new THREE.Scene());
 
     expect(sky.horizon.getHex()).toBe(0xcfe4f2);
+  });
+});
+
+describe("buildSky() no-production-import guard (T7)", () => {
+  // This slice only builds the seam dayCycle WILL feed; it must NOT import
+  // dayCycle.ts. The tree-wide tree-shaking guard at dayCycle.test.ts (empty
+  // importer set) is the system-of-record; this is a focused, local sibling that
+  // pins sky.ts specifically — the file this slice touches — so a regression
+  // here points straight at the offending file. The slice-2 flip anticipated by
+  // dayCycle.ts's stale header comment is DEFERRED to slice 3 (when
+  // DayCycleSystem actually imports dayCycle.ts); do not act on it here.
+  it("sky.ts contains NO import of ./dayCycle in this slice", () => {
+    const skySource = readFileSync(join(MODULE_DIR, "sky.ts"), "utf8");
+
+    expect(
+      skySource,
+      "sky.ts must NOT import ./dayCycle in G3 slice 2 — the seam only exposes " +
+        "handles a future writer feeds; the production import lands in slice 3.",
+    ).not.toMatch(/from\s+["'][^"']*dayCycle/);
   });
 });
