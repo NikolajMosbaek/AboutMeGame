@@ -35,8 +35,33 @@
   /* Minimum touch target (#46). 44px is the WCAG 2.5.5 / platform floor. */
   --tap-min: 44px;
 
+  /* Mobile safe-area + dynamic-viewport layout tokens (MOB1 #148). The notch /
+     home-indicator insets, with a 0px fallback so desktop/jsdom and any
+     zero-inset device are byte-identical to before. Every in-scope bottom-pinned
+     control and the reveal panels read these instead of raw vh; the inset is
+     ADDED to an offset, never subtracted from --tap-min (≥44px floor stays). */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+
+  /* Dynamic viewport height. The 100vh fallback is declared FIRST and is
+     non-negotiable: iOS <15.4 and any non-dvh engine keep today's behaviour.
+     The dvh upgrade is layered behind @supports below so it only applies where
+     the browser actually understands it. */
+  --vh-dynamic: 100vh;
+
   --font-ui:
     system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+/* dvh upgrade — strictly after the vh fallback in source order (D1). On an
+   engine that supports dvh the panels track the *visible* viewport as the iOS
+   URL bar collapses/expands; everywhere else --vh-dynamic stays 100vh. */
+@supports (height: 100dvh) {
+  :root {
+    --vh-dynamic: 100dvh;
+  }
 }
 
 * {
@@ -274,8 +299,8 @@ body {
 /* ----- Touch controls (#32) — created lazily by movement/input.ts ----- */
 .touch-joystick {
   position: fixed;
-  left: 5vw;
-  bottom: 6vh;
+  left: calc(5vw + var(--safe-left));
+  bottom: calc(6vh + var(--safe-bottom));
   width: 120px;
   height: 120px;
   border-radius: 50%;
@@ -311,17 +336,17 @@ body {
 }
 
 .touch-thrust {
-  right: 6vw;
-  bottom: 18vh;
+  right: calc(6vw + var(--safe-right));
+  bottom: calc(18vh + var(--safe-bottom));
   font-size: 1.4rem;
 }
 .touch-fly {
-  right: 22vw;
-  bottom: 7vh;
+  right: calc(22vw + var(--safe-right));
+  bottom: calc(7vh + var(--safe-bottom));
 }
 .touch-use {
-  right: 6vw;
-  bottom: 7vh;
+  right: calc(6vw + var(--safe-right));
+  bottom: calc(7vh + var(--safe-bottom));
   background: rgba(255, 203, 71, 0.85);
   color: var(--color-accent-fg);
 }
@@ -343,7 +368,7 @@ body {
 .reveal-prompt {
   position: fixed;
   left: 50%;
-  bottom: 8vh;
+  bottom: calc(8vh + var(--safe-bottom));
   transform: translateX(-50%);
   max-width: min(34rem, 88vw);
   display: flex;
@@ -379,14 +404,18 @@ body {
   inset: 0;
   display: grid;
   place-items: center;
+  /* Keep the centred panel's footer clear of the home indicator / notch: the
+     safe-area insets are ADDED on top of the base padding (D2f). */
   padding: var(--space-2);
+  padding-top: calc(var(--space-2) + var(--safe-top));
+  padding-bottom: calc(var(--space-2) + var(--safe-bottom));
   background: rgba(10, 9, 16, 0.55);
   z-index: 30;
 }
 
 .reveal-panel {
   max-width: min(40rem, 92vw);
-  max-height: 86vh;
+  max-height: calc(var(--vh-dynamic) * 0.86);
   overflow-y: auto;
   background: var(--color-bg);
   border: 1px solid rgba(255, 255, 255, 0.18);
@@ -504,13 +533,16 @@ body {
   inset: 0;
   display: grid;
   place-items: center;
+  /* Same safe-area padding as the reveal backdrop (D2f). */
   padding: var(--space-2);
+  padding-top: calc(var(--space-2) + var(--safe-top));
+  padding-bottom: calc(var(--space-2) + var(--safe-bottom));
   background: rgba(10, 9, 16, 0.55);
   z-index: 30;
 }
 .completion-panel {
   max-width: min(40rem, 92vw);
-  max-height: 86vh;
+  max-height: calc(var(--vh-dynamic) * 0.86);
   overflow-y: auto;
   background: var(--color-bg);
   border: 1px solid rgba(255, 255, 255, 0.18);
@@ -1002,17 +1034,26 @@ body {
   }
 
   /* Overlays go full-bleed and scroll within the viewport rather than spilling
-     off a tiny screen. */
+     off a tiny screen. .reveal-panel is split out below (D2d) so its max-height
+     reads the dvh token instead of the static 92vh that would otherwise WIN here
+     by source order on the small iPhone the P0 targets. .onboarding/.menu are
+     out of scope and stay on vh. */
   .reveal-panel,
   .onboarding,
   .menu {
     width: 100%;
     max-width: none;
-    max-height: 92vh;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
     border-radius: 0.75rem;
     padding: var(--space-3) var(--space-2);
+  }
+  .onboarding,
+  .menu {
+    max-height: 92vh;
+  }
+  .reveal-panel {
+    max-height: calc(var(--vh-dynamic) * 0.92);
   }
 
   .reveal-panel__actions {
@@ -1054,7 +1095,7 @@ body {
      controls line, and the top HUD. Raise the joystick/buttons a touch and
      reserve the centre column for prompts. */
   .reveal-prompt {
-    bottom: 16vh;
+    bottom: calc(16vh + var(--safe-bottom));
     max-width: 92vw;
     padding: var(--space-1) var(--space-2);
   }
@@ -1071,15 +1112,22 @@ body {
     font-size: clamp(1.8rem, 7vw, 2.6rem);
   }
 
+  /* .reveal-panel split out (D2d): the static 96vh here would win by source
+     order on the short landscape iPhone, so the panel reads the dvh token while
+     .onboarding/.menu (out of scope) keep vh. */
   .reveal-panel,
   .onboarding,
   .menu {
-    max-height: 96vh;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
     padding: var(--space-2);
   }
+  .onboarding,
+  .menu {
+    max-height: 96vh;
+  }
   .reveal-panel {
+    max-height: calc(var(--vh-dynamic) * 0.96);
     padding: var(--space-3) var(--space-2);
   }
 
@@ -1089,17 +1137,17 @@ body {
   .touch-joystick {
     width: 96px;
     height: 96px;
-    bottom: 4vh;
+    bottom: calc(4vh + var(--safe-bottom));
   }
   .touch-thrust {
-    bottom: 14vh;
+    bottom: calc(14vh + var(--safe-bottom));
   }
   .touch-fly,
   .touch-use {
-    bottom: 4vh;
+    bottom: calc(4vh + var(--safe-bottom));
   }
   .reveal-prompt {
-    bottom: 4vh;
+    bottom: calc(4vh + var(--safe-bottom));
   }
 }
 
