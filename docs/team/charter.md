@@ -62,3 +62,36 @@ via a URL.
 - Branching: one feature branch per slice; PRs to `main`; never commit to `main`.
 - Performance budget: `docs/perf-budget.md` (enforced in `src/perf/perfBudget.ts`).
 - Asset conventions: `docs/asset-pipeline.md`.
+
+## Prioritisation & backlog
+
+The **GitHub Project board is the single source of truth** for priority and
+status — *not* a file in this repo. Board:
+`https://github.com/users/NikolajMosbaek/projects/2` (owner `NikolajMosbaek`,
+project number `2`).
+
+- **Issues** hold the spec (goal, scope, acceptance criteria, slices,
+  dependencies). Don't restate a spec elsewhere — link the issue.
+- **Board** holds **Status** (`Todo` / `In Progress` / `Done`) and **order**
+  (top = highest priority), arranged epic-then-its-slices.
+- **Pulling work:** with no explicit feature, the PO pulls the **top `Todo` item
+  in board order**:
+  ```bash
+  gh project item-list 2 --owner NikolajMosbaek --format json
+  ```
+  If the top item is an epic (too big for one run), take that epic's first
+  not-`Done` slice (sub-issue) as the run's feature.
+- There is **no `backlog.md`** — it was retired (2026-06-24) because a
+  hand-maintained list drifted from the board. Re-prioritising = reordering the
+  board; record the rationale in `docs/team/runs/`.
+
+### Standing ordering policy
+
+- **Sound ranks strictly below all other tracks.** A Sound epic (S2/S4) never
+  auto-pulls ahead of feature / quality / graphics work — promote it only if the
+  user reports audio breakage on a real device.
+- **On-device verification gap (never a silent pass).** Mobile safe-area / `dvh`
+  and iOS-audio fixes are flagged "needs verification": the headless Vitest suite
+  and the desktop-Chromium Playwright smoke cannot prove them on a real phone. A
+  run touching them must say so in its run log and must not claim on-device
+  success it can't prove.

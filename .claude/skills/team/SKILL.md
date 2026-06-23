@@ -1,6 +1,6 @@
 ---
 name: team
-description: Run the autonomous AI product team (PO, tech lead, senior engineers, junior, UX lead) through evaluate→agree→implement→verify→ship for one AboutMeGame feature. Use when the user types /team, asks the "team" to build/design a feature, or wants an autonomous feature run. Pass the feature as args; with no args the team pulls the top backlog item.
+description: Run the autonomous AI product team (PO, tech lead, senior engineers, junior, UX lead) through evaluate→agree→implement→verify→ship for one AboutMeGame feature. Use when the user types /team, asks the "team" to build/design a feature, or wants an autonomous feature run. Pass the feature as args; with no args the team pulls the top Todo item from the GitHub Project board.
 ---
 
 # /team — run the autonomous product team
@@ -12,7 +12,7 @@ shipped PR with no human gate, bounded by automated quality gates.
 
 Call the `Workflow` tool with:
 - `name`: `"team"`
-- `args`: `{ "feature": "<the user's feature text, or omit to pull the top backlog item>", "autoMerge": <true|false> }`
+- `args`: `{ "feature": "<the user's feature text, or omit to pull the top Todo item from the board>", "autoMerge": <true|false> }`
 
 `autoMerge` defaults to `true` (the team merges its own PR when all gates pass).
 Pass `false` when the user wants PRs left open for review.
