@@ -1,5 +1,5 @@
-import { readFileSync, readdirSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
@@ -403,33 +403,77 @@ describe("import isolation (headless, world-only)", () => {
   });
 });
 
-describe("tree-shaking guard (module stays unimported by world wiring)", () => {
-  it("no other src file imports ./waterSurface, so it is tree-shaken out of the bundle", () => {
-    const srcRoot = join(MODULE_DIR, "..");
-    const offenders: string[] = [];
+// --- T10: tree-shaking guard FLIP — a deliberate PR #116 contract change -----
+// BEFORE (the G1 slice-1 seam guard): "NO src file imports `./waterSurface`",
+// so the bundler tree-shook the whole module out until a visual slice pulled it
+// in. That slice (G1 slice 2) is now landing: `boundaries.ts` assembles the
+// water material from the palette/foam single source of truth, importing it
+// directly (the foam-edge symbols) and transitively via `waterUniforms.ts` (the
+// sRGB→linear palette transport, T1). So the guard is INVERTED — from
+// "stays unimported" to a positive "boundaries.ts (and only the sanctioned
+// wiring) imports it" assertion. This is the NAMED, intentional contract update
+// for PR #116, not an incidental defeat of a guard (AC10). The single-source
+// "no re-declared hex / inline foam-edge literal" half of AC1 is owned in full
+// by boundaries.sourceOfTruth.test.ts (T9); here we lock the importer SET.
+const SRC_ROOT = join(MODULE_DIR, "..");
 
-    const walk = (dir: string): void => {
-      for (const entry of readdirSync(dir, { withFileTypes: true })) {
-        const full = join(dir, entry.name);
-        if (entry.isDirectory()) {
-          walk(full);
-          continue;
-        }
-        if (!/\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/.test(entry.name)) continue;
-        // The module itself and its own test legitimately reference it.
-        if (entry.name === "waterSurface.ts") continue;
-        if (entry.name === "waterSurface.test.ts") continue;
-        const specs = importSpecifiers(readFileSync(full, "utf8"));
-        if (specs.some((s) => /(^|\/)waterSurface(\.ts)?$/.test(s))) {
-          offenders.push(full);
-        }
-      }
-    };
-    walk(srcRoot);
+/** Walk `src/` and return every non-test `.ts`/`.tsx` file (absolute path). */
+function nonTestSourceFiles(root: string): string[] {
+  const out: string[] = [];
+  for (const entry of readdirSync(root)) {
+    const p = join(root, entry);
+    if (statSync(p).isDirectory()) {
+      out.push(...nonTestSourceFiles(p));
+    } else if (
+      (p.endsWith(".ts") || p.endsWith(".tsx")) &&
+      !p.endsWith(".test.ts") &&
+      !p.endsWith(".test.tsx")
+    ) {
+      out.push(p);
+    }
+  }
+  return out;
+}
 
+/** True if a module specifier resolves to `./…/waterSurface` (±`.ts`). */
+function isWaterSurfaceSpec(spec: string): boolean {
+  return /(^|\/)waterSurface(\.ts)?$/.test(spec);
+}
+
+describe("waterSurface is imported by boundaries — PR #116 tree-shaking guard flip", () => {
+  // The set of production (non-test) src files that REALLY import the module —
+  // a real `import … from "./…/waterSurface"`, comments stripped so a
+  // commented-out import never counts. Paths are project-root-relative for
+  // readable assertion messages.
+  const importers = nonTestSourceFiles(SRC_ROOT)
+    .filter((f) => importSpecifiers(readFileSync(f, "utf8")).some(isWaterSurfaceSpec))
+    .map((f) => relative(SRC_ROOT, f).split("\\").join("/"))
+    .sort();
+
+  it("boundaries.ts is now in the set of files importing ./waterSurface (the flip)", () => {
+    // PR #116, G1 slice 2: the previously-tree-shaken module is now wired into
+    // the water material in boundaries.ts. This positive assertion REPLACES the
+    // old "no src file imports ./waterSurface" negative — a deliberate contract
+    // change, not a regression.
     expect(
-      offenders,
-      `waterSurface is imported by: ${offenders.join(", ")} — it must stay unimported this slice`,
-    ).toEqual([]);
+      importers,
+      "PR #116 (G1 slice 2): boundaries.ts must import ./waterSurface — the " +
+        "intentional flip of the slice-1 tree-shaking guard. Importers found: " +
+        `[${importers.join(", ")}]`,
+    ).toContain("world/boundaries.ts");
+  });
+
+  it("ONLY the sanctioned water-wiring files import it — no other file pulls it in", () => {
+    // The inverse half of the old guard: the module stays narrowly scoped to the
+    // water material assembly. boundaries.ts imports the foam-edge symbols
+    // directly; waterUniforms.ts is the sRGB→linear palette transport it owns.
+    // Any NEW importer here is unexpected and must be added knowingly (PR #116).
+    const SANCTIONED = ["world/boundaries.ts", "world/waterUniforms.ts"];
+    expect(
+      importers,
+      "Only the water-material wiring may import ./waterSurface; an unexpected " +
+        `importer appeared. Found [${importers.join(", ")}], expected a subset ` +
+        `of [${SANCTIONED.join(", ")}]. Add new consumers here knowingly.`,
+    ).toEqual(SANCTIONED);
   });
 });
