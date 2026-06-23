@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 import * as THREE from "three";
 import { buildTerrain } from "./terrain.ts";
 import { buildLandmarks } from "./landmarks.ts";
@@ -413,5 +413,108 @@ describe("landmarks", () => {
       total,
       `total landmark triangles ${total} exceeds ceiling ${LANDMARK_TRIANGLE_CEILING}`,
     ).toBeLessThan(LANDMARK_TRIANGLE_CEILING);
+  });
+
+  // Dispose-coverage guard (G4, T7): the merge owns its source sub-geometries —
+  // mergeGeometries copies them into a new buffer, after which the sources are
+  // disposed at build time, so the only geometry still reachable from the group
+  // is the merged stone/accent geometry, the 13 beacon geometries and the tower
+  // lamp; the two structure materials are shared by identity across all 13. The
+  // dispose() contract must release every one of those exactly once: a leaked
+  // source geometry would show up as an extra disposed buffer (caught by the
+  // build-time count), and a double-dispose — e.g. tracking a shared material
+  // per-landmark, or pushing a merged geometry into disposables twice — would
+  // push a spy past one call. This builds a DEDICATED Landmarks instance so the
+  // spies and the dispose() call never touch the suite-wide `landmarks` fixture,
+  // gathers the geometries/materials from the group's ACTUAL Mesh children
+  // (not landmarks.ts internals), then asserts each is disposed exactly once.
+  it("disposes every merged geometry and both shared materials exactly once, with no double-dispose (dispose coverage)", () => {
+    const own = buildLandmarks(terrain);
+
+    // Gather the dispose targets from the actual renderable Mesh children of the
+    // group — the only geometry reachable here is merged/beacon/lamp geometry,
+    // because every source sub-primitive was consumed and disposed at build time.
+    const geometries = new Set<THREE.BufferGeometry>();
+    const materials = new Set<THREE.Material>();
+    let meshCount = 0;
+    own.group.traverse((o) => {
+      if (!(o instanceof THREE.Mesh)) return;
+      meshCount++;
+      geometries.add(o.geometry);
+      expect(
+        Array.isArray(o.material),
+        "a landmark mesh uses a material array",
+      ).toBe(false);
+      materials.add(o.material as THREE.Material);
+    });
+
+    // Sanity: the traversal actually found geometry to guard (every landmark
+    // contributes a merged stone mesh + a beacon; not a silently empty set).
+    expect(meshCount, "renderable landmark meshes").toBeGreaterThan(0);
+    expect(geometries.size, "distinct landmark geometries").toBeGreaterThan(0);
+
+    // The shared structure pair (stone + accent) must both be present and
+    // reused by identity — exactly two vertexColors MeshStandardMaterials,
+    // distinct from the per-beacon MeshBasicMaterial and the tower lamp's own
+    // emissive material (which has vertexColors:false).
+    const shared = [...materials].filter(
+      (m) =>
+        m instanceof THREE.MeshStandardMaterial &&
+        (m as THREE.MeshStandardMaterial).vertexColors === true,
+    );
+    expect(
+      shared.length,
+      "exactly two shared structure materials reachable",
+    ).toBe(2);
+
+    // Spy on dispose() of every reachable geometry and material so a release
+    // count above one (double-dispose) or below one (leak) fails loudly.
+    const spies = new Map<
+      THREE.BufferGeometry | THREE.Material,
+      ReturnType<typeof vi.spyOn>
+    >();
+    for (const g of geometries) spies.set(g, vi.spyOn(g, "dispose"));
+    for (const m of materials) spies.set(m, vi.spyOn(m, "dispose"));
+
+    own.dispose();
+
+    // Every reachable geometry and material — the merged stone/accent
+    // geometries, the 13 beacon geometries, the lamp geometry, both shared
+    // materials, every beacon material and the lamp material — is disposed
+    // exactly once. No double-dispose, no skipped release.
+    for (const [target, spy] of spies) {
+      const kind =
+        target instanceof THREE.BufferGeometry ? "geometry" : "material";
+      expect(
+        spy,
+        `${kind} disposed not exactly once`,
+      ).toHaveBeenCalledTimes(1);
+    }
+
+    // The two shared structure materials specifically are disposed exactly once
+    // each — a per-landmark material instance (the explosion this whole epic
+    // removes) would either inflate the shared count above or be double-disposed.
+    for (const m of shared) {
+      expect(
+        spies.get(m),
+        "shared structure material disposed not exactly once",
+      ).toHaveBeenCalledTimes(1);
+    }
+
+    // No leaked source sub-geometry: after dispose() the group still references
+    // only the geometries we already spied (all of them disposed once); a
+    // surviving, never-disposed source buffer would appear here as a geometry
+    // with no spy / zero dispose calls.
+    own.group.traverse((o) => {
+      if (!(o instanceof THREE.Mesh)) return;
+      const spy = spies.get(o.geometry);
+      expect(spy, "untracked geometry reachable from group").toBeDefined();
+      expect(
+        spy!,
+        "reachable geometry not disposed exactly once",
+      ).toHaveBeenCalledTimes(1);
+    });
+
+    for (const spy of spies.values()) spy.mockRestore();
   });
 });
