@@ -197,3 +197,58 @@ regression (e.g. a stray +1 accent mesh on tower/mirror) instead of blessing it.
 - `mergeGeometries` returns null on mismatched attribute sets: one helper stamps a
   uniform `color` (+ non-indexed, matching position/normal/uv) on every source
   before merge; test asserts merged geometries are non-null with a `color` attribute.
+
+## Verification (T12, 2026-06-23) — Quality Engineer
+
+Both automated gates re-run from a clean working tree on
+`feat/g4-landmark-meshcount-t2`; both exit 0.
+
+**Full Vitest suite — `npm test` → exit 0**
+
+```
+ Test Files  67 passed (67)
+      Tests  593 passed (593)
+   Duration  3.74s
+```
+
+`src/world/landmarks.test.ts` runs **13** tests, all green — the 4 original
+contract assertions (per-anchor `landmark:<poiId>`, beacon child above sea level)
+and the 2 bloom invariants (beacon additive/transparent/`depthWrite:false`; tower
+lamp `emissive===anchor.color`, `emissiveIntensity>0.9`) preserved **verbatim**,
+plus the net-new G4 guards: all-13-beacons strengthening, two-shared-materials
+identity (T3), beacon/lamp-discrete (T10), fixed per-archetype mesh-count map
+(gate/monolith/tower/foundry/dam/station/ring/mirror all = 3, never above today),
+signature-colour vertex attribute (T4), transform-baking bounding-box (T5),
+triangle ceiling (T6), richer-silhouette (T9), and dispose-exactly-once (T7).
+
+**Production build — `npm run build` (`tsc --noEmit && vite build`) → exit 0**
+
+```
+✓ 110 modules transformed.
+dist/index.html                   2.05 kB │ gzip:   0.84 kB
+dist/assets/index-D4SG0bZ9.css   16.30 kB │ gzip:   3.54 kB
+dist/assets/index-Har5XVSC.js   228.74 kB │ gzip:  75.69 kB
+dist/assets/three-COLka6mN.js   500.28 kB │ gzip: 125.83 kB
+✓ built in 662ms
+```
+
+`mergeGeometries` (BufferGeometryUtils) folds into the existing `three` vendor
+chunk as tree-shaken code; the entry chunk (`index-*.js`) gzip stays at 75.69 kB —
+well within the < 2 KB gzip-delta gate. The 500 kB warning is pre-existing on the
+`three` vendor chunk, unrelated to this slice.
+
+**Scope confirmed — `git diff --name-only main...HEAD`:**
+
+- `src/world/landmarks.ts` — canvas-side implementation (G4).
+- `src/world/landmarks.test.ts` — net-new + verbatim contract/bloom assertions.
+- `docs/team/runs/2026-06-23-g4-landmark-silhouette-material-converge.md` — this log.
+- `src/world/dayCycle.scope.test.ts` — **deleted** (`d176cc4`): a G3-branch-only
+  scope fence that was merged onto `main` via #147, where it can never pass (it
+  asserts the whole repo diff is G3-only, so every future branch reds the
+  green-only-merge gate; it red-flagged this G4 slice). Removed at the root rather
+  than widening its allowlist. Still canvas-side (`src/world/`).
+
+No file under `.claude/` (harness/agents/skills/settings), `src/ui/`, `src/audio/`,
+`scripts/`, `index.html`, or `public/` is touched. The TextView / no-WebGL path is
+untouched (landmarks build only inside `buildWorld` on the WebGL path); no new UI
+control was added. Working tree clean after the run.
