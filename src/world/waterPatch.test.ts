@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   FOAM_DEPTH_END,
   FOAM_DEPTH_START,
+  waveGlsl,
 } from "./waterSurface.ts";
 import {
   FOAM_COLOR_LINEAR,
@@ -246,6 +247,148 @@ describe("makeWaterPatch — no-foam variant (T5: leak-free + cache-key disambig
     // Namespaced so neither water variant can collide with a sibling program key.
     expect(noFoam).toMatch(/^water-/);
     expect(foam).toMatch(/^water-/);
+  });
+});
+
+describe("makeWaterPatch — displacement variant (G1 animation, two vertex anchors)", () => {
+  // The dead-code trap (proven against three 0.169 source): a normal recompute
+  // injected at begin_vertex is too late — beginnormal_vertex declares
+  // objectNormal, defaultnormal_vertex consumes it into transformedNormal, and
+  // normal_vertex writes vNormal, ALL before begin_vertex. So the swell must be
+  // injected at beginnormal_vertex (BEFORE defaultnormal_vertex) for the lit
+  // normal to ripple; the y-displacement rides begin_vertex for the silhouette.
+
+  /** Index of an anchor's `#include` in the patched vertex source (or -1). */
+  const at = (src: string, chunk: string) =>
+    src.indexOf(`#include <${chunk}>`);
+
+  it("(1) injects the objectNormal overwrite anchored on #include <beginnormal_vertex>", () => {
+    const shader = freshShader();
+    makeWaterPatch({ hasFoam: false, uniforms: {}, displacement: true }).onBeforeCompile(
+      shader as unknown as THREE.WebGLProgramParametersWithUniforms,
+    );
+    const vs = stripGlslComments(shader.vertexShader);
+    // The recompute overwrites objectNormal from the analytic gradient, as
+    // normalize(vec3(-dHdx, 1.0, -dHdz)).
+    expect(vs).toMatch(/objectNormal\s*=\s*normalize\s*\(\s*vec3\s*\(/);
+    // And it is anchored ON the beginnormal_vertex chunk — the overwrite text
+    // appears AFTER that include (the include is the injection point).
+    const begin = at(vs, "beginnormal_vertex");
+    expect(begin).toBeGreaterThanOrEqual(0);
+    const overwrite = vs.search(/objectNormal\s*=\s*normalize\s*\(\s*vec3\s*\(/);
+    expect(overwrite).toBeGreaterThan(begin);
+  });
+
+  it("(2) ORDER: the objectNormal overwrite appears BEFORE #include <defaultnormal_vertex> (dead-code guard)", () => {
+    const shader = freshShader();
+    makeWaterPatch({ hasFoam: false, uniforms: {}, displacement: true }).onBeforeCompile(
+      shader as unknown as THREE.WebGLProgramParametersWithUniforms,
+    );
+    const vs = stripGlslComments(shader.vertexShader);
+    const overwrite = vs.search(/objectNormal\s*=\s*normalize\s*\(\s*vec3\s*\(/);
+    const defaultNormal = at(vs, "defaultnormal_vertex");
+    expect(overwrite).toBeGreaterThanOrEqual(0);
+    expect(defaultNormal).toBeGreaterThanOrEqual(0);
+    // The overwrite must run UPSTREAM of defaultnormal_vertex (which consumes
+    // objectNormal into transformedNormal) — else it is dead for shading.
+    expect(overwrite).toBeLessThan(defaultNormal);
+  });
+
+  it("(3) injects transformed.y += waveHeight(...) anchored on #include <begin_vertex>", () => {
+    const shader = freshShader();
+    makeWaterPatch({ hasFoam: false, uniforms: {}, displacement: true }).onBeforeCompile(
+      shader as unknown as THREE.WebGLProgramParametersWithUniforms,
+    );
+    const vs = stripGlslComments(shader.vertexShader);
+    // transformed.y is displaced by the wave height.
+    expect(vs).toMatch(/transformed\.y\s*\+=\s*waveHeight\s*\(/);
+    const beginVertex = at(vs, "begin_vertex");
+    const displace = vs.search(/transformed\.y\s*\+=\s*waveHeight\s*\(/);
+    expect(beginVertex).toBeGreaterThanOrEqual(0);
+    // Displacement runs after `transformed` is born (i.e. after begin_vertex).
+    expect(displace).toBeGreaterThan(beginVertex);
+  });
+
+  it("(4) both anchors source the raw `position` attribute, NOT `transformed`", () => {
+    const shader = freshShader();
+    makeWaterPatch({ hasFoam: false, uniforms: {}, displacement: true }).onBeforeCompile(
+      shader as unknown as THREE.WebGLProgramParametersWithUniforms,
+    );
+    const vs = stripGlslComments(shader.vertexShader);
+    // Anchor A reads position for the gradient; anchor B reads position for the
+    // height. Both calls pass position.x/position.z (model space == world XZ).
+    expect(vs).toMatch(/waveGradient\s*\(\s*position\.x\s*,\s*position\.z/);
+    expect(vs).toMatch(/waveHeight\s*\(\s*position\.x\s*,\s*position\.z/);
+    // Neither displacement read may key off `transformed` (which is the already
+    // model-displaced position — using it would feed the prior frame's offset).
+    expect(vs).not.toMatch(/waveGradient\s*\(\s*transformed/);
+    expect(vs).not.toMatch(/waveHeight\s*\(\s*transformed/);
+  });
+
+  it("(5) both #include anchors are still present after the patch", () => {
+    const shader = freshShader();
+    makeWaterPatch({ hasFoam: false, uniforms: {}, displacement: true }).onBeforeCompile(
+      shader as unknown as THREE.WebGLProgramParametersWithUniforms,
+    );
+    expect(shader.vertexShader).toContain("#include <beginnormal_vertex>");
+    expect(shader.vertexShader).toContain("#include <begin_vertex>");
+  });
+
+  it("(6) with displacement:false, NEITHER injection appears", () => {
+    const shader = freshShader();
+    makeWaterPatch({ hasFoam: false, uniforms: {}, displacement: false }).onBeforeCompile(
+      shader as unknown as THREE.WebGLProgramParametersWithUniforms,
+    );
+    const vs = stripGlslComments(shader.vertexShader);
+    expect(vs).not.toMatch(/objectNormal\s*=\s*normalize\s*\(\s*vec3\s*\(/);
+    expect(vs).not.toMatch(/transformed\.y\s*\+=\s*waveHeight\s*\(/);
+    // No wave functions emitted at all when displacement is off.
+    expect(vs).not.toContain("waveHeight");
+    expect(vs).not.toContain("waveGradient");
+  });
+
+  it("displacement defaults to false (omitted option leaves the vertex stage swell-free)", () => {
+    const shader = freshShader();
+    makeWaterPatch({ hasFoam: false, uniforms: {} }).onBeforeCompile(
+      shader as unknown as THREE.WebGLProgramParametersWithUniforms,
+    );
+    const vs = stripGlslComments(shader.vertexShader);
+    expect(vs).not.toContain("waveHeight");
+  });
+
+  it("emits the wave GLSL from the shared waveGlsl() emitter (no hand-copied math)", () => {
+    const shader = freshShader();
+    makeWaterPatch({ hasFoam: false, uniforms: {}, displacement: true }).onBeforeCompile(
+      shader as unknown as THREE.WebGLProgramParametersWithUniforms,
+    );
+    // The patched vertex source contains the exact shared emitter output — the
+    // single source of truth for both anchors' math (no second magic-number copy).
+    expect(shader.vertexShader).toContain(waveGlsl());
+  });
+
+  it("merges the caller-supplied uTime uniform onto shader.uniforms (identity-stable)", () => {
+    const uTime = { value: 0 };
+    const uniforms = { uTime };
+    const shader = freshShader();
+    makeWaterPatch({ hasFoam: false, uniforms, displacement: true }).onBeforeCompile(
+      shader as unknown as THREE.WebGLProgramParametersWithUniforms,
+    );
+    // The SAME {value} object is on the shader — the live WaterSystem and the
+    // shader share one reference, no post-compile name-hunt or re-merge.
+    expect(shader.uniforms.uTime).toBe(uTime);
+  });
+
+  it("the displacement cache key differs from the undisplaced key (no program collision)", () => {
+    const disp = makeWaterPatch({ hasFoam: false, uniforms: {}, displacement: true }).customProgramCacheKey();
+    const noDisp = makeWaterPatch({ hasFoam: false, uniforms: {}, displacement: false }).customProgramCacheKey();
+    expect(disp).not.toBe(noDisp);
+    // The displacement axis is orthogonal to foam: all four variants are distinct.
+    const dispFoam = makeWaterPatch({ hasFoam: true, uniforms: {}, displacement: true }).customProgramCacheKey();
+    const noDispFoam = makeWaterPatch({ hasFoam: true, uniforms: {}, displacement: false }).customProgramCacheKey();
+    const keys = new Set([disp, noDisp, dispFoam, noDispFoam]);
+    expect(keys.size).toBe(4);
+    // Still namespaced under `water-`.
+    for (const k of keys) expect(k).toMatch(/^water-/);
   });
 });
 

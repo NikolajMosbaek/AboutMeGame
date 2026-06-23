@@ -668,9 +668,15 @@ describe("waterSurface is imported by boundaries — PR #116 tree-shaking guard 
   it("ONLY the sanctioned water-wiring files import it — no other file pulls it in", () => {
     // The inverse half of the old guard: the module stays narrowly scoped to the
     // water material assembly. boundaries.ts imports the foam-edge symbols
-    // directly; waterUniforms.ts is the sRGB→linear palette transport it owns.
+    // directly; waterUniforms.ts is the sRGB→linear palette transport it owns;
+    // waterPatch.ts imports the shared `waveGlsl()` emitter for the G1-animation
+    // displacement anchors (one source of truth for the two-sine wave math).
     // Any NEW importer here is unexpected and must be added knowingly (PR #116).
-    const SANCTIONED = ["world/boundaries.ts", "world/waterUniforms.ts"];
+    const SANCTIONED = [
+      "world/boundaries.ts",
+      "world/waterPatch.ts",
+      "world/waterUniforms.ts",
+    ];
     expect(
       importers,
       "Only the water-material wiring may import ./waterSurface; an unexpected " +
