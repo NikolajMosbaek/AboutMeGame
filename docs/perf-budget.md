@@ -45,6 +45,7 @@ reports. The table is the single source of truth (`QUALITY_TIERS`), asserted in
 | `shadowMapSize` | 1024 | 1024 | 2048 | Smaller map ⇒ cheaper shadow pass on medium. |
 | `propDensity` | **0.4** | 0.7 | 1.0 | Multiplier on the 540 trees / 150 rocks — fewer instances ⇒ fewer triangles. |
 | `fog` | **off** | on | on | Cheap, but low drops it so the shorter draw distance reads cleanly. |
+| `waterDisplacement` | **off** | on | on | Vertex displacement + grid subdivision on the full-screen water plane; off on low to protect mobile fill rate. Applies on reload. |
 
 **Low tier vs the mobile budget.** Low is tuned to comfortably clear the
 mid-range-phone bar: pixelRatio 1 (no super-sampling), no real-time shadows, and
@@ -53,7 +54,8 @@ count), so the draw-call budget is unaffected by density; the win is in
 triangles and the dropped shadow pass. The cheap knobs (`maxPixelRatio`,
 `shadows`) re-apply live when the setting changes in the pause menu
 (`applyRendererQuality`); the build-time knobs (`propDensity`, `shadowMapSize`,
-`fog`) bake at mount, so the menu notes "Detail level applies on reload."
+`fog`, `waterDisplacement`) bake at mount, so the menu notes "Detail level
+applies on reload."
 
 **Bundle impact.** Epic 6 added the scaler, the text view, the a11y announcer
 and the responsive/reduced-motion CSS without regressing the budget. Latest

@@ -24,6 +24,12 @@ export interface QualityConfig {
   /** Whether atmospheric fog is drawn. Cheap, but the low tier drops it so the
    *  shorter draw distance reads cleanly rather than fading to haze. */
   fog: boolean;
+  /** Whether the water plane animates with vertex displacement + a subdivided
+   *  grid. A bake-at-mount knob (it changes the compiled program text via
+   *  `customProgramCacheKey` and the geometry subdivision), so it applies on
+   *  reload, not via the live `applyRendererQuality` path. Off on low to keep
+   *  the subdivided, animated full-screen water plane off mobile fill rate. */
+  waterDisplacement: boolean;
 }
 
 /**
@@ -39,6 +45,7 @@ export const QUALITY_TIERS: Record<DeviceTier, QualityConfig> = {
     shadowMapSize: 1024,
     propDensity: 0.4,
     fog: false,
+    waterDisplacement: false,
   },
   medium: {
     tier: "medium",
@@ -47,6 +54,7 @@ export const QUALITY_TIERS: Record<DeviceTier, QualityConfig> = {
     shadowMapSize: 1024,
     propDensity: 0.7,
     fog: true,
+    waterDisplacement: true,
   },
   high: {
     tier: "high",
@@ -55,6 +63,7 @@ export const QUALITY_TIERS: Record<DeviceTier, QualityConfig> = {
     shadowMapSize: 2048,
     propDensity: 1,
     fog: true,
+    waterDisplacement: true,
   },
 };
 

@@ -14,12 +14,13 @@ describe("resolveQuality", () => {
   });
 
   // The acceptance bar: low must comfortably fit a mid-range phone — no shadows,
-  // pixelRatio 1, and meaningfully fewer props.
+  // pixelRatio 1, meaningfully fewer props, and no water vertex displacement.
   it("the low tier fits the mobile budget", () => {
     const low = resolveQuality("low", "high");
     expect(low.maxPixelRatio).toBe(1);
     expect(low.shadows).toBe(false);
     expect(low.propDensity).toBeLessThanOrEqual(0.5);
+    expect(low.waterDisplacement).toBe(false);
   });
 
   it("the medium tier turns shadows on at a smaller map and caps DPR", () => {
@@ -31,6 +32,7 @@ describe("resolveQuality", () => {
     expect(med.shadowMapSize).toBe(1024);
     expect(med.propDensity).toBeGreaterThan(0.5);
     expect(med.propDensity).toBeLessThan(1);
+    expect(med.waterDisplacement).toBe(true);
   });
 
   it("the high tier is full quality", () => {
@@ -39,6 +41,7 @@ describe("resolveQuality", () => {
     expect(high.shadows).toBe(true);
     expect(high.shadowMapSize).toBe(2048);
     expect(high.propDensity).toBe(1);
+    expect(high.waterDisplacement).toBe(true);
   });
 
   it("monotonically scales every cost knob across the tiers", () => {
@@ -55,5 +58,10 @@ describe("resolveQuality", () => {
     expect(QUALITY_TIERS.low.shadows).toBe(false);
     expect(QUALITY_TIERS.medium.shadows).toBe(true);
     expect(QUALITY_TIERS.high.shadows).toBe(true);
+    // water vertex displacement is off only at the bottom tier (protects the
+    // low tier's fill rate from the subdivided, animated water plane).
+    expect(QUALITY_TIERS.low.waterDisplacement).toBe(false);
+    expect(QUALITY_TIERS.medium.waterDisplacement).toBe(true);
+    expect(QUALITY_TIERS.high.waterDisplacement).toBe(true);
   });
 });
