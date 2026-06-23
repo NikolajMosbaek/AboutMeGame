@@ -67,14 +67,16 @@ slice (G2) wires the `EffectComposer` + `UnrealBloomPass` post-pass behind the
 renderer seam and widens `vite.config.ts` `manualChunks` to an id-based matcher
 (`/node_modules\/three\//`) so `three/examples/jsm/postprocessing/*` folds into
 the `three` vendor chunk instead of leaking into the entry chunk. Measured
-branch-vs-`main` `vite build` (gzip): the `three` vendor chunk is **120.7 KB**,
-byte-identical to `main` (postprocessing stays a separate vendor chunk, no leak
-into the entry chunk); the entry chunk grew **~0.05 KB** (the seam-delegate glue
-in `Engine`, not three internals) to **74.0 KB** ⇒ **~194.7 KB** total JS, well
-inside the 400 KB cap; CSS **3.5 KB**. (The `three/examples/jsm/postprocessing`
-modules tree-shake out until the compositor is reachable from the entry graph,
-so the measured first-load delta from this chunking change alone is essentially
-nil; the matcher guarantees they land in the cached vendor chunk when wired.)
+branch-vs-`main` `vite build` (gzip), confirmed against the actual dist chunk
+listing (T9): `GameCanvas` reaches `createCompositor`, so the four postprocessing
+passes (`EffectComposer` + `RenderPass` + `UnrealBloomPass` + `OutputPass`) are
+in the import graph and the id-based matcher folds them into the **`three`** vendor
+chunk — which grows **120.7 → 124.9 KB** (**+4.1 KB**, the postprocessing passes)
+and stays a separate, cacheable vendor chunk. The entry chunk grew only
+**73.9 → 74.2 KB** (**+0.3 KB** — the compositor wrapper + landmark emissive
+tweaks + seam glue, **no three internals**, proving the matcher kept the
+postprocessing out of the entry chunk); modules 95 → 106. Total first-load JS
+**~194.6 → ~199.1 KB** (**+4.5 KB**), well inside the 400 KB cap; CSS **3.5 KB**.
 
 ## How it is enforced
 
