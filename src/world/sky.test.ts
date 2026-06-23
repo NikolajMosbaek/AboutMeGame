@@ -115,6 +115,27 @@ describe("buildSky() shipped NOON defaults (T3, bit-exact)", () => {
   });
 });
 
+describe("buildSky() fog-fork regression (T4, horizon is not the live handle)", () => {
+  // The load-bearing correctness fix: FogExp2 deep-copies its colour at
+  // construction (FogExp2.js:11 `this.color = new Color(color)`), and sky.ts
+  // builds the fog from `horizon.getHex()` — a hex *number*, not the Color. So
+  // `fog.color` is a DISTINCT THREE.Color instance from `horizon`, equal only by
+  // value. Mutating `horizon` would therefore never reach the running fog; the
+  // supported per-frame path is `sky.fog.color.copy(...)`. This test pins the
+  // fork by-instance so a future refactor that accidentally aliases the two
+  // (re-introducing the detached-snapshot bug) fails here.
+  it("with quality.fog=true, sky.fog.color is a distinct instance from sky.horizon, equal by value", () => {
+    const sky = buildSky(new THREE.Scene(), { shadows: true, shadowMapSize: 2048, fog: true });
+
+    expect(sky.fog).not.toBeNull();
+    // By-instance: NOT the same Color object — proves the fork is real.
+    expect(sky.fog!.color).not.toBe(sky.horizon);
+    // By-value: same NOON haze hex — proves they were equal to begin with, so
+    // the distinct-instance check is meaningful (not passing on a colour diff).
+    expect(sky.fog!.color.getHex()).toBe(sky.horizon.getHex());
+  });
+});
+
 describe("buildSky() no-production-import guard (T7)", () => {
   // This slice only builds the seam dayCycle WILL feed; it must NOT import
   // dayCycle.ts. The tree-wide tree-shaking guard at dayCycle.test.ts (empty
