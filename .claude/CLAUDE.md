@@ -8,10 +8,10 @@ This file is the **constitution** — loaded into every agent (the root loop and
 
 The team takes one feature from intake to a shipped PR with no human gate, bounded by the automated gates below. It is **built and validated end-to-end**.
 
-- **Run it:** `/team "<feature>"`, or `/team` with no argument to pull the top backlog item.
+- **Run it:** `/team "<feature>"`, or `/team` with no argument to pull the top `Todo` item from the GitHub Project board.
 - **Pieces:** orchestration in `.claude/workflows/team.js`, command in `.claude/skills/team/`, roles in `.claude/agents/`.
 - **Design + plan:** `docs/superpowers/specs/2026-06-21-agent-team-harness-design.md` and `docs/superpowers/plans/2026-06-21-agent-team-harness.md`.
-- **Live grounding for any run:** read `docs/team/charter.md` (vision, chosen stack, conventions) and `docs/team/backlog.md` (priorities). Every run leaves a decision log in `docs/team/runs/`.
+- **Live grounding for any run:** read `docs/team/charter.md` (vision, chosen stack, conventions, prioritisation policy). **Priority + status live on the GitHub Project board** (`https://github.com/users/NikolajMosbaek/projects/2`) — the single source of truth; there is no `backlog.md`. Every run leaves a decision log in `docs/team/runs/`.
 
 ## Build & Test
 
