@@ -415,6 +415,91 @@ describe("landmarks", () => {
     ).toBeLessThan(LANDMARK_TRIANGLE_CEILING);
   });
 
+  // Silhouette-richness guard (G4, T9): T9 rebuilds all 8 archetypes as clearly
+  // MORE CHARACTERFUL, fully-procedural flat-shaded silhouettes feeding the merged
+  // stone/accent sets — not the trivial 2-3 box baseline. "Characterful" is made
+  // testable per archetype by a triangle FLOOR on the merged geometry that the
+  // plain-box baseline cannot meet: each archetype must contribute richer
+  // sub-primitives (stepped pillars, a buttressed wall, a tapered tower with a
+  // gallery, a ring of capped stelae, etc.) while STILL hitting the fixed count
+  // map and the silhouette span bands above. The floor is set just above each
+  // archetype's old box-only triangle count so a regression to plain boxes fails
+  // here, but stays far under the 4000-tri ceiling. This reuses the same
+  // count-map (T2) and anchor-hue (T4) guards in one pass so a richer rebuild that
+  // breaks draw-call discipline or drops the signature accent colour also fails.
+  const RICHNESS_FLOOR: Record<LandmarkArchetype, number> = {
+    gate: 70, // stepped twin pylons + crowned lintel, was 42
+    monolith: 50, // tapered obelisk + plinth + cap, was 30
+    tower: 90, // tapered drum + gallery ring + crenellations, was 66
+    foundry: 80, // hall + lean-to + tapered chimney + vents, was 50
+    dam: 60, // buttressed wall + spillway + crest, was 30
+    station: 110, // platform + pitched roof + posts + canopy beam, was 78
+    ring: 120, // capped stelae on the circle + lintels, was 102
+    mirror: 50, // frame + raised bezel + reflective face, was 30
+  };
+
+  it("rebuilds every archetype as a richer silhouette while holding count + signature hue (T9)", () => {
+    const stoneBase = new THREE.Color(STONE_BASE);
+    const stoneTriple: [number, number, number] = [
+      stoneBase.r,
+      stoneBase.g,
+      stoneBase.b,
+    ];
+    const eq = (a: [number, number, number], b: [number, number, number]) =>
+      Math.abs(a[0] - b[0]) < 1e-4 &&
+      Math.abs(a[1] - b[1]) < 1e-4 &&
+      Math.abs(a[2] - b[2]) < 1e-4;
+
+    for (const archetype of Object.keys(
+      RICHNESS_FLOOR,
+    ) as LandmarkArchetype[]) {
+      const anchor = POI_ANCHORS.find((a) => a.archetype === archetype)!;
+      const placed = landmarks.placed.find((p) => p.poiId === anchor.poiId)!;
+
+      // (1) Draw-call discipline holds: still exactly the fixed mesh-count target.
+      expect(countMeshes(placed.object), `${archetype} mesh count`).toBe(
+        TARGET_MESH_COUNT[archetype],
+      );
+
+      // (2) Richer than the box baseline: total merged + special tris clear the
+      // per-archetype floor (a plain-box rebuild would fall short here).
+      let tris = 0;
+      placed.object.traverse((o) => {
+        if (!(o instanceof THREE.Mesh)) return;
+        if (o.name === "beacon") return; // beacon geometry is fixed, not silhouette
+        tris += o.geometry.getAttribute("position").count / 3;
+      });
+      expect(
+        tris,
+        `${archetype} silhouette triangles ${tris} below richness floor ${RICHNESS_FLOOR[archetype]}`,
+      ).toBeGreaterThanOrEqual(RICHNESS_FLOOR[archetype]);
+
+      // (3) Signature hue still rides the accent path (merged accent, or the
+      // tower lamp): an anchor-derived accent colour distinct from the stone base.
+      const sig = new THREE.Color(anchor.color);
+      const sigTriple: [number, number, number] = [sig.r, sig.g, sig.b];
+      const { accent } = mergedMeshes(placed.object);
+      if (accent) {
+        const accentColors = vertexColorTriples(accent.geometry);
+        expect(
+          accentColors.some((c) => eq(c, sigTriple)),
+          `${archetype} accent carries anchor.color`,
+        ).toBe(true);
+      } else {
+        const lamp = placed.object.getObjectByName("lamp") as THREE.Mesh;
+        const m = lamp.material as THREE.MeshStandardMaterial;
+        expect(
+          eq([m.emissive.r, m.emissive.g, m.emissive.b], sigTriple),
+          `${archetype} lamp emissive == anchor.color`,
+        ).toBe(true);
+      }
+      expect(
+        eq(sigTriple, stoneTriple),
+        `${archetype} signature hue differs from stone base`,
+      ).toBe(false);
+    }
+  });
+
   // Dispose-coverage guard (G4, T7): the merge owns its source sub-geometries —
   // mergeGeometries copies them into a new buffer, after which the sources are
   // disposed at build time, so the only geometry still reachable from the group

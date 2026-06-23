@@ -180,7 +180,19 @@ function mergeSet(
   return m;
 }
 
-/** Build the distinct base structure for an archetype, centred at local origin. */
+/**
+ * Build the distinct base structure for an archetype, centred at local origin.
+ *
+ * G4/T9 — each archetype is a richer, more characterful flat-shaded silhouette
+ * built from several local-space sub-primitives (stepped pylons, a tapered
+ * obelisk, a galleried tower, a buttressed dam, a pitched-roof station, capped
+ * ring stelae, a bezelled mirror) rather than two or three plain boxes. Every
+ * sub-primitive bakes its transform into the geometry, then the whole archetype
+ * collapses to ONE merged stone mesh + ONE merged accent mesh (the signature
+ * hue rides the accent vertices). The tower's accent IS its discrete lamp (no
+ * extra mesh) and the mirror's accent face replaces the deleted glass plate, so
+ * no archetype exceeds 3 renderable meshes.
+ */
 function buildArchetype(
   archetype: LandmarkArchetype,
   color: number,
@@ -194,6 +206,12 @@ function buildArchetype(
   const stoneSrc: THREE.BufferGeometry[] = [];
   const accentSrc: THREE.BufferGeometry[] = [];
 
+  const push = (geo: THREE.BufferGeometry, accentFace: boolean) =>
+    (accentFace ? accentSrc : stoneSrc).push(
+      prep(geo, accentFace ? color : STONE_BASE),
+    );
+
+  // A translated box. Transform baked into the geometry before merge.
   const box = (
     w: number,
     h: number,
@@ -205,27 +223,78 @@ function buildArchetype(
   ) => {
     const geo = new THREE.BoxGeometry(w, h, dep);
     geo.translate(x, y, z);
-    (accentFace ? accentSrc : stoneSrc).push(
-      prep(geo, accentFace ? color : STONE_BASE),
-    );
+    push(geo, accentFace);
+  };
+
+  // A box tilted about the Z axis then translated — used for pitched roof
+  // slabs and the dam's angled buttresses. Rotation is baked into geometry.
+  const tilt = (
+    w: number,
+    h: number,
+    dep: number,
+    rotZ: number,
+    x: number,
+    y: number,
+    z: number,
+    accentFace: boolean,
+  ) => {
+    const geo = new THREE.BoxGeometry(w, h, dep);
+    geo.rotateZ(rotZ);
+    geo.translate(x, y, z);
+    push(geo, accentFace);
+  };
+
+  // A low-radial-segment prism/cone (faceted, flat-shaded) — tapered obelisks,
+  // tower drums, chimneys. radialSegments stays small for the low-poly look.
+  const prism = (
+    rTop: number,
+    rBottom: number,
+    h: number,
+    seg: number,
+    x: number,
+    y: number,
+    z: number,
+    accentFace: boolean,
+  ) => {
+    const geo = new THREE.CylinderGeometry(rTop, rBottom, h, seg);
+    geo.translate(x, y, z);
+    push(geo, accentFace);
   };
 
   switch (archetype) {
     case "gate": {
-      box(2, 9, 2, -4, 4.5, 0, false);
-      box(2, 9, 2, 4, 4.5, 0, false);
-      box(12, 2, 2.4, 0, 10, 0, true);
+      // Two stepped pylons (wide base → narrower shaft → small cap) carrying a
+      // crowned lintel; the lintel + its caps are the signature accent.
+      for (const sx of [-4, 4]) {
+        box(2.4, 5, 2.4, sx, 2.5, 0, false); // base
+        box(1.8, 4, 1.8, sx, 7, 0, false); // upper shaft
+        box(2.2, 0.8, 2.2, sx, 9.4, 0, false); // cap
+      }
+      box(12, 1.6, 2.4, 0, 9.6, 0, true); // lintel
+      box(13, 0.6, 1.4, 0, 10.6, 0, true); // lintel crown
       break;
     }
     case "monolith": {
-      box(3, 12, 1.4, 0, 6, 0, false);
-      box(4, 1, 2.4, 0, 12.5, 0, true);
+      // A thin tapered obelisk: a stepped plinth, a slab shaft that narrows in
+      // three stages, and a wedge-cut signature cap. Stays slab-thin on Z.
+      box(3.6, 0.8, 1.8, 0, 0.4, 0, false); // base step
+      box(3.2, 0.8, 1.6, 0, 1.2, 0, false); // plinth step
+      box(2.8, 4, 1.5, 0, 3.8, 0, false); // lower shaft
+      box(2.2, 4, 1.3, 0, 7.8, 0, false); // mid shaft
+      box(1.6, 2.4, 1.1, 0, 11, 0, false); // upper shaft
+      tilt(1.8, 1.4, 1.3, 0.5, 0, 12.4, 0, true); // canted signature cap
       break;
     }
     case "tower": {
-      const shaft = new THREE.CylinderGeometry(2.4, 3.4, 14, 10);
-      shaft.translate(0, 7, 0);
-      stoneSrc.push(prep(shaft, STONE_BASE));
+      // Tapered drum + a corbelled gallery ring + a crown of merlons. All stone;
+      // the accent role is the discrete emissive lamp (no extra merged mesh).
+      prism(2.4, 3.4, 12, 12, 0, 6, 0, false); // tapered drum
+      prism(3.6, 3.6, 1.2, 12, 0, 12.4, 0, false); // overhanging gallery ring
+      const merlons = 8;
+      for (let i = 0; i < merlons; i++) {
+        const a = (i / merlons) * Math.PI * 2;
+        box(0.7, 1.4, 0.7, Math.cos(a) * 3, 13.7, Math.sin(a) * 3, false);
+      }
       // The lamp stays a discrete, named, un-merged emissive mesh — the second
       // genuine bloom source. Its emissive carries the signature colour and is
       // pushed past 1.0 so its post-tonemap luminance clears the tuned-high
@@ -244,48 +313,87 @@ function buildArchetype(
       const lamp = new THREE.Mesh(lampGeo, lampMat);
       lamp.castShadow = true;
       lamp.receiveShadow = true;
-      lamp.position.y = 15;
+      lamp.position.y = 14.6;
       lamp.name = "lamp";
       g.add(lamp);
       break;
     }
     case "foundry": {
-      box(10, 7, 8, 0, 3.5, 0, false);
-      const chimney = new THREE.CylinderGeometry(1.2, 1.6, 12, 8);
-      chimney.translate(3.5, 6, -2.5);
-      accentSrc.push(prep(chimney, color));
+      box(10, 5.4, 8, 0, 2.7, 0, false); // main hall
+      box(9.4, 0.8, 7.6, 0, 5.8, 0, false); // parapet course
+      box(3.6, 1.4, 7.4, -3, 6.6, 0, false); // raised clerestory block
+      // Two roof vents.
+      box(1, 1, 1, -4, 6.6, -2.5, false);
+      box(1, 1, 1, -1.8, 6.6, 2.5, false);
+      // Tapered chimney — the signature accent stack.
+      prism(0.9, 1.5, 6.5, 8, 3.6, 5, -2.6, true);
+      box(1.8, 0.7, 1.8, 3.6, 8, -2.6, true); // chimney cap
       break;
     }
     case "dam": {
-      box(22, 11, 3, 0, 5.5, 0, false);
-      box(4, 8, 3.6, 0, 4, 0, true);
+      box(22, 9, 2.4, 0, 5, 0.2, false); // curved-ish wall (single span)
+      box(22, 1.6, 3.2, 0, 10.2, 0, false); // crest walkway
+      // Angled buttresses along the downstream face.
+      for (const bx of [-8, -2.7, 2.7, 8]) {
+        tilt(1.8, 9, 1.4, 0.14, bx, 4.6, -1.6, false);
+      }
+      box(4, 7, 3.4, 0, 4, 0, true); // central sluice gate (accent)
+      box(4.6, 1, 3.6, 0, 8, 0, true); // sluice head (accent)
       break;
     }
     case "station": {
-      box(12, 1.2, 7, 0, 0.6, 0, false);
-      box(13, 0.6, 8, 0, 6, 0, true);
-      for (const px of [-5, 5]) {
+      box(12, 1.2, 7, 0, 0.6, 0, false); // platform deck
+      box(12, 0.6, 7, 0, 1.5, 0, false); // deck lip
+      for (const px of [-5, 0, 5]) {
         for (const pz of [-3, 3]) {
-          box(0.6, 5, 0.6, px, 3, pz, false);
+          box(0.6, 4.4, 0.6, px, 3.4, pz, false); // posts (3 bays)
         }
       }
+      // Pitched roof: two tilted slabs meeting at a ridge.
+      tilt(6.6, 0.5, 8.4, 0.26, 0, 5.7, 0, false);
+      tilt(6.6, 0.5, 8.4, -0.26, 0, 5.7, 0, false);
+      box(13, 0.5, 0.6, 0, 6.2, 0, false); // ridge beam
+      box(13, 0.8, 8, 0, 5, 0, true); // signature canopy fascia (accent)
       break;
     }
     case "ring": {
+      // Eight capped stelae on a radius-6 circle, joined by short lintels;
+      // alternating caps + lintels carry the signature accent.
       const count = 8;
+      const r = 6;
       for (let i = 0; i < count; i++) {
         const a = (i / count) * Math.PI * 2;
-        box(1.4, 6, 1.4, Math.cos(a) * 6, 3, Math.sin(a) * 6, i % 2 !== 0);
+        const cx = Math.cos(a) * r;
+        const cz = Math.sin(a) * r;
+        box(1.4, 5, 1.4, cx, 2.5, cz, false); // stele shaft
+        box(1.8, 0.7, 1.8, cx, 5.35, cz, i % 2 !== 0); // cap (alt accent)
+        // Lintel spanning to the next stele.
+        const a2 = ((i + 1) / count) * Math.PI * 2;
+        const nx = Math.cos(a2) * r;
+        const nz = Math.sin(a2) * r;
+        const mid = new THREE.BoxGeometry(
+          Math.hypot(nx - cx, nz - cz),
+          0.6,
+          0.6,
+        );
+        mid.rotateY(-Math.atan2(nz - cz, nx - cx));
+        mid.translate((cx + nx) / 2, 5, (cz + nz) / 2);
+        push(mid, i % 2 === 0);
       }
       break;
     }
     case "mirror": {
-      box(14, 10, 1, 0, 5, 0, false);
-      // The reflective face folds into the accent vertex-colour path: a bright
-      // cool signature accent on the shared emissive accent material replaces
-      // the deleted bespoke metalness glass plate (owner's call — the flat
-      // low-poly look does not need literal metalness).
-      box(12, 8, 0.4, 0, 5, 0.6, true);
+      // A bezelled frame: four edge bars around a raised reflective face. The
+      // reflective face folds into the accent vertex-colour path (a bright cool
+      // signature accent on the shared emissive accent material) — replacing the
+      // deleted bespoke metalness glass plate (owner's call — the flat low-poly
+      // look does not need literal metalness).
+      box(14, 1.6, 1.2, 0, 9.2, 0, false); // top bar
+      box(14, 1.6, 1.2, 0, 0.8, 0, false); // bottom bar
+      box(1.6, 8, 1.2, -6.2, 5, 0, false); // left bar
+      box(1.6, 8, 1.2, 6.2, 5, 0, false); // right bar
+      box(12.4, 8.4, 0.4, 0, 5, -0.2, false); // backing plate
+      box(11.6, 7.6, 0.5, 0, 5, 0.55, true); // reflective face (accent)
       break;
     }
   }
