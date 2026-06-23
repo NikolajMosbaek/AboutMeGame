@@ -60,6 +60,27 @@ export const FOAM_DEPTH_START = 0.0;
 /** Water depth past which there is no foam (open water), world units. */
 export const FOAM_DEPTH_END = 1.5;
 
+/**
+ * Shoreline foam intensity in [0,1] as a function of vertical water `depth`.
+ *
+ * Implemented ONLY as `1 - smoothstep(FOAM_DEPTH_START, FOAM_DEPTH_END, depth)`
+ * with `FOAM_DEPTH_START < FOAM_DEPTH_END` (edge0 < edge1). The reversed-edge
+ * form `smoothstep(END, START, depth)` is forbidden: GLSL `smoothstep` is
+ * undefined when `edge0 > edge1`, so it would pass green here yet be undefined
+ * behaviour in the faithful `onBeforeCompile` transcription on a mediump mobile
+ * GPU. Returns ~0 in deep/open water (`depth >= FOAM_DEPTH_END`) and ramps up to
+ * the full foam value (1) as `depth -> 0` near the coast; the shared
+ * {@link smoothstep} clamps its interpolant, so the tails are exactly 0 / 1
+ * beyond the edges and degenerate/negative `depth` stays finite and in-gamut.
+ *
+ * `depth` is the VERTICAL water depth — 0 at the shore, positive offshore. The
+ * later wiring slice feeds it as `seaLevel - groundHeight` (NOT the radial
+ * `coastRadius`/`islandRadius` bands).
+ */
+export function shorelineFoam(depth: number): number {
+  return 1 - smoothstep(FOAM_DEPTH_START, FOAM_DEPTH_END, depth);
+}
+
 // --- Palette (single source of truth) -------------------------------------
 // sRGB-authored 0..1 tuples to match the renderer's SRGBColorSpace convention,
 // so the later patch feeds them straight into a `vec3` mix(). The two blues

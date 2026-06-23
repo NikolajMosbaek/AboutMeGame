@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   A1,
   A2,
+  FOAM_DEPTH_END,
+  FOAM_DEPTH_START,
   WATER_DEEP,
   WATER_SHALLOW,
   clamp01,
+  shorelineFoam,
   smoothstep,
   waterColor,
   waveHeight,
@@ -163,5 +166,61 @@ describe("waterColor (art-direction depth/fresnel ramp)", () => {
     // Below-range fresnel clamps to the shallow endpoint.
     waterColor(-3, out);
     expect(out[0]).toBeCloseTo(WATER_SHALLOW[0], 6);
+  });
+});
+
+describe("shorelineFoam (1 - smoothstep(START, END, depth))", () => {
+  it("uses the sanctioned edge order START < END (no reversed-edge form)", () => {
+    expect(FOAM_DEPTH_START).toBeLessThan(FOAM_DEPTH_END);
+  });
+
+  it("is ~0 in deep/open water (depth >= FOAM_DEPTH_END)", () => {
+    expect(shorelineFoam(FOAM_DEPTH_END)).toBe(0);
+    expect(shorelineFoam(FOAM_DEPTH_END + 0.5)).toBe(0);
+    expect(shorelineFoam(50)).toBe(0);
+  });
+
+  it("ramps to the foam value (1) at the shore (depth = FOAM_DEPTH_START)", () => {
+    expect(shorelineFoam(FOAM_DEPTH_START)).toBe(1);
+  });
+
+  it("is monotonic non-decreasing as depth decreases toward shore", () => {
+    // Walk from open water in toward the shore; foam must never drop.
+    let prev = -Infinity;
+    const steps = 24;
+    for (let i = 0; i <= steps; i++) {
+      // depth goes high → low across the band as i grows
+      const depth = FOAM_DEPTH_END - (FOAM_DEPTH_END - FOAM_DEPTH_START) * (i / steps);
+      const v = shorelineFoam(depth);
+      expect(v).toBeGreaterThanOrEqual(prev);
+      prev = v;
+    }
+  });
+
+  it("hits a partial foam value strictly between 0 and 1 inside the band", () => {
+    const mid = (FOAM_DEPTH_START + FOAM_DEPTH_END) / 2;
+    const v = shorelineFoam(mid);
+    expect(v).toBeGreaterThan(0);
+    expect(v).toBeLessThan(1);
+  });
+
+  it("equals the clamped tails exactly beyond both edges", () => {
+    // Past FOAM_DEPTH_END → exactly 0; at/under FOAM_DEPTH_START → exactly the
+    // full foam value (1).
+    expect(shorelineFoam(FOAM_DEPTH_END + 100)).toBe(0);
+    expect(shorelineFoam(FOAM_DEPTH_START - 100)).toBe(1);
+  });
+
+  it("keeps degenerate/negative depth finite and in-gamut [0,1]", () => {
+    for (const d of [-5, NaN, Infinity, -Infinity]) {
+      const v = shorelineFoam(d);
+      expect(Number.isFinite(v)).toBe(true);
+      expect(v).toBeGreaterThanOrEqual(0);
+      expect(v).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("is deterministic for identical args (incl. fractional)", () => {
+    expect(shorelineFoam(0.73)).toBe(shorelineFoam(0.73));
   });
 });
