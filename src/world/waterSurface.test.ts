@@ -670,11 +670,14 @@ describe("waterSurface is imported by boundaries — PR #116 tree-shaking guard 
     // water material assembly. boundaries.ts imports the foam-edge symbols
     // directly; waterUniforms.ts is the sRGB→linear palette transport it owns;
     // waterPatch.ts imports the shared `waveGlsl()` emitter for the G1-animation
-    // displacement anchors (one source of truth for the two-sine wave math).
-    // Any NEW importer here is unexpected and must be added knowingly (PR #116).
+    // displacement anchors (one source of truth for the two-sine wave math);
+    // waterSystem.ts (G1 slice 3, T6) imports the shared `WRAP_PERIOD` so its
+    // live time accumulator wraps on the SAME continuous period the wave math
+    // closes on. Any NEW importer here is unexpected and must be added knowingly.
     const SANCTIONED = [
       "world/boundaries.ts",
       "world/waterPatch.ts",
+      "world/waterSystem.ts",
       "world/waterUniforms.ts",
     ];
     expect(

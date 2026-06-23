@@ -6,6 +6,7 @@ import { buildSky, type Sky } from "./sky.ts";
 import { buildBoundaries, type Boundaries } from "./boundaries.ts";
 import { buildLandmarks, type Landmarks } from "./landmarks.ts";
 import { buildProps } from "./props.ts";
+import { WaterSystem } from "./waterSystem.ts";
 import { WORLD } from "./worldConfig.ts";
 import { QUALITY_TIERS, type QualityConfig } from "../perf/quality.ts";
 
@@ -81,6 +82,16 @@ export function buildWorld(
   engine.camera.far = WORLD.size * 2;
   engine.camera.updateProjectionMatrix();
   engine.addSystem(new BeaconPulseSystem(world, reducedMotion));
+
+  // The water swell clock — installed ONLY on medium/high, where
+  // `quality.waterDisplacement` compiled the vertex swell and `buildBoundaries`
+  // exposes the live `uTime` uniform. On low the water is the static slice-2
+  // surface (no `waterUniforms`), so no clock is owed and none is paid.
+  if (boundaries.waterUniforms) {
+    engine.addSystem(
+      new WaterSystem(boundaries.waterUniforms, reducedMotion),
+    );
+  }
 
   return world;
 }
