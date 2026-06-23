@@ -19,6 +19,13 @@ vi.mock("./createRenderer.ts", () => ({
   applyRendererQuality: () => {},
 }));
 
+// Sibling to createRenderer: the bloom compositor builds WebGL-only
+// postprocessing passes. Stub it so the medium-default jsdom tier (bloom: true)
+// keeps this headless shell test WebGL-free.
+vi.mock("./createCompositor.ts", () => ({
+  createBloomCompositor: () => ({ render() {}, setSize() {}, dispose() {} }),
+}));
+
 // Capture the props JournalPanel mounts with, so the test can drive its
 // onClose/store from the outside without depending on the panel's own chrome.
 const journalPanelProps: JournalPanelProps[] = [];

@@ -19,6 +19,15 @@ vi.mock("./createRenderer.ts", () => ({
   applyRendererQuality: () => {},
 }));
 
+// The bloom compositor is the sibling of createRenderer that constructs an
+// EffectComposer + three/examples/jsm postprocessing passes — all WebGL-only.
+// Stub it so the medium-default jsdom tier (bloom: true) doesn't drag a real
+// composer into the headless shell; the build-injects-only-when-bloom behaviour
+// is proven in the verify-game run (T9), not here.
+vi.mock("./createCompositor.ts", () => ({
+  createBloomCompositor: () => ({ render() {}, setSize() {}, dispose() {} }),
+}));
+
 // Capture the props RevealPanel is mounted with. The "Next landmark" affordance
 // is rendered in a later slice (RevealPanel currently voids `pois`), so the wire
 // at the GameCanvas seam (T3) is proved by the prop the panel *receives* — the

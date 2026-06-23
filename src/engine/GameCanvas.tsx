@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import * as THREE from "three";
 import { Engine } from "./Engine.ts";
 import { createRenderer, applyRendererQuality } from "./createRenderer.ts";
+import { createBloomCompositor, type Compositor } from "./createCompositor.ts";
 import { buildGame } from "../buildGame.ts";
 import { detectDeviceTier } from "../perf/deviceCapability.ts";
 import { resolveQuality, type QualityConfig } from "../perf/quality.ts";
@@ -83,6 +85,7 @@ export function GameCanvas({
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<ReturnType<typeof createRenderer> | null>(null);
+  const compositorRef = useRef<Compositor | null>(null);
   const [engine, setEngine] = useState<Engine | null>(null);
   const [game, setGame] = useState<GameHandle | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -121,7 +124,27 @@ export function GameCanvas({
       return;
     }
     rendererRef.current = renderer;
-    const eng = new Engine({ renderer });
+
+    // Bloom is a bake-at-mount knob (like waterDisplacement): build the
+    // post-processing compositor ONCE here, only on the medium/high tiers where
+    // `quality.bloom` is true, so the two emissive sources (beacons + tower lamp)
+    // glow. On low (`bloom: false`) we construct nothing and inject no delegate,
+    // so the Engine presents via the bare `renderer.render` — zero composer bytes,
+    // zero post-processing fill cost. The scene + camera are created here so they
+    // can be shared by the compositor's RenderPass and the Engine that renders
+    // through it; the Engine's own defaults match these exactly when bloom is off.
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 2000);
+    if (quality.bloom) {
+      compositorRef.current = createBloomCompositor(renderer, scene, camera, quality);
+    }
+
+    const eng = new Engine({
+      renderer,
+      scene,
+      camera,
+      compositor: compositorRef.current ?? undefined,
+    });
     const built = build(eng, container, quality);
     if (built) setGame(built);
 
@@ -151,8 +174,9 @@ export function GameCanvas({
       delete window.advanceTime;
       delete window.render_game_to_text;
       delete window.__ENGINE_STATE__;
-      eng.dispose();
+      eng.dispose(); // also disposes the injected compositor (frees its GPU targets)
       rendererRef.current = null;
+      compositorRef.current = null;
       setEngine(null);
       setGame(null);
       setMenuOpen(false);
