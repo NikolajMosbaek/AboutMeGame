@@ -38,6 +38,14 @@ describe("Onboarding", () => {
     expect(p.seenFlag).toBe(true);
   });
 
+  it("defaults to the keyboard list with no channel prop in jsdom", () => {
+    // No channel prop: the default reads the platform signal once. jsdom has no
+    // `window.matchMedia`, so `readControlChannel` falls back to "keyboard" — the
+    // safe default — and the dialog must still teach the keyboard hints (W A S D).
+    render(<Onboarding persistence={fakePersistence(false)} />);
+    expect(screen.getByText(/W A S D/)).toBeInTheDocument();
+  });
+
   it("lists the touch on-screen controls under the touch channel", () => {
     render(<Onboarding channel="touch" persistence={fakePersistence(false)} />);
 
