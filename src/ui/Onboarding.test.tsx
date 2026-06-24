@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { Onboarding } from "./Onboarding.tsx";
 import type { OnboardingPersistence } from "./onboardingPersistence.ts";
+import type { ControlChannel } from "./controlScheme.ts";
 
 /** A persistence stub backed by a plain flag, so the test owns the seen state. */
 function fakePersistence(initial = false): OnboardingPersistence & { seenFlag: boolean } {
@@ -75,4 +76,33 @@ describe("Onboarding", () => {
     const fly = screen.getByText("FLY");
     expect(fly.closest("dt")).not.toBeNull();
   });
+
+  // The channel seam must not regress the dialog's focus/dismiss behaviour under
+  // either scheme. Dismiss in particular is the gesture that unlocks the
+  // suspended AudioContext on mobile Safari, so it must stay a real <button> with
+  // an unchanged onClick that runs the persistence markSeen and closes the dialog.
+  const channels: ReadonlyArray<[ControlChannel]> = [["keyboard"], ["touch"]];
+
+  it.each(channels)("focuses the dismiss button on open (%s channel)", (channel) => {
+    render(<Onboarding channel={channel} persistence={fakePersistence(false)} />);
+    const dismiss = screen.getByRole("button", { name: /got it/i });
+    // It is a real, focusable <button> element (not a div/role hack), and focus
+    // lands on it when the overlay opens so keyboard/AT users start inside it.
+    expect(dismiss.tagName).toBe("BUTTON");
+    expect(dismiss).toHaveFocus();
+  });
+
+  it.each(channels)(
+    "dismiss persists seenFlag and removes the dialog (%s channel)",
+    (channel) => {
+      const p = fakePersistence(false);
+      render(<Onboarding channel={channel} persistence={p} />);
+      const dismiss = screen.getByRole("button", { name: /got it/i });
+      // Clicking the unchanged onClick handler marks the flag and tears the
+      // dialog down — the AudioContext-unlock gesture is preserved verbatim.
+      fireEvent.click(dismiss);
+      expect(p.seenFlag).toBe(true);
+      expect(screen.queryByRole("dialog")).toBeNull();
+    },
+  );
 });
