@@ -88,9 +88,18 @@ dist/assets/three-COLka6mN.js   500.28 kB │ gzip: 125.83 kB   <- vendor chunk 
 
 ## Test baseline — fully green, NO red-allowance (DEC7)
 
-`npm test` is **fully green: 678/678 passing across 77 files** on the committed
-branch tree (this run adds T7's run-log lint on top). No red carried in, none
-introduced.
+`npm test` is **fully green: 693/693 passing across 78 files** on the committed
+branch tree (verified by running `npm test` on HEAD). `main` carries 75 test
+files; this branch adds three — `tokens.mob2.dvh.css.test.ts`,
+`tokens.mob2.dvh.runlog.test.ts`, and `tokens.mob2.scope.css.test.ts` — for the
+78-file total cited here. No red carried in, none introduced.
+
+This figure was previously misstated as `678/678 across 77 files`, which matched
+neither the branch nor `main`; the run-log lint passed it only because its regex
+accepted any well-formed `N/N`. That lint
+(`src/tokens.mob2.dvh.runlog.test.ts`) is now hardened to count the real
+`*.test.{ts,tsx}` files on disk and pin the cited `<N> files` to that count, so a
+stale baseline goes red at the gate (guardrail 4 — auditable).
 
 The brief's quoted "known pre-existing red" at
 `src/world/dayCycle.scope.test.ts` is **FICTION** — that file **does not exist**

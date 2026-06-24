@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -48,6 +48,37 @@ const RUNLOG = join(
 );
 
 const log = (): string => readFileSync(RUNLOG, "utf8");
+
+const SRC_DIR = join(REPO_ROOT, "src");
+
+/** Count every *.test.ts / *.test.tsx file under src/ — the vitest include set. */
+function countTestFiles(dir: string = SRC_DIR): number {
+  let count = 0;
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      count += countTestFiles(full);
+    } else if (/\.test\.tsx?$/.test(entry.name)) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
+/** The line under the "Test baseline" heading that cites the green N/N + files. */
+function baselineLine(): string | null {
+  const text = log();
+  const start = text.search(/^#+\s*Test baseline/im);
+  if (start < 0) return null;
+  // The cited count can wrap across lines (markdown soft-wrap), so flatten the
+  // section body to a single string up to the next heading.
+  const rest = text.slice(start);
+  const afterHeader = rest.indexOf("\n") + 1;
+  const body = rest.slice(afterHeader);
+  const nextHeading = body.search(/^#+\s/m);
+  const section = nextHeading === -1 ? body : body.slice(0, nextHeading);
+  return section.replace(/\s+/g, " ").trim();
+}
 
 /** Pull every integer/decimal that reads as a byte/KB figure out of a line. */
 function numbersOn(line: string): number[] {
@@ -118,6 +149,40 @@ describe("MOB2 #154 / T7 — run log cites the fully-green test baseline (DEC7, 
     expect(lc).toMatch(/npm test/);
     // A concrete passing count of the form N/N or "N passed".
     expect(log()).toMatch(/\b(\d+)\s*\/\s*\1\b|\b\d+\s+passed\b/);
+  });
+
+  it("cites the ACTUAL fully-green baseline measured on this branch, not a stale figure", () => {
+    // A well-formed N/N pattern alone does not prove the cited baseline is the
+    // TRUE one — a stale "678/678 across 77 files" reads as well-formed yet is a
+    // dishonest citation (charter guardrail 4 / audit-trail accuracy). The branch
+    // adds three new test files on top of main's 75, so the only honest baseline
+    // is the one actually produced by `npm test` on HEAD (78 files). Counting the
+    // real test files on disk keeps this pinned to the tree, not a hand-copied
+    // number, so it cannot silently drift back to a stale figure.
+    const fileCount = countTestFiles();
+    const baseline = baselineLine();
+    expect(
+      baseline,
+      "a Test baseline line citing the green N/N + file count",
+    ).not.toBeNull();
+    const cited = baseline as string;
+    // The file count must be cited as a standalone "<N> files" — a loose
+    // substring (e.g. "78" inside "678") would let a stale figure slip through,
+    // which is exactly the audit-trail miss this guard exists to catch.
+    const filesMatch = cited.match(/\b(\d+)\s+(?:test\s+)?files?\b/i);
+    expect(filesMatch, `baseline must cite "<N> files"`).not.toBeNull();
+    expect(
+      Number((filesMatch as RegExpMatchArray)[1]),
+      `baseline must cite the ${fileCount} test files actually on disk, not a stale count`,
+    ).toBe(fileCount);
+    // The passing test count must read as N/N (no partial / red-allowance), and
+    // the file count must NOT itself be (mis)read as the test total.
+    const passMatch = cited.match(/\b(\d+)\s*\/\s*\1\b/);
+    expect(passMatch, "a green N/N passing-test count").not.toBeNull();
+    expect(
+      Number((passMatch as RegExpMatchArray)[1]),
+      "the cited passing-test count must exceed the file count (tests > files)",
+    ).toBeGreaterThan(fileCount);
   });
 
   it("records that the brief's 'known red' dayCycle.scope.test.ts is FICTION (no red-allowance)", () => {
