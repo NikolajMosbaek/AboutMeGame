@@ -88,6 +88,38 @@ postprocessing out of the entry chunk); modules 95 → 106. Total first-load JS
 - **Bundle:** the gzip size is visible in every `vite build`; the cap is a
   review gate, and `three` is split into its own chunk for caching.
 
+### Supply-chain audit
+
+- **Audit:** `npm run audit:ci` (single-sourced in `package.json` as
+  `npm audit --omit=dev --audit-level=high`) runs in CI right after `npm ci`,
+  before Lint/Build/Test (`.github/workflows/ci.yml`, SEC1 slice 4, #138). It
+  is a hard gate: a non-zero exit fails the PR and is never swallowed with
+  `|| true` or `continue-on-error`.
+
+  **What blocks.** A **high or critical** advisory in a **shipped** dependency —
+  the production closure `react`, `react-dom`, `three`. `--audit-level=high`
+  covers **both high and critical**; **moderate and low** advisories in shipped
+  deps **do not block** — a deliberate threshold choice, so "audit passes" must
+  never be read as "zero advisories."
+
+  **What is knowingly out of scope.** **Dev-only** tooling advisories (the
+  `esbuild` / `vite` / `vitest` family) are deliberately excluded: that code
+  runs only on the build machine and never reaches a user's browser. They are
+  not ignored — they are deferred to H2 and tracked by Dependabot (#137).
+
+  **How the carve-out line is drawn.** `--omit=dev` scopes the audit by
+  **dependency-graph membership** — `dependencies` are in, `devDependencies`
+  are out — **not** a hardcoded package allowlist. So moving a package into
+  `dependencies` predictably **extends** the gate's scope (it becomes shipped,
+  and its advisories now block), and that is the intended, legible consequence.
+
+  **Advisory-DB-time-sensitivity.** The gate consults the **live GitHub Advisory
+  DB** at run time, so it is not lockfile-deterministic: a brand-new upstream
+  advisory can turn a **previously-green PR red with no code change in that PR**.
+  That is the gate working as intended. Triage it — infrastructure outage vs. a
+  real advisory — and route a real one to Dependabot / H2; **never** silence it
+  with `|| true` or `continue-on-error`.
+
 These are living numbers: Epic 6 (#48 perf tuning, #47 quality scaling) tightens
 or relaxes them against real device measurement, changing `PERF_BUDGET` in one
 place.

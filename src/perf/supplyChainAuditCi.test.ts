@@ -26,6 +26,8 @@ const WORKFLOWS_DIR = join(REPO_ROOT, ".github", "workflows");
 const PACKAGE_JSON = join(REPO_ROOT, "package.json");
 const CI_YML = join(WORKFLOWS_DIR, "ci.yml");
 const DEPLOY_YML = join(WORKFLOWS_DIR, "deploy.yml");
+const PERF_BUDGET_DOC = join(REPO_ROOT, "docs", "perf-budget.md");
+const CHARTER_DOC = join(REPO_ROOT, "docs", "team", "charter.md");
 
 const AUDIT_SCRIPT = "npm audit --omit=dev --audit-level=high";
 const STEP_NAME = "Audit shipped dependencies (high/critical)";
@@ -75,5 +77,79 @@ describe("SEC1 / T1 — supply-chain audit gate wired into CI", () => {
     const deploy = readFileSync(DEPLOY_YML, "utf8");
     expect(deploy).not.toContain("audit:ci");
     expect(deploy).not.toContain(STEP_NAME);
+  });
+});
+
+describe("SEC1 / T5 — supply-chain audit policy documented once", () => {
+  // T1–T4 prove the gate is wired and not silently weakened; this block guards
+  // the canonical PROSE policy. The carve-out ('dev-only advisories are
+  // excluded because they never reach a user's browser') is the one thing the
+  // flag string alone can't explain, so it must be written down exactly once —
+  // in docs/perf-budget.md's 'How it is enforced' section — and NOT duplicated
+  // in the charter (the charter mandates single-sourcing; dual-sourcing
+  // reintroduces the drift that retired backlog.md). No network: pure string
+  // assertions over the committed markdown.
+  const perfDoc = readFileSync(PERF_BUDGET_DOC, "utf8");
+
+  it("docs/perf-budget.md has exactly one 'Supply-chain audit' subsection", () => {
+    const headings = perfDoc.match(/^#{2,4}\s+Supply-chain audit\s*$/gim) ?? [];
+    expect(headings).toHaveLength(1);
+  });
+
+  it("the subsection sits under the 'How it is enforced' section", () => {
+    const enforcedIdx = perfDoc.search(/^##\s+How it is enforced\s*$/im);
+    const subsectionIdx = perfDoc.search(/^#{3,4}\s+Supply-chain audit\s*$/im);
+    expect(enforcedIdx).toBeGreaterThan(-1);
+    expect(subsectionIdx).toBeGreaterThan(-1);
+    // The subsection comes after the section heading, and no later top-level
+    // (## ) heading intervenes — i.e. it is a child of 'How it is enforced'.
+    expect(subsectionIdx).toBeGreaterThan(enforcedIdx);
+    const between = perfDoc.slice(enforcedIdx + 1, subsectionIdx);
+    expect(between).not.toMatch(/^##\s+\S/m);
+  });
+
+  it("the policy names the shipped closure react / react-dom / three", () => {
+    expect(perfDoc).toMatch(/react-dom/);
+    expect(perfDoc).toMatch(/\bthree\b/);
+    expect(perfDoc).toMatch(/\breact\b/);
+  });
+
+  it("the policy states the high+critical threshold (moderate/low do not block)", () => {
+    // 'audit passes' must never be misread as 'zero advisories': the doc must
+    // say high covers critical too, AND that moderate/low in shipped deps do
+    // not block (a deliberate threshold choice).
+    expect(perfDoc).toMatch(/high/i);
+    expect(perfDoc).toMatch(/critical/i);
+    expect(perfDoc).toMatch(/moderate/i);
+    expect(perfDoc).toMatch(/\blow\b/i);
+  });
+
+  it("the policy explains the dependencies-vs-devDependencies carve-out line", () => {
+    // The line is drawn by dependency-graph membership, explicitly NOT a
+    // hardcoded allowlist (the doc must name both halves and reject the
+    // allowlist reading rather than merely avoiding the word).
+    expect(perfDoc).toMatch(/devDependencies/);
+    expect(perfDoc).toMatch(/\bdependencies\b/);
+    expect(perfDoc).toMatch(/not\b[^.]*allowlist/i);
+  });
+
+  it("the policy notes the dev-only exclusion is deferred / tracked (H2 / Dependabot #137)", () => {
+    expect(perfDoc).toMatch(/Dependabot/);
+    expect(perfDoc).toMatch(/#137/);
+  });
+
+  it("the policy notes the gate is advisory-DB-time-sensitive (green can later go red)", () => {
+    // A previously-green PR can later go red with no code change — triage, never
+    // silence. The doc must say so and forbid the swallow.
+    expect(perfDoc).toMatch(/Advisory\s+DB|advisory\s+database/i);
+    expect(perfDoc).toMatch(/continue-on-error/);
+    expect(perfDoc).toMatch(/\|\| true/);
+  });
+
+  it("the canonical policy is NOT duplicated in the charter", () => {
+    const charter = readFileSync(CHARTER_DOC, "utf8");
+    expect(charter).not.toMatch(/Supply-chain audit/i);
+    expect(charter).not.toMatch(/audit:ci/);
+    expect(charter).not.toMatch(/--omit=dev/);
   });
 });
