@@ -36,4 +36,24 @@ describe("Onboarding", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(p.seenFlag).toBe(true);
   });
+
+  it("lists the touch on-screen controls under the touch channel", () => {
+    render(<Onboarding channel="touch" persistence={fakePersistence(false)} />);
+
+    // The four on-screen widgets a touch visitor actually has, each paired with
+    // its action in the adjacent <dd> (mirrors resolveControlScheme("touch")).
+    const expected: ReadonlyArray<[string, string]> = [
+      ["Joystick", "Drive / steer"],
+      ["▲", "Climb (in flight)"],
+      ["FLY", "Toggle flight"],
+      ["USE", "Reveal a landmark"],
+    ];
+    for (const [label, action] of expected) {
+      expect(screen.getByText(label)).toBeInTheDocument();
+      expect(screen.getByText(action)).toBeInTheDocument();
+    }
+
+    // No keyboard hints leak into the touch scheme.
+    expect(screen.queryByText(/W A S D/)).toBeNull();
+  });
 });
