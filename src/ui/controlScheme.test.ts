@@ -82,4 +82,12 @@ describe("readControlChannel — real default-arg guard", () => {
     delete (window as { matchMedia?: unknown }).matchMedia;
     expect(readControlChannel()).toBe("keyboard");
   });
+
+  it("does not leak the absent-matchMedia stub into sibling tests", () => {
+    // Runs after the stub test above. If afterEach failed to restore, the own
+    // `matchMedia` descriptor would differ from what we captured at setup —
+    // proving the cleanup, not just the guard.
+    const current = Reflect.getOwnPropertyDescriptor(window, "matchMedia");
+    expect(current).toEqual(original);
+  });
 });
