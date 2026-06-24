@@ -135,8 +135,10 @@ describe("tokens.css — AC2 quality: USE->reveal path consumes safe-area/dvh to
     const joined = own.join("\n");
     expect(joined).toMatch(/max-height:\s*calc\(var\(--vh-dynamic\)\s*\*\s*0\.92\)/);
     expect(joined).not.toMatch(/max-height:\s*\d+vh\b/);
-    // The out-of-scope siblings must be left on their original vh, untouched.
-    expect(blocksFor(body, ".onboarding, .menu").join("\n")).toMatch(/max-height:\s*92vh/);
+    // The .onboarding/.menu siblings now share the dvh token too (MOB2 #154).
+    expect(blocksFor(body, ".onboarding, .menu").join("\n")).toMatch(
+      /max-height:\s*calc\(var\(--vh-dynamic\)\s*\*\s*0\.92\)/,
+    );
   });
 
   it("D2d gap closed — the max-height:480px .reveal-panel is split out and reads var(--vh-dynamic)", () => {
@@ -147,7 +149,10 @@ describe("tokens.css — AC2 quality: USE->reveal path consumes safe-area/dvh to
     const joined = own.join("\n");
     expect(joined).toMatch(/max-height:\s*calc\(var\(--vh-dynamic\)\s*\*\s*0\.96\)/);
     expect(joined).not.toMatch(/max-height:\s*\d+vh\b/);
-    expect(blocksFor(body, ".onboarding, .menu").join("\n")).toMatch(/max-height:\s*96vh/);
+    // The .onboarding/.menu siblings now share the dvh token too (MOB2 #154).
+    expect(blocksFor(body, ".onboarding, .menu").join("\n")).toMatch(
+      /max-height:\s*calc\(var\(--vh-dynamic\)\s*\*\s*0\.96\)/,
+    );
   });
 
   // ---- Backdrops: a centred panel's footer must clear the home indicator ----

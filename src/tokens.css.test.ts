@@ -98,8 +98,10 @@ describe("tokens.css — safe-area + dvh layout-token consumption (MOB1 #148 T1)
     const joined = own.join("\n");
     expect(joined).toMatch(/max-height:\s*calc\(var\(--vh-dynamic\)\s*\*\s*0\.92\)/);
     expect(joined).not.toMatch(/max-height:\s*\d+vh/);
-    // .onboarding/.menu stay on vh (explicitly out of scope, must not be touched).
-    expect(blocksFor(body, ".onboarding, .menu").join("\n")).toMatch(/max-height:\s*92vh/);
+    // .onboarding/.menu now share the dvh token too (converted in MOB2 #154).
+    expect(blocksFor(body, ".onboarding, .menu").join("\n")).toMatch(
+      /max-height:\s*calc\(var\(--vh-dynamic\)\s*\*\s*0\.92\)/,
+    );
   });
 
   it("the max-height:480px .reveal-panel max-height sizes from var(--vh-dynamic), never static vh (D2d gap)", () => {
@@ -111,7 +113,10 @@ describe("tokens.css — safe-area + dvh layout-token consumption (MOB1 #148 T1)
     const joined = own.join("\n");
     expect(joined).toMatch(/max-height:\s*calc\(var\(--vh-dynamic\)\s*\*\s*0\.96\)/);
     expect(joined).not.toMatch(/max-height:\s*\d+vh/);
-    expect(blocksFor(body, ".onboarding, .menu").join("\n")).toMatch(/max-height:\s*96vh/);
+    // .onboarding/.menu now share the dvh token too (converted in MOB2 #154).
+    expect(blocksFor(body, ".onboarding, .menu").join("\n")).toMatch(
+      /max-height:\s*calc\(var\(--vh-dynamic\)\s*\*\s*0\.96\)/,
+    );
   });
 
   it(".touch-use bottom offset resolves through var(--safe-bottom)", () => {
