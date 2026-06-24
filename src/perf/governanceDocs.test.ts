@@ -132,13 +132,27 @@ describe("SEC1 / #139 — (d) docs/team/charter.md points at the policy by refer
 });
 
 describe("SEC1 / #139 — (e) README License section is one coherent story", () => {
-  const readme = (): string => read(README);
+  // The reader must get ONE license narrative: code is MIT under the new root
+  // LICENSE, and the content/ carve-out (grounded in PROVENANCE.md) is preserved
+  // — not two conflicting stories. Scope the assertions to the '## License'
+  // section so the link must actually live in that section, not elsewhere in the
+  // README. No cap/number is restated here.
+  const licenseSection = (): string => {
+    const md = read(README);
+    const start = md.search(/^##\s+License\s*$/im);
+    expect(start).toBeGreaterThan(-1);
+    const after = md.slice(start + 1);
+    const next = after.search(/^##\s+\S/m);
+    return next === -1 ? after : after.slice(0, next);
+  };
 
-  it("points the code license at the new root LICENSE", () => {
-    expect(readme()).toMatch(/LICENSE/);
+  it("points the code license at the new root LICENSE (MIT)", () => {
+    const section = licenseSection();
+    expect(section).toMatch(/LICENSE/);
+    expect(section).toMatch(/\bMIT\b/);
   });
 
   it("preserves the content/ carve-out grounded in PROVENANCE.md", () => {
-    expect(readme()).toMatch(/content\/PROVENANCE\.md/);
+    expect(licenseSection()).toMatch(/content\/PROVENANCE\.md/);
   });
 });

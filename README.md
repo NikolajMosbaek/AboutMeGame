@@ -74,4 +74,4 @@ Static site → **GitHub Pages**. On merge to `main`, [`.github/workflows/deploy
 
 ## License
 
-The code is the author's; the content under `content/` is about a real person and is grounded in verifiable evidence (see [`content/PROVENANCE.md`](content/PROVENANCE.md)).
+The code is licensed under the [MIT License](LICENSE). The content under `content/` is a separate carve-out: it is about a real person and is grounded in verifiable evidence (see [`content/PROVENANCE.md`](content/PROVENANCE.md)).
