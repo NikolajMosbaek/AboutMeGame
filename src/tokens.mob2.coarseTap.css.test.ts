@@ -35,6 +35,26 @@ function stripComments(s: string): string {
   return s.replace(/\/\*[\s\S]*?\*\//g, "");
 }
 
+/**
+ * Declaration block(s) whose selector list, as authored, EXACTLY equals
+ * `selector` (so `.menu` does not match `.onboarding, .menu`). The selector is
+ * the text after the previous `}` or `{`, trimmed and whitespace-collapsed.
+ * Mirrors the harness in tokens.mob2.dvh.css.test.ts / tokens.css.test.ts. Used
+ * for Group B's standalone base rules (.hud-top-right, .hud-menu-btn), which sit
+ * outside any @media block and own their declarations alone.
+ */
+function blocksFor(source: string, selector: string): string[] {
+  const out: string[] = [];
+  const re = /(?:^|[{}])([^{}]+)\{([^{}]*)\}/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(source)) !== null) {
+    const sel = m[1].trim().replace(/\s+/g, " ");
+    if (sel === selector) out.push(m[2]);
+    re.lastIndex = m.index + m[0].length - 1;
+  }
+  return out;
+}
+
 /** The body of the first `@media (<query>) { ... }` at-rule (balanced braces). */
 function mediaBody(query: string): string {
   const start = css.indexOf(`@media (${query})`);
@@ -114,5 +134,33 @@ describe("tokens.css — MOB2 #155 coarse-tap floor (slice guard, token consumpt
       bindsTapFloor(coarse, ".hud-menu-btn"),
       ".hud-menu-btn must carry both min-height and min-width:var(--tap-min) in the rule that lists it",
     ).toBe(true);
+  });
+});
+
+describe("tokens.css — MOB2 #155 Group B (belt-and-suspenders base floor)", () => {
+  it(".hud-top-right clears the notch via top/right: max(var(--space-1), var(--safe-top|--safe-right)) (~:623-624)", () => {
+    // The HUD's top-right cluster (menu button + progress badge) is position:fixed
+    // and would tuck under the notch / status bar without the safe-area max(); the
+    // floor keeps the base --space-1 inset and grows it to the inset on a notched
+    // device. Bound to the .hud-top-right base rule's own decls, which own these
+    // longhands alone (no sibling shares them) — a reshuffle fails loud below.
+    const base = blocksFor(css, ".hud-top-right")[0];
+    expect(base, ".hud-top-right base rule must exist").toBeTruthy();
+    expect(blocksFor(css, ".hud-top-right").length).toBeGreaterThan(0);
+    expect(base).toMatch(/top:\s*max\(\s*var\(--space-1\)\s*,\s*var\(--safe-top\)\s*\)/);
+    expect(base).toMatch(/right:\s*max\(\s*var\(--space-1\)\s*,\s*var\(--safe-right\)\s*\)/);
+  });
+
+  it(".hud-menu-btn base sets width AND height: var(--tap-min) (~:660-661)", () => {
+    // The Settings/menu button's own base footprint is the >=44px floor, before
+    // any @media(pointer:coarse) min-* reinforcement — so the button is tappable
+    // on every device, not only those reporting a coarse pointer. Bound to the
+    // .hud-menu-btn base rule's own decls (the :hover/active siblings carry no
+    // width/height), so a selector reshuffle that drops the base sizing fails loud.
+    const base = blocksFor(css, ".hud-menu-btn")[0];
+    expect(base, ".hud-menu-btn base rule must exist").toBeTruthy();
+    expect(blocksFor(css, ".hud-menu-btn").length).toBeGreaterThan(0);
+    expect(base).toMatch(/width:\s*var\(--tap-min\)/);
+    expect(base).toMatch(/height:\s*var\(--tap-min\)/);
   });
 });
