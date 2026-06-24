@@ -122,19 +122,42 @@ describe("tokens.css — MOB2 #155 coarse-tap floor (slice guard, token consumpt
     expect(root![1]).toMatch(/--tap-min:\s*44px/);
   });
 
-  it("Group A — the per-rule binder beats blocksFor: .hud-menu-btn resolves BOTH min-height AND min-width:var(--tap-min) in the SAME @media(pointer:coarse) rule that lists it", () => {
-    // .hud-menu-btn shares the seven-selector group rule (tokens.css:1162-1168),
-    // so an exact-match blocksFor('.hud-menu-btn') would be 0 here. The binder
-    // finds the group rule that LISTS it and proves both dimensions live in that
-    // rule's own decls — green against the real, compliant tree.
-    const coarse = mediaBody("pointer: coarse");
-    expect(coarse.length, "@media(pointer:coarse) body must be non-empty").toBeGreaterThan(0);
-    expect(rules(coarse).length, "the coarse media block must hold rules").toBeGreaterThan(0);
-    expect(
-      bindsTapFloor(coarse, ".hud-menu-btn"),
-      ".hud-menu-btn must carry both min-height and min-width:var(--tap-min) in the rule that lists it",
-    ).toBe(true);
-  });
+  // The SIX AC tap-floor controls. The binder must assert ALL of them — not just
+  // .hud-menu-btn — because they share ONE seven-selector group rule
+  // (tokens.css:1162-1168): a regression that splits some controls out into a
+  // weaker rule (or drops min-width from a subset) halves THOSE controls' floor
+  // while .hud-menu-btn keeps both dimensions. Checking only .hud-menu-btn
+  // false-greens that partial regression — most damagingly the WCAG-1.4.2
+  // reachable-mute bar (.menu__toggle / .menu__seg / .menu__btn host the
+  // SettingsMenu sound-mute toggle). Binding each control independently closes
+  // the seam for all six, per DEC3 / DEC4 Group A. (.title-textlink is the
+  // tolerated extra in the group, not one of the six AC controls.)
+  const TAP_FLOOR_CONTROLS = [
+    ".cta",
+    ".menu__toggle",
+    ".menu__seg",
+    ".menu__btn",
+    ".hud-menu-btn",
+    ".text-view__back",
+  ] as const;
+
+  it.each(TAP_FLOOR_CONTROLS)(
+    "Group A — the per-rule binder beats blocksFor: %s resolves BOTH min-height AND min-width:var(--tap-min) in the SAME @media(pointer:coarse) rule that lists it",
+    (control) => {
+      // The six controls share the seven-selector group rule (tokens.css:1162-1168),
+      // so an exact-match blocksFor(control) would be 0 here. The binder finds the
+      // group rule that LISTS this control and proves both dimensions live in that
+      // rule's own decls — green against the real, compliant tree; red the moment a
+      // partial regression weakens THIS control's floor.
+      const coarse = mediaBody("pointer: coarse");
+      expect(coarse.length, "@media(pointer:coarse) body must be non-empty").toBeGreaterThan(0);
+      expect(rules(coarse).length, "the coarse media block must hold rules").toBeGreaterThan(0);
+      expect(
+        bindsTapFloor(coarse, control),
+        `${control} must carry both min-height and min-width:var(--tap-min) in the rule that lists it`,
+      ).toBe(true);
+    },
+  );
 });
 
 describe("tokens.css — MOB2 #155 Group B (belt-and-suspenders base floor)", () => {

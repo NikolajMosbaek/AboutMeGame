@@ -45,37 +45,64 @@ control, asserts SOME rule **lists that control** AND carries BOTH
 (subset/contains semantics — extra selectors like `.title-textlink` are tolerated,
 never forbidden).
 
+The binder is asserted, via `it.each`, over **all SIX** AC controls —
+`.cta, .menu__toggle, .menu__seg, .menu__btn, .hud-menu-btn, .text-view__back` —
+not `.hud-menu-btn` alone. Because the six share one group rule, checking only
+`.hud-menu-btn` would itself false-green a partial regression that splits *other*
+controls out (or drops a dimension from a subset) while `.hud-menu-btn` keeps
+both: most damagingly the WCAG-1.4.2 reachable-mute bar
+(`.menu__toggle / .menu__seg / .menu__btn` host the SettingsMenu sound-mute
+toggle, per DEC4 Group A). Each control binds independently, so the seam is
+closed for all six. (This corrects an earlier single-control form that bound only
+`.hud-menu-btn`; the per-control `it.each` is what ships.)
+
 ## DEC4 / DEC5 — failing-first transcripts (RED on a per-control fixture, GREEN on the real file)
 
-Per DEC5, the failing-first demonstration weakens the floor for **one named
-control** in a scratch copy of `tokens.css` (NOT a whole-block strip, which would
-go red under a naive matcher too and so prove nothing). **Production
+Per DEC5, the failing-first demonstration weakens the floor for **named
+control(s)** in a scratch copy of `tokens.css` (NOT a whole-block strip, which
+would go red under a naive matcher too and so prove nothing). **Production
 `src/tokens.css` was never edited** — each fixture was swapped into a working
 copy, the test observed, and the real file restored immediately (`git diff
 --quiet HEAD -- src/tokens.css` confirmed clean after each).
 
-### Attack-3 — group keeps `min-height`, DROPS `min-width`; sibling `.touch-btn` keeps both
+Because Group A binds the floor for **all six** controls (`it.each`), the
+transcripts below show exactly the per-control rows that go red — and prove the
+guard would NOT false-green when the regression spares `.hud-menu-btn` but hits
+the mute bar.
+
+### Attack-3 — the three mute controls split out, `min-width` DROPPED; `.hud-menu-btn` keeps both
+
+This is the partial regression that the earlier single-control form false-greened:
+`.menu__toggle / .menu__seg / .menu__btn` (the WCAG-1.4.2 reachable-mute bar) lose
+`min-width: var(--tap-min)` (floor halved) while `.hud-menu-btn` still carries
+both dimensions.
 
 ```
- ❯ src/tokens.mob2.coarseTap.css.test.ts (8 tests | 1 failed)
-   × Group A — the per-rule binder … .hud-menu-btn resolves BOTH min-height AND min-width…
-     → .hud-menu-btn must carry both min-height and min-width:var(--tap-min)
+ ❯ src/tokens.mob2.coarseTap.css.test.ts (13 tests | 3 failed)
+   × Group A — the per-rule binder … .menu__toggle resolves BOTH min-height AND min-width…
+     → .menu__toggle must carry both min-height and min-width:var(--tap-min)
        in the rule that lists it: expected false to be true
+   × Group A — the per-rule binder … .menu__seg resolves BOTH min-height AND min-width…
+     → .menu__seg must carry both min-height and min-width:var(--tap-min) …
+   × Group A — the per-rule binder … .menu__btn resolves BOTH min-height AND min-width…
+     → .menu__btn must carry both min-height and min-width:var(--tap-min) …
  Test Files  1 failed (1)
-      Tests  1 failed | 7 passed (8)
+      Tests  3 failed | 10 passed (13)
 ```
 
-RED — the floor is halved (only one dimension survives) while `.touch-btn`
-(`:1175-1178`) still carries both, the exact case a naive substring matcher
-false-greens.
+RED on exactly the three mute controls — `.hud-menu-btn`, `.cta`,
+`.text-view__back` stay green — which is the whole point of iterating the binder
+over all six. The earlier `.hud-menu-btn`-only assertion stayed GREEN here.
 
 ### Attack-2 — `.hud-menu-btn` split out of the tap-min group into a cosmetic-only rule
 
 ```
- ❯ src/tokens.mob2.coarseTap.css.test.ts (8 tests | 1 failed)
+ ❯ src/tokens.mob2.coarseTap.css.test.ts (13 tests | 1 failed)
    × Group A — the per-rule binder … .hud-menu-btn resolves BOTH min-height AND min-width…
      → .hud-menu-btn must carry both min-height and min-width:var(--tap-min)
        in the rule that lists it: expected false to be true
+ Test Files  1 failed (1)
+      Tests  1 failed | 12 passed (13)
 ```
 
 RED — `.hud-menu-btn` is moved to a sibling rule carrying only `opacity` (no
@@ -85,14 +112,15 @@ dimensions.
 ### GREEN on the real, restored file
 
 ```
- ✓ src/tokens.mob2.coarseTap.css.test.ts (8 tests) 2ms
+ ✓ src/tokens.mob2.coarseTap.css.test.ts (13 tests) 2ms
  Test Files  1 passed (1)
-      Tests  8 passed (8)
+      Tests  13 passed (13)
 ```
 
-The binder catches the realistic **partial** regression (single-dimension drop
-AND split-out control), not merely a whole-rule deletion — and passes the real,
-already-compliant tree. **No production CSS was changed by this slice.**
+The binder catches the realistic **partial** regression (single-dimension drop on
+a subset of controls AND split-out control), not merely a whole-rule deletion —
+and passes the real, already-compliant tree for all six controls. **No production
+CSS was changed by this slice.**
 
 ## DEC8 — MEASURED `npm run build` byte delta vs `main` (byte-identical, delta 0)
 
@@ -140,14 +168,15 @@ dist/assets/three-COLka6mN.js   500.28 kB │ gzip: 125.83 kB   <- vendor chunk 
 
 ## DEC10 — fully-green `npm test`, NO red-allowance, gh-gated skip stated
 
-`npm test` (`vitest run`) is **fully green: 709/709 passing across 79 test
+`npm test` (`vitest run`) is **fully green: 714/714 passing across 79 test
 files** on the committed branch tree (this log's own count after both new files
 land). Baseline before the slice was 77 files / 686 tests; the two new files
-(`tokens.mob2.coarseTap.css.test.ts` = 8 tests; this run-log lint = 15 tests)
-land it at the cited 79 files / 709 tests — at/just past the design's expected
-~78-79 files / ~692-700 window (the lint carries more assertions than the brief
-sketched, which only adds green coverage). **Zero exclusions; zero red carried
-in; none introduced.**
+(`tokens.mob2.coarseTap.css.test.ts` = 13 tests — Group A binds the floor for
+each of the six AC controls via `it.each`, plus Group B/C; this run-log lint =
+15 tests) land it at the cited 79 files / 714 tests — at/just past the design's
+expected ~78-79 files / ~692-700 window (the per-control binder + the lint carry
+more assertions than the brief sketched, which only adds green coverage). **Zero
+exclusions; zero red carried in; none introduced.**
 
 - **`dayCycle.scope.test.ts` is FICTION / absent** — confirmed not present in the
   tree (`src/world/dayCycle.scope.test.ts: No such file or directory`; removed in
