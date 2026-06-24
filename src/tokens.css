@@ -895,7 +895,12 @@ body {
   -webkit-overflow-scrolling: touch;
   max-width: 44rem;
   margin: 0 auto;
-  padding: var(--space-4) var(--space-3) var(--space-4);
+  padding: var(--space-4) var(--space-3);
+  /* This page scrolls and has no centred-dialog max-height; its only
+     end-of-document dismiss control (the .text-view__footer back link) would
+     otherwise strand under the home indicator. Floor the bottom pad at the
+     base --space-4 and ADD the safe-area inset on a notch. */
+  padding-bottom: max(var(--space-4), calc(var(--space-4) + var(--safe-bottom)));
 }
 
 .text-view__header {
@@ -1034,10 +1039,10 @@ body {
   }
 
   /* Overlays go full-bleed and scroll within the viewport rather than spilling
-     off a tiny screen. .reveal-panel is split out below (D2d) so its max-height
-     reads the dvh token instead of the static 92vh that would otherwise WIN here
-     by source order on the small iPhone the P0 targets. .onboarding/.menu are
-     out of scope and stay on vh. */
+     off a tiny screen. The max-height caps are split out below so every overlay
+     sizes from var(--vh-dynamic) (which carries its own 100vh->100dvh @supports
+     fallback) instead of a static vh that would over-tall the panel on the small
+     iPhone the P0 targets — .onboarding/.menu now share the dvh token too. */
   .reveal-panel,
   .onboarding,
   .menu {
@@ -1050,7 +1055,7 @@ body {
   }
   .onboarding,
   .menu {
-    max-height: 92vh;
+    max-height: calc(var(--vh-dynamic) * 0.92);
   }
   .reveal-panel {
     max-height: calc(var(--vh-dynamic) * 0.92);
@@ -1112,9 +1117,10 @@ body {
     font-size: clamp(1.8rem, 7vw, 2.6rem);
   }
 
-  /* .reveal-panel split out (D2d): the static 96vh here would win by source
-     order on the short landscape iPhone, so the panel reads the dvh token while
-     .onboarding/.menu (out of scope) keep vh. */
+  /* The max-height caps are split out so every overlay reads the dvh token: a
+     static vh would over-tall the panel on the short landscape iPhone, where the
+     collapsing URL bar shrinks the real viewport — .onboarding/.menu now share
+     the dvh token alongside .reveal-panel. */
   .reveal-panel,
   .onboarding,
   .menu {
@@ -1124,7 +1130,7 @@ body {
   }
   .onboarding,
   .menu {
-    max-height: 96vh;
+    max-height: calc(var(--vh-dynamic) * 0.96);
   }
   .reveal-panel {
     max-height: calc(var(--vh-dynamic) * 0.96);
