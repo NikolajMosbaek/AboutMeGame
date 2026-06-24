@@ -28,6 +28,34 @@ describe("TitleScreen", () => {
     expect(screen.getByText(/WASD/i)).toBeInTheDocument();
   });
 
+  it("renders touch-phrased controls hint when channel is touch", () => {
+    render(
+      <TitleScreen onStart={() => {}} progress={{ discovered: 0, total: 13 }} channel="touch" />,
+    );
+    // No keyboard-only WASD copy for a coarse-pointer visitor...
+    expect(screen.queryByText(/WASD/i)).not.toBeInTheDocument();
+    // ...and the touch wording naming the on-screen buttons is present, so a
+    // blank/empty hint can't pass as a regression.
+    expect(screen.getByText(/drag to drive/i)).toBeInTheDocument();
+    expect(screen.getByText(/tap FLY/i)).toBeInTheDocument();
+  });
+
+  it("renders the exact keyboard hint when channel is keyboard", () => {
+    render(
+      <TitleScreen onStart={() => {}} progress={{ discovered: 0, total: 13 }} channel="keyboard" />,
+    );
+    expect(
+      screen.getByText("WASD to drive · F to fly · E to reveal a landmark"),
+    ).toBeInTheDocument();
+  });
+
+  it("defaults to the exact keyboard hint when channel is omitted (jsdom has no matchMedia)", () => {
+    render(<TitleScreen onStart={() => {}} progress={{ discovered: 0, total: 13 }} />);
+    expect(
+      screen.getByText("WASD to drive · F to fly · E to reveal a landmark"),
+    ).toBeInTheDocument();
+  });
+
   it("reads Drive in with no saved progress and shows no progress line", () => {
     render(<TitleScreen onStart={() => {}} progress={{ discovered: 0, total: 13 }} />);
     expect(screen.getByRole("button", { name: "Drive in" })).toBeInTheDocument();
