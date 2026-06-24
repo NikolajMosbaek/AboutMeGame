@@ -56,4 +56,23 @@ describe("Onboarding", () => {
     // No keyboard hints leak into the touch scheme.
     expect(screen.queryByText(/W A S D/)).toBeNull();
   });
+
+  it("renders keyboard labels as <kbd> and touch labels as plain <span> in the same <dt>", () => {
+    const { container: kbdContainer } = render(
+      <Onboarding channel="keyboard" persistence={fakePersistence(false)} />,
+    );
+    // Under the keyboard channel the 'W A S D' label is a key-cap <kbd> in a <dt>.
+    const kbd = kbdContainer.querySelector("dt kbd");
+    expect(kbd).not.toBeNull();
+    expect(kbd?.textContent).toBe("W A S D");
+
+    const { container: touchContainer } = render(
+      <Onboarding channel="touch" persistence={fakePersistence(false)} />,
+    );
+    // Under the touch channel no label is a <kbd>: 'FLY' is a button name, not a
+    // key, so it renders as a plain leaf inside its <dt> with no key-cap chrome.
+    expect(touchContainer.querySelector("dt kbd")).toBeNull();
+    const fly = screen.getByText("FLY");
+    expect(fly.closest("dt")).not.toBeNull();
+  });
 });
