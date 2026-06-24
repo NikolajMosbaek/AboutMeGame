@@ -188,7 +188,7 @@ exclusions; zero red carried in; none introduced.**
   **SKIPPED**, and a **skip is NOT a pass** — it is reported as
   skipped-when-gh-unavailable, never rounded up to green. In this run `gh` was
   authenticated, so the suite **ran** (its 4 tests passed and are included in the
-  709 total). The honest status: **passes when `gh` is available, skipped (not
+  714 total). The honest status: **passes when `gh` is available, skipped (not
   passed) when it is not.**
 
 ## What did NOT change (scope holds, DEC11)
