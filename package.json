@@ -12,7 +12,8 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "check:bundle": "vite-node scripts/check-bundle-size.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
