@@ -85,8 +85,23 @@ postprocessing out of the entry chunk); modules 95 → 106. Total first-load JS
   calls/triangles exceed budget. Toggle-on in dev by default.
 - **Tests:** `checkFrame` is unit-tested; perf-tuning work (Epic 6, #48) asserts
   headroom against these constants so a regression fails CI.
-- **Bundle:** the gzip size is visible in every `vite build`; the cap is a
-  review gate, and `three` is split into its own chunk for caching.
+- **Bundle:** `npm run check:bundle` (= `vite-node scripts/check-bundle-size.mjs`)
+  measures the built `dist/` after `npm run build`, exits non-zero when a cap is
+  exceeded, and fails the PR — it is the `Check bundle size` step that runs after
+  Build in `.github/workflows/ci.yml`. Two caps are measured, both sourced solely
+  from `PERF_BUDGET` (`src/perf/perfBudget.ts`, via `src/perf/bundleBudget.ts`) so
+  no threshold is restated here:
+  - **JS-gzip cap** — the summed gzip size of the JS chunks (the `kind === 'js'`
+    artifacts) vs `maxJsGzipKb`.
+  - **Total cap** — every shipped `dist/` artifact vs `maxInitialDownloadKb`,
+    where JS/CSS/text count at their gzip size and already-compressed binaries
+    (the `'other'` kind: models, textures, audio, fonts) count at their **raw**
+    bytes. Counting binaries raw is conservative-by-design — it over-counts a
+    hypothetical compressible binary so the gate fails sooner, which a future
+    asset/audio slice should budget against rather than treat as a bug.
+
+  The gzip size is also visible in every `vite build`, and `three` is split into
+  its own chunk for caching.
 
 ### Supply-chain audit
 
