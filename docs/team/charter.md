@@ -61,6 +61,8 @@ via a URL.
 - Commits: Conventional Commits (`.claude/rules/commit-and-pr-prefixes.md`).
 - Branching: one feature branch per slice; PRs to `main`; never commit to `main`.
 - Performance budget: `docs/perf-budget.md` (enforced in `src/perf/perfBudget.ts`).
+- Supply-chain & payload policy: see `docs/perf-budget.md` (`PERF_BUDGET` is the
+  single source) plus root `LICENSE` and `SECURITY.md`.
 - Asset conventions: `docs/asset-pipeline.md`.
 
 ## Prioritisation & backlog
