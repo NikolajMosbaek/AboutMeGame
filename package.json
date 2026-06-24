@@ -13,7 +13,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "lint": "eslint .",
-    "check:bundle": "vite-node scripts/check-bundle-size.mjs"
+    "check:bundle": "vite-node scripts/check-bundle-size.mjs",
+    "audit:ci": "npm audit --omit=dev --audit-level=high"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
