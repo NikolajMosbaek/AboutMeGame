@@ -17,6 +17,18 @@ jobs:
           node-version: "20"
           cache: npm
       - run: npm ci
+      # Runs right after `npm ci` and BEFORE Lint/Build/Test — `npm audit` reads
+      # only the installed tree + lockfile against the GitHub Advisory DB, never
+      # dist/, so it fails fast on a supply-chain advisory for the cheapest, clearest
+      # signal. Delegates the exact policy to the single-sourced audit:ci script
+      # (package.json): `--omit=dev` scopes the gate to the shipped closure
+      # (react/react-dom/three) and `--audit-level=high` blocks high+critical;
+      # dev-only tooling advisories (esbuild/vite/vitest family) are deliberately
+      # excluded because they never reach a user's browser. The step is not allowed
+      # to swallow a red — a non-zero exit fails the job (see docs/perf-budget.md,
+      # SEC1 slice 4, #138).
+      - name: Audit shipped dependencies (high/critical)
+        run: npm run audit:ci
       - name: Lint
         run: npm run lint
       - name: Build (tsc --noEmit + vite build)
