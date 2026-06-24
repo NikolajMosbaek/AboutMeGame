@@ -3,6 +3,11 @@ import {
   createOnboardingPersistence,
   type OnboardingPersistence,
 } from "./onboardingPersistence.ts";
+import {
+  readControlChannel,
+  resolveControlScheme,
+  type ControlChannel,
+} from "./controlScheme.ts";
 
 export interface OnboardingProps {
   /** Persistence seam — injected so tests/previews substitute their own. */
@@ -10,17 +15,11 @@ export interface OnboardingProps {
   /** Notified when the overlay opens/closes, so the shell can suppress other
    *  Escape handling (e.g. opening the menu) while onboarding is up. */
   onOpenChange?: (open: boolean) => void;
+  /** Input channel that picks which control hints to teach. Injected so
+   *  tests/previews can force a channel; defaults to the resolved platform
+   *  signal (`readControlChannel`) once at mount. */
+  channel?: ControlChannel;
 }
-
-/** The controls taught on first run, mirrored by the HUD reminder line. */
-const CONTROLS: ReadonlyArray<{ keys: string; action: string }> = [
-  { keys: "W A S D", action: "Drive / steer" },
-  { keys: "F", action: "Toggle flight" },
-  { keys: "Shift", action: "Boost" },
-  { keys: "Space", action: "Climb (in flight)" },
-  { keys: "E", action: "Reveal a landmark" },
-  { keys: "Esc", action: "Menu" },
-];
 
 /**
  * First-run onboarding (#43): a one-time overlay listing the controls, dismissed
@@ -29,10 +28,16 @@ const CONTROLS: ReadonlyArray<{ keys: string; action: string }> = [
  * it never returns). Degrades gracefully if storage is blocked (it may re-show,
  * which is harmless). Respects reduced motion via the tokens.css animation rule.
  */
-export function Onboarding({ persistence, onOpenChange }: OnboardingProps) {
+export function Onboarding({ persistence, onOpenChange, channel }: OnboardingProps) {
   // Resolve persistence once (default reads real localStorage). Memoised in a
   // ref so a re-render never rebuilds it or re-reads the flag.
   const persistRef = useRef<OnboardingPersistence>(persistence ?? createOnboardingPersistence());
+  // Resolve the channel once at mount, mirroring persistRef: the default reads
+  // the platform signal (`window.matchMedia`) exactly once via the ref
+  // initializer, so a re-render never swaps the list out under a reading user.
+  const channelRef = useRef<ControlChannel>(channel ?? readControlChannel());
+  // Frozen module-level lookup — an O(1) constant, so no useMemo ceremony.
+  const scheme = resolveControlScheme(channelRef.current);
   const [open, setOpen] = useState(() => !persistRef.current.seen());
   const dismissRef = useRef<HTMLButtonElement>(null);
 
@@ -64,12 +69,16 @@ export function Onboarding({ persistence, onOpenChange }: OnboardingProps) {
           with Claude. Here are the controls:
         </p>
         <dl className="onboarding__controls">
-          {CONTROLS.map((c) => (
-            <div key={c.keys} className="onboarding__row">
+          {scheme.entries.map((entry) => (
+            <div key={entry.label} className="onboarding__row">
               <dt>
-                <kbd>{c.keys}</kbd>
+                {channelRef.current === "touch" ? (
+                  <span>{entry.label}</span>
+                ) : (
+                  <kbd>{entry.label}</kbd>
+                )}
               </dt>
-              <dd>{c.action}</dd>
+              <dd>{entry.action}</dd>
             </div>
           ))}
         </dl>
