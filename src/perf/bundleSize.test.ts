@@ -2,8 +2,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { measureDist } from "./bundleSize.ts";
-import type { MeasuredArtifact } from "./bundleBudget.ts";
+import { formatReport, measureDist } from "./bundleSize.ts";
+import type { BundleVerdict, MeasuredArtifact } from "./bundleBudget.ts";
 
 // This suite proves the I/O contract of the impure measurer in isolation: it
 // writes a temp fixture `dist` tree, measures it, and asserts the
@@ -100,5 +100,66 @@ describe("measureDist fail-loud", () => {
     writeFileSync(join(root, "styles.css"), "body{margin:0}");
 
     expect(() => measureDist(root)).toThrow(/run npm run build/i);
+  });
+});
+
+describe("formatReport", () => {
+  // formatReport renders the human-facing measured-vs-cap delta table. It is
+  // display-only: the cap column (400 KB / 6000 KB) is read from PERF_BUDGET in
+  // perfBudget.ts, NOT hard-coded here and NOT re-derived — it never re-runs the
+  // measured > cap comparison, which lives solely in checkBundleBudget. The
+  // table prints on BOTH pass and fail so a creeping regression's shrinking
+  // headroom is visible run-over-run rather than a silent green gate.
+
+  it("prints the measured-vs-cap table with the budget caps and a 'within budget' token on a PASS", () => {
+    // overBudget:false ⇒ no breaches; the caps must still be shown so the reader
+    // sees the headroom. The cap values come from PERF_BUDGET (maxJsGzipKb 400,
+    // maxInitialDownloadKb 6000), proving the display column is single-sourced.
+    const verdict: BundleVerdict = {
+      jsGzipKb: 201.9,
+      initialDownloadKb: 207.1,
+      overBudget: false,
+      breaches: [],
+    };
+
+    const report = formatReport(verdict);
+
+    expect(report).toContain("/ 400 KB");
+    expect(report).toContain("/ 6000 KB");
+    expect(report).toContain("within budget");
+    // The measured side of each row is rendered too, so the table is legible.
+    expect(report).toContain("201.9 KB");
+    expect(report).toContain("207.1 KB");
+    // A PASS must never claim it is over budget.
+    expect(report).not.toContain("over budget");
+  });
+
+  it("appends each breach message verbatim and shows an 'over budget' token on a FAIL", () => {
+    // The breach message is authored once, in checkBundleBudget, and must reach
+    // the CI log unrephrased so the contract and the shell output cannot drift.
+    const jsBreachMessage =
+      "JS gzip 412.3 KB > cap 400 KB (over by 12.3 KB)";
+    const verdict: BundleVerdict = {
+      jsGzipKb: 412.3,
+      initialDownloadKb: 418.0,
+      overBudget: true,
+      breaches: [
+        {
+          metric: "jsGzip",
+          measuredKb: 412.3,
+          capKb: 400,
+          overByKb: 12.3,
+          message: jsBreachMessage,
+        },
+      ],
+    };
+
+    const report = formatReport(verdict);
+
+    expect(report).toContain(jsBreachMessage);
+    expect(report).toContain("over budget");
+    // The cap table still renders on a FAIL.
+    expect(report).toContain("/ 400 KB");
+    expect(report).toContain("/ 6000 KB");
   });
 });

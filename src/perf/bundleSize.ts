@@ -15,7 +15,8 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep, extname } from "node:path";
 import { gzipSync } from "node:zlib";
-import type { MeasuredArtifact } from "./bundleBudget.ts";
+import type { BundleVerdict, MeasuredArtifact } from "./bundleBudget.ts";
+import { PERF_BUDGET } from "./perfBudget.ts";
 
 /** Lowercased extensions that ship as gzip-friendly text (counted by wire size,
  *  i.e. their gzip byte length). Everything that is neither `.js`/`.css` nor in
@@ -122,4 +123,60 @@ function classify(ext: string): MeasuredArtifact["kind"] {
  *  Windows and POSIX (and so the CLI report is stable across machines). */
 function toPosix(path: string): string {
   return sep === "/" ? path : path.split(sep).join("/");
+}
+
+/**
+ * Render a `BundleVerdict` as a plain-text measured-vs-cap report for the CLI
+ * and the CI log.
+ *
+ * The per-dimension table prints on BOTH pass and fail: a silent green gate
+ * trains people to ignore it, whereas showing the headroom run-over-run makes a
+ * creeping regression visible before it breaches. Each row reads
+ * `<label>: <measured> KB / <cap> KB (<headroom>)`.
+ *
+ * The cap column is DISPLAY-ONLY. On a pass the verdict carries no cap field
+ * (only the measured KB), so the caps are read from `PERF_BUDGET` purely to
+ * render the `/ cap` column and the headroom — this re-implements no `measured >
+ * cap` comparison (that decision lives solely in `checkBundleBudget`) and holds
+ * no `400`/`6000` literal of its own.
+ *
+ * Status is a redundant TEXT token (`within budget` / `over budget`), never
+ * colour or an emoji alone, so it is legible in a bare CI log and to a screen
+ * reader. On a fail the report appends each `breach.message` VERBATIM — the
+ * shell never re-phrases the breach, so the CI line and the pure module's
+ * contract cannot drift.
+ *
+ * @param verdict the budget verdict from `checkBundleBudget`.
+ * @returns a multi-line report string (no trailing newline).
+ */
+export function formatReport(verdict: BundleVerdict): string {
+  const lines = [
+    "Bundle budget",
+    capLine("JS gzip", verdict.jsGzipKb, PERF_BUDGET.maxJsGzipKb),
+    capLine("Total", verdict.initialDownloadKb, PERF_BUDGET.maxInitialDownloadKb),
+  ];
+
+  if (verdict.overBudget) {
+    lines.push("Status: over budget");
+    // Append the authored breach lines unrephrased so the CI output is the
+    // pure module's contract verbatim.
+    for (const breach of verdict.breaches) {
+      lines.push(`  ${breach.message}`);
+    }
+  } else {
+    lines.push("Status: within budget");
+  }
+
+  return lines.join("\n");
+}
+
+/** One `<label>: <measured> KB / <cap> KB (<headroom> KB headroom)` row.
+ *  `cap` comes from `PERF_BUDGET` for display only; the headroom is the simple
+ *  `cap - measured` delta — informational, never a pass/fail decision. */
+function capLine(label: string, measuredKb: number, capKb: number): string {
+  const headroomKb = capKb - measuredKb;
+  return (
+    `${label}: ${measuredKb.toFixed(1)} KB / ${capKb} KB ` +
+    `(${headroomKb.toFixed(1)} KB headroom)`
+  );
 }
