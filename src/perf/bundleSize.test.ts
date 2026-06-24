@@ -74,3 +74,31 @@ describe("measureDist", () => {
     expect(artifacts).toHaveLength(2);
   });
 });
+
+describe("measureDist fail-loud", () => {
+  // The empty/false-green hole the gate exists to close: a missing or stale
+  // `dist/` must NOT measure as an in-budget 0/0 artifact list. Returning an
+  // empty list would let `checkBundleBudget([])` report `overBudget: false`
+  // and turn the CI step permanently green regardless of the real bundle. So
+  // measureDist throws a clear, actionable Error the CLI can surface as a clean
+  // non-zero exit (not a raw ENOENT stack).
+
+  it("throws an actionable build-pointing error when the dist root is absent", () => {
+    // A path that cannot exist on disk — never created by makeFixtureRoot, so
+    // no cleanup is needed.
+    expect(() => measureDist("a/path/that/does/not/exist")).toThrow(
+      /run npm run build/i,
+    );
+  });
+
+  it("throws when the dist tree has no JS chunks (stale/unbuilt), excluding the false-green 0/0 list", () => {
+    const root = makeFixtureRoot();
+    // A built page can leave non-JS files; a tree with ONLY a stylesheet and an
+    // HTML doc (zero `.js`) signals a stale or never-built dist — the gate must
+    // refuse it rather than report it as within budget.
+    writeFileSync(join(root, "index.html"), "<!doctype html><html></html>");
+    writeFileSync(join(root, "styles.css"), "body{margin:0}");
+
+    expect(() => measureDist(root)).toThrow(/run npm run build/i);
+  });
+});
