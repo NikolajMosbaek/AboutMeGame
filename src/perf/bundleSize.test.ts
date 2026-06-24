@@ -1,7 +1,15 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { formatReport, measureDist } from "./bundleSize.ts";
 import type { BundleVerdict, MeasuredArtifact } from "./bundleBudget.ts";
 
@@ -161,5 +169,136 @@ describe("formatReport", () => {
     // The cap table still renders on a FAIL.
     expect(report).toContain("/ 400 KB");
     expect(report).toContain("/ 6000 KB");
+  });
+});
+
+// --- Single-source guard (T4) ---------------------------------------------
+//
+// The whole point of slice 2 is that caps, the byte→KB divisor, and the
+// pass/fail comparison live in ONE place (perfBudget.ts + bundleBudget.ts) and
+// the new tooling only measures and delegates. If the tool ever grows its own
+// `400`/`6000` literal or re-implements a `measured > cap` test, the gate could
+// silently disagree with the source of truth — a green-here/red-there trap. So
+// this guard reads the new tooling AS TEXT and asserts:
+//   1. neither the pure core nor the CLI holds a literal cap (400 / 6000);
+//   2. neither re-implements a measured-vs-cap comparison;
+//   3. the core delegates the verdict to checkBundleBudget;
+//   4. the core references PERF_BUDGET — which is the LEGITIMATE, display-only
+//      source of the cap column on the pass path. The guard must NOT mistake
+//      that import for a re-implemented cap, so it greps for literal caps and a
+//      comparison, never for the PERF_BUDGET token itself.
+
+const thisDir = dirname(fileURLToPath(import.meta.url));
+const CORE_PATH = join(thisDir, "bundleSize.ts");
+const CLI_PATH = join(thisDir, "..", "..", "scripts", "check-bundle-size.mjs");
+
+/** Strip line comments and block (incl. JSDoc) comments so the guard scans
+ *  executable CODE only. Without this the `measured >` prose in bundleSize.ts'
+ *  own JSDoc would false-positive the comparison check, and a `400 KB` example
+ *  in a comment would false-positive the literal-cap check. Comparisons that
+ *  matter live in code, not prose. */
+function stripComments(source: string): string {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, "") // block comments incl. JSDoc
+    .replace(/(^|[^:])\/\/.*$/gm, "$1"); // line comments (not URLs like http://)
+}
+
+/** A measured-vs-cap relational comparison: a relational operator (`<`, `>`,
+ *  `<=`, `>=`) with a measured-KB-ish token on one side and a cap/max/budget
+ *  token on the other (in either order). This is exactly the re-implemented
+ *  decision the slice forbids; it deliberately does NOT match the `=>` arrow,
+ *  the `Generator<…>`/JSX generics, or the legitimate `cap - measured` headroom
+ *  subtraction (which is `-`, not a relational operator). */
+const MEASURED = String.raw`[A-Za-z_$][\w$]*(?:[Kk][Bb]|[Bb]ytes|measured|size)[\w$]*`;
+const CAP = String.raw`[A-Za-z_$][\w$.]*(?:max|cap|budget|PERF_BUDGET)[\w$.]*`;
+const REL = String.raw`(?:<=?|>=?)`;
+const COMPARISON_PATTERNS = [
+  new RegExp(`${MEASURED}\\s*${REL}\\s*${CAP}`, "i"),
+  new RegExp(`${CAP}\\s*${REL}\\s*${MEASURED}`, "i"),
+];
+
+const cliExists = existsSync(CLI_PATH);
+
+describe("single-source guard: the tooling never duplicates caps or the comparison (T4)", () => {
+  // The CLI is the only impure edge and is delivered by a later task in this
+  // same slice. While it is absent this guard scans the pure core only and
+  // skips the CLI text-checks with a visible reason — it never silently passes:
+  // the moment scripts/check-bundle-size.mjs lands, every CLI assertion below
+  // activates, and CI's `npm run check:bundle` step fails loud if the file is
+  // missing, so the "gate cannot be absent" guarantee is enforced end-to-end.
+  it.skipIf(cliExists)(
+    "[pending CLI task] scripts/check-bundle-size.mjs not yet committed — CLI text-checks below skip until it lands",
+    () => {
+      expect(cliExists).toBe(false);
+    },
+  );
+
+  it("neither the pure core nor the CLI holds a literal cap (400 / 6000)", () => {
+    for (const path of [CORE_PATH, CLI_PATH]) {
+      if (!existsSync(path)) continue; // CLI scanned once the later task lands
+      const code = stripComments(readFileSync(path, "utf8"));
+      // Word boundaries so `4000`/`60000`/`14002` would NOT match, but the bare
+      // caps `400` and `6000` would. The caps belong solely to perfBudget.ts.
+      expect(code, `${path} must not hard-code the 400 KB cap`).not.toMatch(
+        /\b400\b/,
+      );
+      expect(code, `${path} must not hard-code the 6000 KB cap`).not.toMatch(
+        /\b6000\b/,
+      );
+    }
+  });
+
+  it("neither the pure core nor the CLI re-implements a measured-vs-cap comparison", () => {
+    for (const path of [CORE_PATH, CLI_PATH]) {
+      if (!existsSync(path)) continue; // CLI scanned once the later task lands
+      const code = stripComments(readFileSync(path, "utf8"));
+      for (const pattern of COMPARISON_PATTERNS) {
+        expect(
+          code,
+          `${path} must delegate the verdict to checkBundleBudget, not compare measured>cap itself`,
+        ).not.toMatch(pattern);
+      }
+    }
+  });
+
+  it("the comparison guard's own pattern actually catches a re-implemented compare (meta-check)", () => {
+    // A guard that can never fire is worthless. Prove the pattern matches the
+    // forbidden shapes (in both operand orders) and tolerates the legitimate
+    // ones it must leave alone.
+    const forbidden = [
+      "if (jsGzipKb > budget.maxJsGzipKb) {",
+      "return measuredKb >= PERF_BUDGET.maxInitialDownloadKb;",
+      "if (PERF_BUDGET.maxJsGzipKb < totalGzipBytes) fail();",
+    ];
+    for (const sample of forbidden) {
+      expect(
+        COMPARISON_PATTERNS.some((p) => p.test(sample)),
+        `pattern should flag: ${sample}`,
+      ).toBe(true);
+    }
+    const allowed = [
+      "const headroomKb = capKb - measuredKb;", // subtraction, not relational
+      "for (const breach of verdict.breaches) {",
+      "function* walkFiles(dir: string): Generator<string> {", // generic
+      "if (!artifacts.some((a) => a.kind === \"js\")) {", // arrow
+      "import { PERF_BUDGET } from \"./perfBudget.ts\";", // legit display import
+    ];
+    for (const sample of allowed) {
+      expect(
+        COMPARISON_PATTERNS.some((p) => p.test(sample)),
+        `pattern should NOT flag: ${sample}`,
+      ).toBe(false);
+    }
+  });
+
+  it("the pure core delegates by importing PERF_BUDGET for the display cap column (legitimate, not a duplicated cap)", () => {
+    const core = readFileSync(CORE_PATH, "utf8");
+    // The import is REQUIRED — formatReport reads PERF_BUDGET.maxJsGzipKb /
+    // maxInitialDownloadKb to render the `/ cap` column on the pass path, where
+    // the verdict carries no cap field. The single-source grep above must
+    // tolerate this; here we assert it is present and used.
+    expect(core).toMatch(/import\s*\{[^}]*\bPERF_BUDGET\b[^}]*\}\s*from\s*["']\.\/perfBudget\.ts["']/);
+    expect(core).toMatch(/PERF_BUDGET\.maxJsGzipKb/);
+    expect(core).toMatch(/PERF_BUDGET\.maxInitialDownloadKb/);
   });
 });
