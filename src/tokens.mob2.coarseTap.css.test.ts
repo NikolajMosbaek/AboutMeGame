@@ -164,3 +164,88 @@ describe("tokens.css — MOB2 #155 Group B (belt-and-suspenders base floor)", ()
     expect(base).toMatch(/height:\s*var\(--tap-min\)/);
   });
 });
+
+describe("tokens.css — MOB2 #155 Group C (the four dvh caps + .text-view negative)", () => {
+  /*
+   * INTENTIONAL ADDITIVE OVERLAP (DEC6): these four cap assertions and the
+   * .text-view negative re-state guards that tokens.mob2.dvh.css.test.ts (#154)
+   * also holds. This is NOT a refactor of that file and #155 must never be framed
+   * as editing it — the duplication is cheap insurance keyed to #155's own anchors
+   * so a regression fails in TWO places. A future cap-ratio change (e.g.
+   * 0.86 -> 0.88) must therefore update BOTH files; the run log records that.
+   */
+
+  it("the two base panels cap via calc(var(--vh-dynamic) * 0.86), and .text-view carries the additive safe-bottom pad with NO max-height", () => {
+    // .reveal-panel base (~:418) and .completion-panel base (~:545) are centred
+    // dialogs, so they cap their height off the dvh-aware token. .text-view (~:889)
+    // is a full-bleed scrolling PAGE — it floors its end-of-document dismiss
+    // control above the home indicator with an ADDITIVE bottom pad and, being no
+    // dialog, must NOT gain a max-height that would clip the scroll.
+    const reveal = blocksFor(css, ".reveal-panel")[0];
+    expect(reveal, ".reveal-panel base rule must exist").toBeTruthy();
+    expect(blocksFor(css, ".reveal-panel").length).toBeGreaterThan(0);
+    expect(reveal).toMatch(/max-height:\s*calc\(var\(--vh-dynamic\)\s*\*\s*0\.86\)/);
+
+    const completion = blocksFor(css, ".completion-panel")[0];
+    expect(completion, ".completion-panel base rule must exist").toBeTruthy();
+    expect(blocksFor(css, ".completion-panel").length).toBeGreaterThan(0);
+    expect(completion).toMatch(/max-height:\s*calc\(var\(--vh-dynamic\)\s*\*\s*0\.86\)/);
+
+    const textView = blocksFor(css, ".text-view")[0];
+    expect(textView, ".text-view base rule must exist").toBeTruthy();
+    expect(blocksFor(css, ".text-view").length).toBeGreaterThan(0);
+    expect(textView).toMatch(
+      /padding-bottom:\s*max\(\s*var\(--space-4\)\s*,\s*calc\(\s*var\(--space-4\)\s*\+\s*var\(--safe-bottom\)\s*\)\s*\)/,
+    );
+    expect(textView).not.toMatch(/max-height/);
+  });
+
+  it("the @media(max-width:480px) caps read calc(var(--vh-dynamic) * 0.92), never raw vh", () => {
+    // The narrow-viewport overlays size from the dvh-aware token so they track the
+    // visible viewport as the iOS URL bar collapses, instead of over-talling off a
+    // static vh on the small iPhone the P0 targets.
+    const body = mediaBody("max-width: 480px");
+    expect(body.length, "@media(max-width:480px) body must be non-empty").toBeGreaterThan(0);
+
+    const reveal = blocksFor(body, ".reveal-panel").join("\n");
+    expect(reveal.length, ".reveal-panel cap rule must exist in this media block").toBeGreaterThan(0);
+    expect(reveal).toMatch(/max-height:\s*calc\(var\(--vh-dynamic\)\s*\*\s*0\.92\)/);
+    expect(reveal).not.toMatch(/max-height:\s*\d+vh/);
+
+    const shared = blocksFor(body, ".onboarding, .menu").join("\n");
+    expect(shared.length, ".onboarding,.menu cap rule must exist in this media block").toBeGreaterThan(0);
+    expect(shared).toMatch(/max-height:\s*calc\(var\(--vh-dynamic\)\s*\*\s*0\.92\)/);
+    expect(shared).not.toMatch(/max-height:\s*\d+vh/);
+  });
+
+  it("the @media(max-height:480px) caps read calc(var(--vh-dynamic) * 0.96), never raw vh", () => {
+    // The short-viewport (landscape) caps tighten to 0.96 of the dvh-aware token
+    // for the same reason — the URL bar eats more of an already-short viewport.
+    const body = mediaBody("max-height: 480px");
+    expect(body.length, "@media(max-height:480px) body must be non-empty").toBeGreaterThan(0);
+
+    const reveal = blocksFor(body, ".reveal-panel").join("\n");
+    expect(reveal.length, ".reveal-panel cap rule must exist in this media block").toBeGreaterThan(0);
+    expect(reveal).toMatch(/max-height:\s*calc\(var\(--vh-dynamic\)\s*\*\s*0\.96\)/);
+    expect(reveal).not.toMatch(/max-height:\s*\d+vh/);
+
+    const shared = blocksFor(body, ".onboarding, .menu").join("\n");
+    expect(shared.length, ".onboarding,.menu cap rule must exist in this media block").toBeGreaterThan(0);
+    expect(shared).toMatch(/max-height:\s*calc\(var\(--vh-dynamic\)\s*\*\s*0\.96\)/);
+    expect(shared).not.toMatch(/max-height:\s*\d+vh/);
+  });
+
+  it(":root declares --vh-dynamic: 100vh and upgrades it to 100dvh behind @supports(height:100dvh)", () => {
+    // The fallback is declared FIRST and is non-negotiable (iOS <15.4 / any non-dvh
+    // engine keeps 100vh); the dvh upgrade is layered behind @supports so it only
+    // applies where the browser understands dvh. All four caps above resolve
+    // through this token, so this is the single seam that makes them dvh-aware.
+    const root = css.match(/:root\s*\{([\s\S]*?)\}/);
+    expect(root, ":root rule must exist").toBeTruthy();
+    expect(root![1]).toMatch(/--vh-dynamic:\s*100vh/);
+
+    const supports = css.match(/@supports\s*\(height:\s*100dvh\)\s*\{([\s\S]*?--vh-dynamic:[^;]*;[\s\S]*?)\}/);
+    expect(supports, "@supports(height:100dvh) block must exist").toBeTruthy();
+    expect(supports![1]).toMatch(/--vh-dynamic:\s*100dvh/);
+  });
+});
