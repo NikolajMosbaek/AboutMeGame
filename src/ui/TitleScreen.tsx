@@ -2,6 +2,7 @@ import { useRef, useEffect } from "react";
 import { APP_VERSION, VISION } from "../version.ts";
 import { createPersistence } from "../discovery/persistence.ts";
 import { POI_ANCHORS } from "../world/worldConfig.ts";
+import { readControlChannel, type ControlChannel } from "./controlScheme.ts";
 
 export interface TitleProgress {
   /** How many landmarks have been revealed in a previous session. */
@@ -20,7 +21,18 @@ export interface TitleScreenProps {
   /** Saved progress, so the CTA reads "Continue" when some exists. Injected so
    *  tests don't touch real storage; defaults to reading the discovery store. */
   progress?: TitleProgress;
+  /** Input channel driving the controls hint, so a coarse-pointer visitor sees
+   *  touch copy. Injected so tests/previews can force a channel; defaults to the
+   *  resolved platform signal (keyboard whenever the pointer is fine or absent). */
+  channel?: ControlChannel;
 }
+
+// Title-local presentational copy for the one controls hint. Keyboard is the
+// existing line verbatim (U+00B7 middot); touch names the on-screen FLY/USE
+// buttons built by createTouchControls (src/movement/input.ts). Held here as the
+// screen's own prose — not a re-derivation of controlScheme's resolver entries.
+const KEYBOARD_HINT = "WASD to drive · F to fly · E to reveal a landmark";
+const TOUCH_HINT = "Drag to drive · tap FLY to fly · tap USE to reveal";
 
 /** Read persisted progress without spinning up the engine — the title screen
  *  needs only the count and the landmark total to decide Continue vs Drive in. */
@@ -35,7 +47,12 @@ function readProgress(): TitleProgress {
  * no-WebGL text view (#50) for anyone who can't or won't play. Kept
  * presentational — it owns no game state, only the focus-on-mount affordance.
  */
-export function TitleScreen({ onStart, onReadText, progress = readProgress() }: TitleScreenProps) {
+export function TitleScreen({
+  onStart,
+  onReadText,
+  progress = readProgress(),
+  channel = readControlChannel(),
+}: TitleScreenProps) {
   const headingRef = useRef<HTMLHeadingElement>(null);
   const hasProgress = progress.discovered > 0;
 
@@ -74,9 +91,7 @@ export function TitleScreen({ onStart, onReadText, progress = readProgress() }: 
         </button>
       )}
 
-      <p className="title-controls">
-        WASD to drive · F to fly · E to reveal a landmark
-      </p>
+      <p className="title-controls">{channel === "touch" ? TOUCH_HINT : KEYBOARD_HINT}</p>
 
       <p className="version-marker">v{APP_VERSION}</p>
     </main>
