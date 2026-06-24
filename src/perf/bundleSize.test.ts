@@ -7,11 +7,21 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { formatReport, measureDist } from "./bundleSize.ts";
+import { checkBundleBudget } from "./bundleBudget.ts";
+import { PERF_BUDGET } from "./perfBudget.ts";
 import type { BundleVerdict, MeasuredArtifact } from "./bundleBudget.ts";
+
+/** This test file's directory (`src/perf`) and the repo root, resolved from the
+ *  module URL so the git-clean assertion and the single-source guard both
+ *  address files by absolute path regardless of the process cwd. */
+const thisDir = dirname(fileURLToPath(import.meta.url));
+const repoRoot = join(thisDir, "..", "..");
 
 // This suite proves the I/O contract of the impure measurer in isolation: it
 // writes a temp fixture `dist` tree, measures it, and asserts the
@@ -172,6 +182,119 @@ describe("formatReport", () => {
   });
 });
 
+describe("measureDist + checkBundleBudget end-to-end on a fixture dist (T5)", () => {
+  // The two prior suites prove measureDist's classification in isolation and
+  // bundleBudget.test.ts proves the verdict math on hand-built artifact lists.
+  // This suite closes the loop: a REAL temp `dist` tree on disk is measured by
+  // the pure core and the resulting artifacts are handed straight to the pure
+  // checkBundleBudget — the exact two-call path the CLI runs, exercised with no
+  // CLI import, no main(), and no process.exit (importing the .mjs is what would
+  // fire those, so we never import it). The fixture roots live under os.tmpdir,
+  // entirely outside the repo, so the measurement run cannot touch src/perf.
+  //
+  // Assertions are on the budget VERDICT (overBudget / breach metric / headroom),
+  // never on an exact measured KB: the gzip wire size is gzip-level- and
+  // content-dependent, so an exact-KB assertion would be brittle. The oversize
+  // chunk is incompressible random bytes so its gzip size stays ABOVE the cap
+  // regardless of gzip tuning; the small chunk is well UNDER cap with headroom.
+
+  /** Write a minimal but valid built-looking dist: an entry HTML + favicon at
+   *  the root and one JS chunk under assets/ whose raw byte length is `jsBytes`.
+   *  Random bytes are used for the JS body so its gzip wire size ≈ its raw size
+   *  (gzip cannot shrink incompressible data) — that keeps the breach/headroom
+   *  verdict deterministic instead of hostage to the gzip level. */
+  function writeFixtureDist(jsBytes: number): string {
+    const root = makeFixtureRoot();
+    mkdirSync(join(root, "assets"), { recursive: true });
+    writeFileSync(join(root, "assets", "index-deadbeef.js"), randomBytes(jsBytes));
+    writeFileSync(
+      join(root, "index.html"),
+      "<!doctype html><html><body>about me</body></html>",
+    );
+    writeFileSync(join(root, "favicon.svg"), "<svg/>");
+    return root;
+  }
+
+  it("flags an oversize JS chunk: checkBundleBudget(measureDist(root)).overBudget === true with a jsGzip breach and the .map excluded", () => {
+    // 420 KB of incompressible JS ⇒ gzip wire size ≈ 420 KB, well over the
+    // 400 KB JS-gzip cap (the cap value itself lives only in perfBudget.ts; we
+    // never restate it here). Its .map sibling must be dropped before measuring.
+    const root = writeFixtureDist(420 * 1000);
+    writeFileSync(
+      join(root, "assets", "index-deadbeef.js.map"),
+      "{}".repeat(200_000),
+    );
+
+    const artifacts = measureDist(root);
+    // The .map is excluded from measurement: it is never shipped and must not
+    // inflate either the JS sum or the total download.
+    expect(artifacts.some((a) => a.name.endsWith(".map"))).toBe(false);
+    expect(find(artifacts, "assets/index-deadbeef.js.map")).toBeUndefined();
+
+    const verdict = checkBundleBudget(artifacts);
+    expect(verdict.overBudget).toBe(true);
+    // The breach is the JS-gzip cap, surfaced first.
+    expect(verdict.breaches[0].metric).toBe("jsGzip");
+    // The breach exposes that measured > cap (over by a positive amount) without
+    // this test restating the cap number — the comparison is the module's.
+    expect(verdict.breaches[0].overByKb).toBeGreaterThan(0);
+    expect(verdict.breaches[0].measuredKb).toBeGreaterThan(
+      verdict.breaches[0].capKb,
+    );
+  });
+
+  it("passes a small fixture: checkBundleBudget(measureDist(root)).overBudget === false with JS-gzip headroom under the cap", () => {
+    // A 10 KB JS chunk plus tiny entry docs sits far below both caps.
+    const root = writeFixtureDist(10 * 1000);
+
+    const artifacts = measureDist(root);
+    const verdict = checkBundleBudget(artifacts);
+
+    expect(verdict.overBudget).toBe(false);
+    expect(verdict.breaches).toHaveLength(0);
+    // Under-cap-with-headroom asserted as a RELATION (measured < cap), not an
+    // exact KB: the JS gzip and the total download both leave positive headroom.
+    expect(verdict.jsGzipKb).toBeLessThan(PERF_BUDGET.maxJsGzipKb);
+    expect(verdict.initialDownloadKb).toBeLessThan(
+      PERF_BUDGET.maxInitialDownloadKb,
+    );
+    // The pass-path report renders the within-budget token (the CLI prints this).
+    expect(formatReport(verdict)).toContain("within budget");
+  });
+
+  it("does not mutate any src/perf source file during a fixture run (the fixture lives in tmp, the budget modules stay byte-identical to HEAD)", () => {
+    // The fixture proof must be a pure measurement: writing/measuring a temp
+    // dist must never write back into src/perf. We snapshot the three production
+    // budget sources (this test file is the WIP under edit and is excluded),
+    // run a full oversize + within measurement, then assert each source is
+    // byte-identical to BOTH its pre-run on-disk content AND its committed HEAD
+    // blob — proving the run touched nothing and the tree was already clean.
+    const sources = ["bundleSize.ts", "bundleBudget.ts", "perfBudget.ts"];
+    const before = new Map(
+      sources.map((f) => [f, readFileSync(join(thisDir, f), "utf8")]),
+    );
+
+    // A representative fixture run: both branches of the verdict.
+    checkBundleBudget(measureDist(writeFixtureDist(420 * 1000)));
+    checkBundleBudget(measureDist(writeFixtureDist(10 * 1000)));
+
+    for (const f of sources) {
+      const after = readFileSync(join(thisDir, f), "utf8");
+      expect(after, `${f} changed on disk during the fixture run`).toBe(
+        before.get(f),
+      );
+      // git porcelain for this one file must be empty — no working-tree change
+      // relative to HEAD, i.e. the measurement left the committed source intact.
+      const porcelain = execFileSync(
+        "git",
+        ["status", "--porcelain", "--", join("src", "perf", f)],
+        { cwd: repoRoot, encoding: "utf8" },
+      ).trim();
+      expect(porcelain, `${f} is dirty after the fixture run`).toBe("");
+    }
+  });
+});
+
 // --- Single-source guard (T4) ---------------------------------------------
 //
 // The whole point of slice 2 is that caps, the byte→KB divisor, and the
@@ -188,9 +311,8 @@ describe("formatReport", () => {
 //      that import for a re-implemented cap, so it greps for literal caps and a
 //      comparison, never for the PERF_BUDGET token itself.
 
-const thisDir = dirname(fileURLToPath(import.meta.url));
 const CORE_PATH = join(thisDir, "bundleSize.ts");
-const CLI_PATH = join(thisDir, "..", "..", "scripts", "check-bundle-size.mjs");
+const CLI_PATH = join(repoRoot, "scripts", "check-bundle-size.mjs");
 
 /** Strip line comments and block (incl. JSDoc) comments so the guard scans
  *  executable CODE only. Without this the `measured >` prose in bundleSize.ts'
