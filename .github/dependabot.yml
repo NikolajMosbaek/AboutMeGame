@@ -1,0 +1,45 @@
+# Dependabot configuration — SEC1 slice 3 (#137)
+#
+# Closes the silent supply-chain gap: opens weekly, *grouped*, non-major
+# update PRs for the two ecosystems this repo actually depends on — the npm
+# packages behind the root package-lock.json and the GitHub Actions pinned in
+# .github/workflows/ (checkout, setup-node, configure-pages,
+# upload-pages-artifact, deploy-pages).
+#
+# Minor + patch bumps are batched into a single grouped PR per ecosystem so the
+# weekly review is one PR, not a swarm. Semver-major bumps are deliberately
+# ignored here — they are breaking by definition and are deferred to epic H2,
+# which will take them deliberately rather than on Dependabot's cadence.
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      npm-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      actions-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
