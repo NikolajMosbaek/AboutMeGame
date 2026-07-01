@@ -120,4 +120,65 @@ describe("CompletionPanel accessibility (T6)", () => {
     });
     expect(document.activeElement).toBe(containerRef.current);
   });
+
+  // T3/T4 (F1 slice 3) — the trap is an index-managed cycle over a live query
+  // of the dialog's enabled buttons: focus moves PROGRAMMATICALLY on every
+  // Tab/Shift+Tab keydown, not only at the wrap edges. jsdom has no native tab
+  // navigation, so the middle transitions are only provable this way. With the
+  // Share CTA in the middle (T4), the neighbour of the first CTA is Share.
+  it("moves focus from the first CTA to the next on Tab (programmatic move on every keydown)", () => {
+    mountWithContainer();
+    const replay = screen.getByRole("button", { name: /replay/i });
+    const share = screen.getByRole("button", { name: "Share" });
+
+    replay.focus();
+    fireEvent.keyDown(replay, { key: "Tab" });
+    expect(document.activeElement).toBe(share);
+  });
+
+  it("moves focus from the last CTA to the previous on Shift+Tab (programmatic move on every keydown)", () => {
+    mountWithContainer();
+    const share = screen.getByRole("button", { name: "Share" });
+    const keep = screen.getByRole("button", { name: /keep exploring/i });
+
+    keep.focus();
+    fireEvent.keyDown(keep, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(share);
+  });
+
+  // T7 — the COMPLETE three-button cycle in both directions, driven with raw
+  // Tab/Shift+Tab keydowns from the panel's real initial state (entry focus
+  // on Replay), asserting every intermediate document.activeElement.
+  it("cycles Tab through Replay → Share → Keep exploring → Replay", () => {
+    mountWithContainer();
+    const replay = screen.getByRole("button", { name: /replay/i });
+    const share = screen.getByRole("button", { name: "Share" });
+    const keep = screen.getByRole("button", { name: /keep exploring/i });
+
+    // Entry focus is still on Replay — the cycle starts where a user does.
+    expect(document.activeElement).toBe(replay);
+
+    fireEvent.keyDown(replay, { key: "Tab" });
+    expect(document.activeElement).toBe(share);
+    fireEvent.keyDown(share, { key: "Tab" });
+    expect(document.activeElement).toBe(keep);
+    fireEvent.keyDown(keep, { key: "Tab" });
+    expect(document.activeElement).toBe(replay);
+  });
+
+  it("cycles Shift+Tab through Replay → Keep exploring → Share → Replay", () => {
+    mountWithContainer();
+    const replay = screen.getByRole("button", { name: /replay/i });
+    const share = screen.getByRole("button", { name: "Share" });
+    const keep = screen.getByRole("button", { name: /keep exploring/i });
+
+    expect(document.activeElement).toBe(replay);
+
+    fireEvent.keyDown(replay, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(keep);
+    fireEvent.keyDown(keep, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(share);
+    fireEvent.keyDown(share, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(replay);
+  });
 });

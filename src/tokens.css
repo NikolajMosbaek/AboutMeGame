@@ -579,6 +579,13 @@ body {
   text-transform: uppercase;
   opacity: 0.6;
 }
+/* One-line visible mirror of the share announcement (aria-hidden — the
+   sr-only live region is the voiced surface). */
+.completion-panel__share-status {
+  margin: var(--space-1) 0 0;
+  font-size: 0.85rem;
+  opacity: 0.75;
+}
 
 /* ----- In-game HUD (#42) + progress (#45) ----- */
 .hud-telemetry {
