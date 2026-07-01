@@ -42,3 +42,14 @@ jobs:
       # caps cannot regress unnoticed (SEC1 slice 2, #136).
       - name: Check bundle size
         run: npm run check:bundle
+      # Runs AFTER Build so dist/index.html exists (Seam B). Delegates the
+      # pass/fail verdict to the single-sourced checkSocialMeta core
+      # (src/share/socialMetaCheck.ts): it asserts og:image AND twitter:image are
+      # ABSOLUTE (https://…/AboutMeGame/social-preview.png), og:url is the
+      # canonical origin+base, twitter:card is summary_large_image, and
+      # social-preview.png was emitted into dist/. Fails loud (non-zero) on an
+      # absent/stale dist. The step is not allowed to swallow a red, so a broken
+      # unfurl href cannot merge (F1 slice 1, #129). Deliberately NOT added to
+      # deploy.yml, whose pre-build `npm test` must never read dist.
+      - name: Check social metadata
+        run: npm run check:social
