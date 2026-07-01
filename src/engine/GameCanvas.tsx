@@ -312,7 +312,12 @@ export function GameCanvas({
   }
 
   return (
-    <div ref={containerRef} className="game-canvas-container">
+    // tabIndex={-1}: the modal overlays (reveal/completion) return focus here on
+    // dismiss via containerRef.focus() — a plain div is unfocusable, so without
+    // it that call is a silent no-op and focus drops to <body> (caught by the
+    // completion-panel Playwright smoke; the jsdom a11y tests use a focusable
+    // stand-in). -1 keeps the container out of the Tab order.
+    <div ref={containerRef} className="game-canvas-container" tabIndex={-1}>
       <canvas ref={canvasRef} className="game-canvas" aria-hidden="true" />
       {showStats && engine && <StatsOverlay engine={engine} />}
       {game && (
