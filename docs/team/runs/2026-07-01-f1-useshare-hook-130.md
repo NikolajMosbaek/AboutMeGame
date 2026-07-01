@@ -97,3 +97,24 @@ verification gap, not silently passed.
   is created, edited, or deleted**.
 - Gates: `npm test` and `npm run build` green; the comment-stripped source
   scan runs inside the suite, not just in review.
+
+## Verify gates — run results (2026-07-01)
+
+All four gates run on `feat/f1-useshare-hook` and certified green:
+
+- **`npm test`** — exit 0: `Test Files 96 passed (96)`,
+  `Tests 895 passed | 1 skipped (896)`. The matrix file alone:
+  `src/ui/useShare.test.tsx (29 tests)` — 29 passed, covering every branch in
+  the design's ~17-case matrix plus the JSDoc handoff-contract gates.
+- **`npm run build`** — exit 0: `✓ 111 modules transformed`, `✓ built in
+  660ms`. (The >500 kB chunk warning is the pre-existing three.js vendor
+  chunk, unchanged by this branch.)
+- **Comment-stripped source scan** — passed both in-suite and as a standalone
+  re-run: raw source names `navigator.share` in JSDoc (the stripper is doing
+  real work), stripped source contains **no** `navigator`, `window`,
+  `location`, or `document` token.
+- **Scope certification** — `git diff --name-only main...HEAD` lists exactly
+  `docs/team/runs/2026-07-01-f1-useshare-hook-130.md`,
+  `src/ui/useShare.test.tsx`, `src/ui/useShare.ts`; zero files under
+  `.claude/`; zero other `src/ui/` files (CompletionPanel, TitleScreen
+  untouched); working tree clean.
