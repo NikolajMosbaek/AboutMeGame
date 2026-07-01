@@ -89,49 +89,62 @@ function isAbortError(err: unknown): boolean {
  *
  * The returned promise **never rejects** on any path — synchronous throws
  * from either capability and non-Error rejection values (strings, undefined)
- * are all classified, so a fire-and-forget caller cannot create an unhandled
- * rejection.
+ * are classified branch-by-branch, and one enclosing try/catch is the final
+ * net for what no branch can classify (e.g. a hostile rejection value whose
+ * `name` getter itself throws inside the classifier) — so a fire-and-forget
+ * caller cannot create an unhandled rejection.
  */
 export async function performShare(
   capabilities: ShareCapabilities,
   url: string,
 ): Promise<ShareOutcome> {
-  if (typeof capabilities.share === "function") {
-    try {
-      // Called with no preceding await: the body of an async function runs
-      // synchronously up to its first await, so the share sheet opens while
-      // the user gesture's transient activation is still live.
-      await capabilities.share({ url });
-      return "shared";
-    } catch (err) {
-      if (isAbortError(err)) {
-        // The user dismissed the sheet deliberately — respect it. The
-        // clipboard fallback must NOT fire: a surprise write after an
-        // explicit cancel would be hostile.
-        return "cancelled";
+  // The enclosing never-rejects net. The branches below already classify
+  // every expected failure; this catch exists for the unclassifiable — a
+  // throwing property getter on the rejection value or on the capabilities
+  // object detonates PAST the inner try/catches, and without this net it
+  // would reject the returned promise.
+  try {
+    if (typeof capabilities.share === "function") {
+      try {
+        // Called with no preceding await: the body of an async function runs
+        // synchronously up to its first await, so the share sheet opens while
+        // the user gesture's transient activation is still live.
+        await capabilities.share({ url });
+        return "shared";
+      } catch (err) {
+        if (isAbortError(err)) {
+          // The user dismissed the sheet deliberately — respect it. The
+          // clipboard fallback must NOT fire: a surprise write after an
+          // explicit cancel would be hostile.
+          return "cancelled";
+        }
+        // Anything else (NotAllowedError, gesture expiry, non-Error values):
+        // fall through to the clipboard fallback below.
       }
-      // Anything else (NotAllowedError, gesture expiry, non-Error values):
-      // fall through to the clipboard fallback below.
     }
-  }
 
-  const clipboard = capabilities.clipboard;
-  if (clipboard && typeof clipboard.writeText === "function") {
-    try {
-      // Method call (not an extracted reference) so a real Clipboard object
-      // keeps its `this` binding and doesn't throw "Illegal invocation".
-      await clipboard.writeText(url);
-      return "copied";
-    } catch {
-      // The AWAITED fallback failed too (on Safari both APIs are
-      // gesture-gated, so NotAllowedError-after-NotAllowedError is the
-      // expected real-device path): rule (e) wins — resolve "failed", never
-      // reject, so a fire-and-forget caller can't leak an unhandled
-      // rejection.
+    const clipboard = capabilities.clipboard;
+    if (clipboard && typeof clipboard.writeText === "function") {
+      try {
+        // Method call (not an extracted reference) so a real Clipboard object
+        // keeps its `this` binding and doesn't throw "Illegal invocation".
+        await clipboard.writeText(url);
+        return "copied";
+      } catch {
+        // The AWAITED fallback failed too (on Safari both APIs are
+        // gesture-gated, so NotAllowedError-after-NotAllowedError is the
+        // expected real-device path): rule (e) wins — resolve "failed", never
+        // reject, so a fire-and-forget caller can't leak an unhandled
+        // rejection.
+      }
     }
-  }
 
-  return "failed";
+    return "failed";
+  } catch {
+    // Nothing usable succeeded and the failure defied classification:
+    // "failed" is the honest verdict, and resolving is the invariant.
+    return "failed";
+  }
 }
 
 /**

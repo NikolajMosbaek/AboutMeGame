@@ -254,6 +254,118 @@ describe("performShare fallback tie-breaker — rule (e) wins when the awaited f
   });
 });
 
+describe("performShare never-rejects invariant — one enclosing net (#130)", () => {
+  const url = "https://example.test/AboutMeGame/";
+
+  it("share throws synchronously (non-abort) with no clipboard injected → resolves 'failed', never rejects", async () => {
+    const share = vi.fn((): Promise<void> => {
+      throw Object.assign(new Error("boom"), { name: "TypeError" });
+    });
+
+    await expect(performShare({ share }, url)).resolves.toBe("failed");
+  });
+
+  it("writeText throws synchronously on the share-absent path → resolves 'failed', never rejects", async () => {
+    const writeText = vi.fn((): Promise<void> => {
+      throw new Error("clipboard blew up");
+    });
+
+    await expect(
+      performShare({ clipboard: { writeText } }, url),
+    ).resolves.toBe("failed");
+    expect(writeText).toHaveBeenCalledTimes(1);
+  });
+
+  it("writeText rejects on the share-absent path → resolves 'failed', never rejects", async () => {
+    const writeText = vi
+      .fn()
+      .mockRejectedValue(
+        Object.assign(new Error("denied"), { name: "NotAllowedError" }),
+      );
+
+    await expect(
+      performShare({ clipboard: { writeText } }, url),
+    ).resolves.toBe("failed");
+  });
+
+  it("share rejects with a bare string and no clipboard → resolves 'failed', never rejects", async () => {
+    const share = vi.fn().mockRejectedValue("nope");
+
+    await expect(performShare({ share }, url)).resolves.toBe("failed");
+  });
+
+  it("share rejects with undefined and no clipboard → resolves 'failed', never rejects", async () => {
+    const share = vi.fn().mockRejectedValue(undefined);
+
+    await expect(performShare({ share }, url)).resolves.toBe("failed");
+  });
+
+  it("a hostile rejection value whose `name` getter itself throws → resolves 'failed' — only the enclosing net can catch this, no branch classifier can", async () => {
+    // isAbortError reads err?.name; a throwing getter detonates INSIDE the
+    // catch block, past every inner try/catch. Without the enclosing net,
+    // performShare rejects and a fire-and-forget caller leaks an unhandled
+    // rejection.
+    const hostile = {};
+    Object.defineProperty(hostile, "name", {
+      get(): string {
+        throw new Error("gotcha");
+      },
+    });
+    const share = vi.fn().mockRejectedValue(hostile);
+    const writeText = vi.fn().mockResolvedValue(undefined);
+
+    await expect(
+      performShare({ share, clipboard: { writeText } }, url),
+    ).resolves.toBe("failed");
+  });
+
+  it("every branch of the full matrix resolves to a ShareOutcome member — no path rejects", async () => {
+    const abort = () =>
+      Object.assign(new Error("dismissed"), { name: "AbortError" });
+    const notAllowed = () =>
+      Object.assign(new Error("gesture expired"), { name: "NotAllowedError" });
+    const resolvingWriteText = () => vi.fn().mockResolvedValue(undefined);
+
+    const matrix: readonly ShareCapabilities[] = [
+      {}, // both capabilities absent
+      { clipboard: {} }, // partial-capability WebView
+      { clipboard: { writeText: resolvingWriteText() } }, // clipboard-only happy path
+      { clipboard: { writeText: vi.fn().mockRejectedValue(notAllowed()) } }, // clipboard-only rejection
+      { share: vi.fn().mockResolvedValue(undefined) }, // share happy path
+      { share: vi.fn().mockRejectedValue(abort()) }, // user dismissed
+      { share: vi.fn().mockRejectedValue(notAllowed()) }, // non-abort, no fallback
+      { share: vi.fn().mockRejectedValue("nope") }, // string rejection value
+      { share: vi.fn().mockRejectedValue(undefined) }, // undefined rejection value
+      {
+        share: vi.fn((): Promise<void> => {
+          throw notAllowed();
+        }),
+      }, // synchronous throw
+      {
+        share: vi.fn().mockRejectedValue(notAllowed()),
+        clipboard: { writeText: resolvingWriteText() },
+      }, // fallback succeeds
+      {
+        share: vi.fn().mockRejectedValue(notAllowed()),
+        clipboard: { writeText: vi.fn().mockRejectedValue(notAllowed()) },
+      }, // the Safari double-NotAllowedError path
+    ];
+
+    const members: readonly ShareOutcome[] = [
+      "shared",
+      "copied",
+      "cancelled",
+      "failed",
+    ];
+    for (const capabilities of matrix) {
+      // A bare await: if any path rejected, this test itself would go red —
+      // the await IS the never-rejects assertion.
+      const outcome = await performShare(capabilities, url);
+      expect(members).toContain(outcome);
+    }
+  });
+});
+
 describe("useShare hook — stateless useCallback binder (#130)", () => {
   const url = "https://example.test/AboutMeGame/";
 
