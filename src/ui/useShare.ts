@@ -84,11 +84,23 @@ export async function performShare(
   capabilities: ShareCapabilities,
   url: string,
 ): Promise<ShareOutcome> {
-  // Contract-only stub: the decision ladder above lands in the next #130
-  // task, test-first against the matrix in useShare.test.tsx.
-  void capabilities;
-  void url;
-  throw new Error("performShare: not implemented — contract-only slice");
+  if (typeof capabilities.share === "function") {
+    // Called with no preceding await: the body of an async function runs
+    // synchronously up to its first await, so the share sheet opens while the
+    // user gesture's transient activation is still live.
+    await capabilities.share({ url });
+    return "shared";
+  }
+
+  const clipboard = capabilities.clipboard;
+  if (clipboard && typeof clipboard.writeText === "function") {
+    // Method call (not an extracted reference) so a real Clipboard object
+    // keeps its `this` binding and doesn't throw "Illegal invocation".
+    await clipboard.writeText(url);
+    return "copied";
+  }
+
+  return "failed";
 }
 
 /**
