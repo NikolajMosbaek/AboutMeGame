@@ -18,21 +18,32 @@
          under the GitHub Pages sub-path in production and at root in dev. -->
     <link rel="icon" type="image/svg+xml" href="%BASE_URL%favicon.svg" />
 
-    <!-- Social / share metadata (#54). Real product copy, no placeholder. No
-         og:image is referenced — there is no committed share image asset, and a
-         broken reference is worse than none. -->
+    <!-- Social / share metadata (#54, #129). Real product copy, no placeholder.
+         The social hrefs prepend the canonical origin literal deliberately:
+         unfurl crawlers (Facebook/X/LinkedIn/Slack) do NOT resolve relative or
+         path-only hrefs, so og:image/twitter:image/og:url must be ABSOLUTE.
+         `%BASE_URL%` supplies ONLY the sub-path segment — Vite substitutes it
+         mid-string at build (`/AboutMeGame/` in prod, `/` in dev), so the
+         emitted href is fully absolute while %BASE_URL% stays the single path
+         knob. The origin literal is a second deployment knob alongside
+         VITE_BASE: a custom domain would change both. -->
     <meta property="og:type" content="website" />
     <meta property="og:title" content="AboutMeGame — drive and fly to discover how I work" />
     <meta
       property="og:description"
       content="A browser-based 3D island you drive and fly around to discover how I build software with Claude. No installs, just a link."
     />
-    <meta name="twitter:card" content="summary" />
+    <meta property="og:url" content="https://nikolajmosbaek.github.io%BASE_URL%" />
+    <meta property="og:image" content="https://nikolajmosbaek.github.io%BASE_URL%social-preview.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="AboutMeGame — drive and fly to discover how I work" />
     <meta
       name="twitter:description"
       content="A browser-based 3D island you drive and fly around to discover how I build software with Claude. No installs, just a link."
     />
+    <meta name="twitter:image" content="https://nikolajmosbaek.github.io%BASE_URL%social-preview.png" />
   </head>
   <body>
     <div id="root"></div>
