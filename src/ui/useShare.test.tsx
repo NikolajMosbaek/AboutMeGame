@@ -2,8 +2,35 @@
 // behaviour matrix for the DI-injected useShare hook. Everything in here runs
 // headless: capabilities are plain fakes, never a real navigator.
 
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import { performShare, type ShareCapabilities, type ShareOutcome } from "./useShare.ts";
+
+// Directory of THIS test file, used to read the module source for the static
+// (grep-style) global-isolation gate below. Mirrors dayCycle.test.ts /
+// waterSurface.test.ts, the house source-of-truth for source-scan guards.
+const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
+
+/** Strip `//` and block comments only, preserving string/template literals.
+ * (Mirrors dayCycle.test.ts.) */
+function stripComments(src: string): string {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, " ") // block comments (incl. jsdoc)
+    .replace(/\/\/[^\n]*/g, " "); // line comments
+}
+
+/** Strip comments AND string/template literals so the forbidden-global scan
+ * (`navigator`, `window`, …) doesn't trip over prose in jsdoc — the mandated
+ * JSDoc legitimately names `navigator.share` (Illegal-invocation and
+ * composition-point guidance for #131). Mirrors dayCycle.test.ts:381-391. */
+function stripCommentsAndStrings(src: string): string {
+  return stripComments(src)
+    .replace(/"(?:[^"\\]|\\.)*"/g, '""') // double-quoted strings
+    .replace(/'(?:[^'\\]|\\.)*'/g, "''") // single-quoted strings
+    .replace(/`(?:[^`\\]|\\.)*`/g, "``"); // template literals
+}
 
 describe("ShareOutcome contract (#130)", () => {
   it("is a closed four-member union that #131 can exhaustiveness-check with a never guard", () => {
@@ -90,5 +117,30 @@ describe("performShare decision ladder — primary paths (#130)", () => {
 
   it("both capabilities absent → 'failed' without throwing", async () => {
     await expect(performShare({}, url)).resolves.toBe("failed");
+  });
+});
+
+// --- global isolation (source scan, comment-stripped) -----------------------
+// Both the capabilities AND the url are required injected inputs; the module
+// must read no global at all. Enforced statically — a grep of the executable
+// source, not just review — so a future edit that sneaks `navigator` in (e.g.
+// a defaulted parameter) turns the suite red.
+describe("useShare.ts global isolation (#130 source-scan gate)", () => {
+  const src = readFileSync(join(MODULE_DIR, "useShare.ts"), "utf8");
+
+  it("RAW source mentions navigator.share in JSDoc — the stripper is doing real work, not passing vacuously", () => {
+    // The designed JSDoc must name navigator.share (arrow-wrap obligation for
+    // #131). If this ever disappears, the comment-stripping in the scan below
+    // is no longer proven to be load-bearing — revisit both together.
+    expect(src).toContain("navigator.share");
+    expect(src).toMatch(/\bnavigator\b/);
+  });
+
+  it("comment-stripped source contains no navigator, window, location, or document token", () => {
+    const code = stripCommentsAndStrings(src);
+    expect(code).not.toMatch(/\bnavigator\b/);
+    expect(code).not.toMatch(/\bwindow\b/);
+    expect(code).not.toMatch(/\blocation\b/);
+    expect(code).not.toMatch(/\bdocument\b/);
   });
 });
