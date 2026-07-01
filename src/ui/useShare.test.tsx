@@ -5,8 +5,14 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { performShare, type ShareCapabilities, type ShareOutcome } from "./useShare.ts";
+import {
+  performShare,
+  useShare,
+  type ShareCapabilities,
+  type ShareOutcome,
+} from "./useShare.ts";
 
 // Directory of THIS test file, used to read the module source for the static
 // (grep-style) global-isolation gate below. Mirrors dayCycle.test.ts /
@@ -201,6 +207,74 @@ describe("performShare rejection classifier — AbortError vs everything else (#
     const share = vi.fn().mockRejectedValue(undefined);
 
     await expect(performShare({ share }, url)).resolves.toBe("failed");
+  });
+});
+
+describe("useShare hook — stateless useCallback binder (#130)", () => {
+  const url = "https://example.test/AboutMeGame/";
+
+  it("re-rendering with the same capabilities/url references keeps share referentially identical; a new url yields a new one", () => {
+    // One stable capabilities object across re-renders — the documented caller
+    // obligation (#131 memoizes or hoists it). The identity guarantee below is
+    // conditional on exactly this.
+    const capabilities: ShareCapabilities = {
+      clipboard: { writeText: vi.fn().mockResolvedValue(undefined) },
+    };
+
+    const { result, rerender } = renderHook(
+      ({ caps, href }: { caps: ShareCapabilities; href: string }) =>
+        useShare(caps, href),
+      { initialProps: { caps: capabilities, href: url } },
+    );
+    const first = result.current.share;
+
+    // Same references → the useCallback keyed on [capabilities, url] must
+    // hand back the very same function, so #131 can pass it to a memoized
+    // button without busting its render.
+    rerender({ caps: capabilities, href: url });
+    expect(result.current.share).toBe(first);
+
+    // A different url re-keys the binder: a stale closure over the old url
+    // would share the wrong link, so the identity MUST change.
+    rerender({ caps: capabilities, href: `${url}?v=2` });
+    expect(result.current.share).not.toBe(first);
+  });
+
+  it("two concurrent share() invocations resolve independently — no re-entrancy latch, no shared state, no unhandled rejection", async () => {
+    // A deferred fake: each call gets its own manually-settled promise, so
+    // both invocations are genuinely in flight at the same time.
+    const settlers: Array<{
+      resolve: () => void;
+      reject: (err: unknown) => void;
+    }> = [];
+    const share = vi.fn(
+      () =>
+        new Promise<void>((resolve, reject) => {
+          settlers.push({ resolve: () => resolve(), reject });
+        }),
+    );
+
+    const { result } = renderHook(() => useShare({ share }, url));
+
+    const p1 = result.current.share();
+    const p2 = result.current.share();
+
+    // No latch in the hook: both calls reached the capability. Double-tap
+    // protection is #131's disabled-while-pending button, by design.
+    expect(share).toHaveBeenCalledTimes(2);
+
+    // Settle them differently and OUT OF ORDER: if the hook held any shared
+    // outcome state, one call's result would leak into the other's.
+    settlers[1].resolve();
+    settlers[0].reject(
+      Object.assign(new Error("gesture expired"), { name: "NotAllowedError" }),
+    );
+
+    // Both promises RESOLVE — p1's non-abort rejection with no clipboard
+    // capability classifies to "failed", never a throw. Awaiting both is also
+    // the unhandled-rejection guard: Vitest fails the run on a stray one.
+    await expect(p2).resolves.toBe("shared");
+    await expect(p1).resolves.toBe("failed");
   });
 });
 
