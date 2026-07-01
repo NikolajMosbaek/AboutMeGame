@@ -41,12 +41,14 @@ export interface CompletionPanelProps {
  * previous snapshot to detect the edge; seeds `prevRef` from `getSnapshot()`
  * before subscribing so a 13/13 reload never fires for already-saved progress.
  *
- * Accessibility (T6): a `role="dialog"` `aria-modal` surface labelled by its
- * header. The sim is NOT paused under this panel (it never writes store.open),
- * so a focus trap — not pause — is what stops keyboard input leaking to the
- * vehicle controls while it's up: focus enters on the primary CTA and Tab /
- * Shift+Tab cycle within the two CTAs. Escape and a backdrop click dismiss to
- * free-roam; on any dismiss focus returns to the canvas container.
+ * Accessibility (T6, trap reworked in F1 slice 3): a `role="dialog"`
+ * `aria-modal` surface labelled by its header. Focus enters on the primary CTA
+ * and Tab / Shift+Tab cycle through the dialog's enabled buttons; Escape and a
+ * backdrop click dismiss to free-roam; on any dismiss focus returns to the
+ * canvas container. The trap contains Tab and Escape ONLY — movement input
+ * listens on window unconditionally (src/movement/input.ts), so WASD still
+ * reaches the unpaused sim while the panel is up; the trap is not what stops
+ * that.
  */
 export function CompletionPanel({
   store,
@@ -59,7 +61,7 @@ export function CompletionPanel({
   const prevRef = useRef<DiscoverySnapshot | null>(null);
   const armedRef = useRef(false);
   const replayRef = useRef<HTMLButtonElement>(null);
-  const keepRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     // Seed the baseline so saved progress at mount isn't read as a fresh edge.
@@ -95,8 +97,17 @@ export function CompletionPanel({
     dismiss();
   }, [onReplay, dismiss]);
 
-  // Move focus to the primary CTA on open; trap Tab between the two CTAs so
-  // keyboard input can't leak to the unpaused vehicle controls; Escape closes.
+  // Move focus to the primary CTA on open; contain Tab and Escape while up.
+  // NOTE this trap contains Tab/Escape ONLY — movement input listens on window
+  // unconditionally (src/movement/input.ts), so it is not what keeps WASD from
+  // the sim. The Tab cycle is a full index-managed model over a LIVE query of
+  // the dialog's enabled buttons: on every Tab/Shift+Tab we preventDefault and
+  // move focus programmatically (jsdom has no native tab navigation, so middle
+  // transitions are otherwise untestable), and `:not(:disabled)` auto-skips any
+  // button disabled at that instant. Accepted cosmetic asymmetry: in engines
+  // where a disabled button keeps focus, it falls out of the query, so Tab from
+  // it recovers to the FIRST button (Shift+Tab to the last) rather than its
+  // neighbour — a sub-second window, not pinned by tests.
   useEffect(() => {
     if (!shown) return;
     replayRef.current?.focus();
@@ -107,21 +118,24 @@ export function CompletionPanel({
         return;
       }
       if (e.key !== "Tab") return;
-      const first = replayRef.current;
-      const last = keepRef.current;
-      if (!first || !last) return;
-      const active = document.activeElement;
-      if (e.shiftKey) {
-        if (active === first || !(active === first || active === last)) {
-          e.preventDefault();
-          last.focus();
-        }
-      } else {
-        if (active === last || !(active === first || active === last)) {
-          e.preventDefault();
-          first.focus();
-        }
-      }
+      const dialog = dialogRef.current;
+      if (!dialog) return;
+      const buttons = Array.from(
+        dialog.querySelectorAll<HTMLButtonElement>("button:not(:disabled)"),
+      );
+      if (buttons.length === 0) return;
+      e.preventDefault();
+      const n = buttons.length;
+      const i = buttons.indexOf(document.activeElement as HTMLButtonElement);
+      // Recovery preserved: focus outside the set re-enters at the first
+      // button on Tab, the last on Shift+Tab.
+      const next =
+        i === -1
+          ? e.shiftKey
+            ? n - 1
+            : 0
+          : (i + (e.shiftKey ? -1 : 1) + n) % n;
+      buttons[next].focus();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -141,6 +155,7 @@ export function CompletionPanel({
       }}
     >
       <div
+        ref={dialogRef}
         className="completion-panel"
         role="dialog"
         aria-modal="true"
@@ -168,12 +183,7 @@ export function CompletionPanel({
         >
           Replay
         </button>
-        <button
-          ref={keepRef}
-          type="button"
-          className="cta"
-          onClick={dismiss}
-        >
+        <button type="button" className="cta" onClick={dismiss}>
           Keep exploring
         </button>
       </div>

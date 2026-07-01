@@ -120,4 +120,28 @@ describe("CompletionPanel accessibility (T6)", () => {
     });
     expect(document.activeElement).toBe(containerRef.current);
   });
+
+  // T3 (F1 slice 3) — the trap is an index-managed cycle over a live query of
+  // the dialog's enabled buttons: focus moves PROGRAMMATICALLY on every
+  // Tab/Shift+Tab keydown, not only at the wrap edges. jsdom has no native tab
+  // navigation, so the middle transitions are only provable this way.
+  it("moves focus from the first CTA to the next on Tab (programmatic move on every keydown)", () => {
+    mountWithContainer();
+    const replay = screen.getByRole("button", { name: /replay/i });
+    const keep = screen.getByRole("button", { name: /keep exploring/i });
+
+    replay.focus();
+    fireEvent.keyDown(replay, { key: "Tab" });
+    expect(document.activeElement).toBe(keep);
+  });
+
+  it("moves focus from the last CTA to the previous on Shift+Tab (programmatic move on every keydown)", () => {
+    mountWithContainer();
+    const replay = screen.getByRole("button", { name: /replay/i });
+    const keep = screen.getByRole("button", { name: /keep exploring/i });
+
+    keep.focus();
+    fireEvent.keyDown(keep, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(replay);
+  });
 });
