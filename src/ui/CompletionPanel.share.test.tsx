@@ -6,15 +6,11 @@ import type { ShareCapabilities } from "./useShare.ts";
 
 // T4 (F1 slice 3, #131) — the Share CTA on the completion panel.
 //
-// Everything here injects plain fakes through the panel's optional DI props
-// (shareCapabilities / shareUrl) — no navigator stubbing, no user-event dep.
-// The clipboard-only default desktop path, the native-disabled pending state
-// (exactly-once across a double click; re-enabled on EVERY outcome including
-// "cancelled" — a dismissed iOS sheet must not brick the CTA), and the
-// critic-mandated dismiss-mid-pending case proving setPending(false) is an
-// UNCONDITIONAL finally: the panel renders null while hidden but never
-// unmounts, so a liveness-gated clear would leave Share bricked for the
-// session.
+// Everything in this file injects plain fakes through the panel's optional DI
+// props (shareCapabilities / shareUrl) — no navigator stubbing, no user-event
+// dep. This block pins the CTA row's order and the clipboard-only default
+// desktop path; the announcement surfaces live in T5 below, the
+// pending/latch matrix in T6.
 
 const THIRTEEN = Array.from({ length: 13 }, (_, i) => ({
   order: i + 1,
@@ -83,80 +79,6 @@ describe("CompletionPanel share CTA (T4)", () => {
       fireEvent.click(screen.getByRole("button", { name: "Share" }));
     });
     expect(writes).toEqual([SHARE_URL]);
-  });
-
-  it("carries native disabled while pending and invokes the capability exactly once across a double click", async () => {
-    const d = deferred();
-    let calls = 0;
-    mountWithShare({
-      clipboard: {
-        writeText: () => {
-          calls += 1;
-          return d.promise;
-        },
-      },
-    });
-
-    const shareBtn = screen.getByRole("button", { name: "Share" });
-    await act(async () => {
-      fireEvent.click(shareBtn);
-    });
-    expect(shareBtn).toBeDisabled();
-
-    // Second click while pending: native disabled blocks activation outright.
-    await act(async () => {
-      fireEvent.click(shareBtn);
-    });
-    expect(calls).toBe(1);
-
-    await act(async () => {
-      d.resolve();
-    });
-    expect(shareBtn).toBeEnabled();
-  });
-
-  it("re-enables Share after a cancelled share sheet (pending clears on every outcome)", async () => {
-    const d = deferred();
-    mountWithShare({ share: () => d.promise });
-
-    const shareBtn = screen.getByRole("button", { name: "Share" });
-    await act(async () => {
-      fireEvent.click(shareBtn);
-    });
-    expect(shareBtn).toBeDisabled();
-
-    // The user dismisses the OS sheet — an AbortError-named rejection maps to
-    // "cancelled". The CTA must come back; a dismissed sheet is not a broken one.
-    await act(async () => {
-      d.reject({ name: "AbortError" });
-    });
-    expect(shareBtn).toBeEnabled();
-  });
-
-  it("cannot stick the pending latch: dismiss mid-pending, resolve, re-raise — Share is enabled", async () => {
-    const d = deferred();
-    const { store } = mountWithShare({
-      clipboard: { writeText: () => d.promise },
-    });
-
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Share" }));
-    });
-
-    // Dismiss while the share is still in flight — the panel renders null but
-    // stays mounted, so the resolution's setState must be safe and must clear
-    // pending UNCONDITIONALLY (no liveness gate on the latch itself).
-    fireEvent.keyDown(window, { key: "Escape" });
-    expect(screen.queryByRole("dialog")).toBeNull();
-
-    await act(async () => {
-      d.resolve();
-    });
-
-    // Re-raise via a fresh completion edge (reset, then re-complete).
-    act(() => store.setDiscovered([]));
-    driveToShown(store);
-    expect(screen.getByRole("button", { name: "Share" })).toBeEnabled();
   });
 });
 
@@ -287,5 +209,137 @@ describe("CompletionPanel share announcement (T5)", () => {
     expect(mirrorLine()).toBeNull();
     // The pending clear stays UNGATED: the stale resolution re-enables Share.
     expect(screen.getByRole("button", { name: "Share" })).toBeEnabled();
+  });
+});
+
+// T6 (F1 slice 3, #131) — the critic-mandated pending/latch matrix, all
+// against DEFERRED promises so each test holds the share in flight and
+// controls exactly when — and how — it settles.
+//
+// The latch under test: handleShare sets pending, invokes the injected
+// capability, and clears pending in an UNCONDITIONAL finally. The panel
+// renders null while hidden but never unmounts, so a liveness-gated clear
+// would brick Share for the session (the material flaw the Quality critic
+// caught); only the announcement + focus-restore cosmetics are
+// generation-gated.
+
+type Deferred = ReturnType<typeof deferred>;
+
+describe("CompletionPanel share pending latch (T6)", () => {
+  it("carries native disabled while pending and invokes the capability exactly once across a double click", async () => {
+    const d = deferred();
+    let calls = 0;
+    mountWithShare({
+      clipboard: {
+        writeText: () => {
+          calls += 1;
+          return d.promise;
+        },
+      },
+    });
+
+    const shareBtn = screen.getByRole("button", { name: "Share" });
+    await act(async () => {
+      fireEvent.click(shareBtn);
+    });
+    expect(shareBtn).toBeDisabled();
+
+    // Second click while pending: native disabled blocks the click event
+    // outright — stronger double-activation protection than a handler guard.
+    await act(async () => {
+      fireEvent.click(shareBtn);
+    });
+    expect(calls).toBe(1);
+
+    await act(async () => {
+      d.resolve();
+    });
+    expect(shareBtn).toBeEnabled();
+  });
+
+  // Pending must clear on EVERY member of the ShareOutcome union — including
+  // "cancelled": a dismissed iOS share sheet is not a broken button, and a
+  // latch cleared only on success would brick the CTA the first time a user
+  // changed their mind. Each row drives performShare's real classification
+  // (resolve → shared/copied; AbortError-named rejection → cancelled;
+  // non-abort rejection with no fallback → failed) rather than stubbing the
+  // hook.
+  const OUTCOMES: {
+    outcome: string;
+    capabilities: (d: Deferred) => ShareCapabilities;
+    settle: (d: Deferred) => void;
+  }[] = [
+    {
+      outcome: "shared",
+      capabilities: (d) => ({ share: () => d.promise }),
+      settle: (d) => d.resolve(),
+    },
+    {
+      outcome: "copied",
+      capabilities: (d) => ({ clipboard: { writeText: () => d.promise } }),
+      settle: (d) => d.resolve(),
+    },
+    {
+      outcome: "cancelled",
+      capabilities: (d) => ({ share: () => d.promise }),
+      settle: (d) => d.reject({ name: "AbortError" }),
+    },
+    {
+      outcome: "failed",
+      capabilities: (d) => ({ clipboard: { writeText: () => d.promise } }),
+      settle: (d) => d.reject({ name: "NotAllowedError" }),
+    },
+  ];
+
+  it.each(OUTCOMES)(
+    "re-enables Share when the in-flight share settles as '$outcome'",
+    async ({ capabilities, settle }) => {
+      const d = deferred();
+      mountWithShare(capabilities(d));
+
+      const shareBtn = screen.getByRole("button", { name: "Share" });
+      await act(async () => {
+        fireEvent.click(shareBtn);
+      });
+      expect(shareBtn).toBeDisabled();
+
+      await act(async () => {
+        settle(d);
+      });
+      expect(shareBtn).toBeEnabled();
+    },
+  );
+
+  it("cannot stick the latch: dismiss mid-pending → resolve → no announcement, no throw → re-raise → Share enabled", async () => {
+    const d = deferred();
+    const { store } = mountWithShare({
+      clipboard: { writeText: () => d.promise },
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Share" }));
+    });
+
+    // Dismiss while the share is still in flight — the panel renders null but
+    // stays mounted, so the resolution's setState must be safe and must clear
+    // pending UNCONDITIONALLY (no liveness gate on the latch itself).
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    // Settle after the dismissal. "No throw" is load-bearing: share() never
+    // rejects and the finally is unconditional, so nothing escapes here — an
+    // unhandled rejection would fail the Vitest run.
+    await act(async () => {
+      d.resolve();
+    });
+
+    // Re-raise via a fresh completion edge (reset, then re-complete): the
+    // stale resolution must have cleared pending WITHOUT announcing — Share
+    // enabled, live region still empty, no visible status line.
+    act(() => store.setDiscovered([]));
+    driveToShown(store);
+    expect(screen.getByRole("button", { name: "Share" })).toBeEnabled();
+    expect(screen.getByRole("status").textContent).toBe("");
+    expect(mirrorLine()).toBeNull();
   });
 });
