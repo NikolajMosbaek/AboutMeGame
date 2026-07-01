@@ -120,6 +120,90 @@ describe("performShare decision ladder — primary paths (#130)", () => {
   });
 });
 
+describe("performShare rejection classifier — AbortError vs everything else (#130)", () => {
+  const url = "https://example.test/AboutMeGame/";
+
+  it("share rejects with an Error whose name is 'AbortError' → 'cancelled', clipboard positively never called", async () => {
+    const share = vi
+      .fn()
+      .mockRejectedValue(
+        Object.assign(new Error("user dismissed"), { name: "AbortError" }),
+      );
+    const writeText = vi.fn().mockResolvedValue(undefined);
+
+    await expect(
+      performShare({ share, clipboard: { writeText } }, url),
+    ).resolves.toBe("cancelled");
+
+    // The user acted deliberately: the fallback must NOT fire — a surprise
+    // clipboard write after dismissing the sheet would be hostile.
+    expect(writeText).not.toHaveBeenCalled();
+  });
+
+  it("share rejects with a DOMException-shaped plain object named 'AbortError' (how real Safari rejects) → 'cancelled', clipboard never called", async () => {
+    // Deliberately NOT an Error instance: the classifier must compare
+    // err?.name as a string, never rely on instanceof DOMException — the
+    // constructor identity differs across realms and test environments.
+    const abortLike = {
+      name: "AbortError",
+      message: "Abort due to cancellation of share.",
+      code: 20,
+    };
+    const share = vi.fn().mockRejectedValue(abortLike);
+    const writeText = vi.fn().mockResolvedValue(undefined);
+
+    await expect(
+      performShare({ share, clipboard: { writeText } }, url),
+    ).resolves.toBe("cancelled");
+    expect(writeText).not.toHaveBeenCalled();
+  });
+
+  it("share synchronously THROWS an AbortError-named error → 'cancelled', clipboard never called, promise never rejects", async () => {
+    const share = vi.fn((): Promise<void> => {
+      throw Object.assign(new Error("sync abort"), { name: "AbortError" });
+    });
+    const writeText = vi.fn().mockResolvedValue(undefined);
+
+    await expect(
+      performShare({ share, clipboard: { writeText } }, url),
+    ).resolves.toBe("cancelled");
+    expect(writeText).not.toHaveBeenCalled();
+  });
+
+  it("share rejects with a non-abort error (NotAllowedError) → falls back to the clipboard → 'copied'", async () => {
+    const share = vi
+      .fn()
+      .mockRejectedValue(
+        Object.assign(new Error("gesture expired"), { name: "NotAllowedError" }),
+      );
+    const writeText = vi.fn().mockResolvedValue(undefined);
+
+    await expect(
+      performShare({ share, clipboard: { writeText } }, url),
+    ).resolves.toBe("copied");
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(writeText).toHaveBeenCalledWith(url);
+  });
+
+  it("share rejects with a bare string (non-Error value) → classifies safely onto the non-abort path, fallback fires", async () => {
+    // "nope"?.name is undefined — the classifier must not throw on it.
+    const share = vi.fn().mockRejectedValue("nope");
+    const writeText = vi.fn().mockResolvedValue(undefined);
+
+    await expect(
+      performShare({ share, clipboard: { writeText } }, url),
+    ).resolves.toBe("copied");
+    expect(writeText).toHaveBeenCalledWith(url);
+  });
+
+  it("share rejects with undefined → classifies safely onto the non-abort path; no clipboard capability → 'failed', never a throw", async () => {
+    // undefined?.name must short-circuit, not TypeError inside the classifier.
+    const share = vi.fn().mockRejectedValue(undefined);
+
+    await expect(performShare({ share }, url)).resolves.toBe("failed");
+  });
+});
+
 // --- global isolation (source scan, comment-stripped) -----------------------
 // Both the capabilities AND the url are required injected inputs; the module
 // must read no global at all. Enforced statically — a grep of the executable

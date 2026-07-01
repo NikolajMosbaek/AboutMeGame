@@ -55,6 +55,18 @@ export interface ShareCapabilities {
 }
 
 /**
+ * The single defensive rejection classifier: a user-dismissed share sheet
+ * rejects with an `AbortError`-named error. Compares `err?.name` as a string
+ * — never `instanceof DOMException`, whose constructor identity differs
+ * across realms and test environments — and short-circuits safely on
+ * non-Error rejection values (strings, `undefined`), which classify onto the
+ * non-abort path.
+ */
+function isAbortError(err: unknown): boolean {
+  return (err as { name?: unknown } | null | undefined)?.name === "AbortError";
+}
+
+/**
  * Attempt to share `url` using the injected capabilities, degrading
  * gracefully. Pure async core — all branching is here so the hook stays a
  * stateless binder and every path is unit-testable with plain fakes.
@@ -85,11 +97,22 @@ export async function performShare(
   url: string,
 ): Promise<ShareOutcome> {
   if (typeof capabilities.share === "function") {
-    // Called with no preceding await: the body of an async function runs
-    // synchronously up to its first await, so the share sheet opens while the
-    // user gesture's transient activation is still live.
-    await capabilities.share({ url });
-    return "shared";
+    try {
+      // Called with no preceding await: the body of an async function runs
+      // synchronously up to its first await, so the share sheet opens while
+      // the user gesture's transient activation is still live.
+      await capabilities.share({ url });
+      return "shared";
+    } catch (err) {
+      if (isAbortError(err)) {
+        // The user dismissed the sheet deliberately — respect it. The
+        // clipboard fallback must NOT fire: a surprise write after an
+        // explicit cancel would be hostile.
+        return "cancelled";
+      }
+      // Anything else (NotAllowedError, gesture expiry, non-Error values):
+      // fall through to the clipboard fallback below.
+    }
   }
 
   const clipboard = capabilities.clipboard;
