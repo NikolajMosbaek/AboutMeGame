@@ -144,3 +144,86 @@ describe("useShare.ts global isolation (#130 source-scan gate)", () => {
     expect(code).not.toMatch(/\bdocument\b/);
   });
 });
+
+// --- #131 handoff contract (JSDoc checklist) ---------------------------------
+// The JSDoc IS the handoff artifact: #131's live-region switch maps each
+// ShareOutcome to an announcement with zero further branching, and its
+// composition point follows the caller obligations verbatim. This gate greps
+// the RAW source (comments are the contract here — the inverse of the
+// isolation scan above) and fails if a rule goes missing, duplicates, or
+// drifts into ambiguity.
+
+/** Strip JSDoc line-prefix `*`s and collapse whitespace so multi-line JSDoc
+ * sentences match as single strings. */
+function normalizeDoc(doc: string): string {
+  return doc
+    .replace(/^\s*\*\s?/gm, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Count matches of a /g regex. */
+function countMatches(text: string, pattern: RegExp): number {
+  return (text.match(pattern) ?? []).length;
+}
+
+describe("useShare.ts JSDoc — #131 handoff contract (announcement rules + caller obligations)", () => {
+  const src = readFileSync(join(MODULE_DIR, "useShare.ts"), "utf8");
+
+  const outcomeDoc = src.match(/\/\*\*([\s\S]*?)\*\/\s*export type ShareOutcome/);
+  const hookDoc = src.match(/\/\*\*([\s\S]*?)\*\/\s*export function useShare/);
+
+  it("every ShareOutcome value maps to exactly ONE announcement rule, and it is the agreed one", () => {
+    expect(outcomeDoc).not.toBeNull();
+    const normalized = normalizeDoc(outcomeDoc![1]);
+
+    // The union JSDoc holds one bullet per outcome, in declaration order.
+    const bullets = normalized.split(/(?=- `")/).slice(1);
+    expect(bullets).toHaveLength(4);
+
+    const expected: ReadonlyArray<[outcome: string, rule: string]> = [
+      ['`"shared"`', "Announcement: **optional / none**"],
+      ['`"copied"`', 'Announcement: **"Link copied", mandatory**'],
+      ['`"cancelled"`', "Announcement: **silence**"],
+      ['`"failed"`', "Announcement: **recoverable copy**"],
+    ];
+
+    expected.forEach(([outcome, rule], i) => {
+      expect(bullets[i]).toContain(outcome);
+      // Exactly one rule marker per bullet — no second, contradictory rule.
+      expect(countMatches(bullets[i], /Announcement:/g)).toBe(1);
+      expect(bullets[i]).toContain(rule);
+    });
+
+    // The union JSDoc is the SINGLE announcement authority: no stray fifth
+    // rule anywhere else in the module for #131 to trip over.
+    expect(countMatches(src, /Announcement:/g)).toBe(4);
+  });
+
+  it("all four caller obligations are stated in the useShare JSDoc, each exactly once", () => {
+    expect(hookDoc).not.toBeNull();
+    const normalized = normalizeDoc(hookDoc![1]);
+
+    // Exactly four obligation bullets — the handoff list is closed.
+    expect(countMatches(normalized, /- \*\*/g)).toBe(4);
+
+    const obligations: readonly RegExp[] = [
+      /Disable the CTA while a `share\(\)` call is pending/g, // disable-while-pending
+      /referentially stable `capabilities` and `url`/g, // stable references
+      /Arrow-wrap `navigator\.share`/g, // binding trap
+      /socialUrlHref\(import\.meta\.env\.BASE_URL\)/g, // canonical URL
+    ];
+    for (const obligation of obligations) {
+      expect(countMatches(normalized, obligation)).toBe(1);
+    }
+
+    // The canonical-URL obligation names its single existing source.
+    expect(normalized).toContain("src/share/socialMeta.ts");
+    // ...and the module names it exactly once — one authority, no echo.
+    expect(countMatches(src, /socialUrlHref/g)).toBe(1);
+  });
+
+  it('the mandatory copied announcement "Link copied" appears exactly once — one authoritative string for #131 to lift', () => {
+    expect(countMatches(src, /Link copied/g)).toBe(1);
+  });
+});
