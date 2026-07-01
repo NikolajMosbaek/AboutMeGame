@@ -117,10 +117,18 @@ export async function performShare(
 
   const clipboard = capabilities.clipboard;
   if (clipboard && typeof clipboard.writeText === "function") {
-    // Method call (not an extracted reference) so a real Clipboard object
-    // keeps its `this` binding and doesn't throw "Illegal invocation".
-    await clipboard.writeText(url);
-    return "copied";
+    try {
+      // Method call (not an extracted reference) so a real Clipboard object
+      // keeps its `this` binding and doesn't throw "Illegal invocation".
+      await clipboard.writeText(url);
+      return "copied";
+    } catch {
+      // The AWAITED fallback failed too (on Safari both APIs are
+      // gesture-gated, so NotAllowedError-after-NotAllowedError is the
+      // expected real-device path): rule (e) wins — resolve "failed", never
+      // reject, so a fire-and-forget caller can't leak an unhandled
+      // rejection.
+    }
   }
 
   return "failed";

@@ -210,6 +210,50 @@ describe("performShare rejection classifier — AbortError vs everything else (#
   });
 });
 
+describe("performShare fallback tie-breaker — rule (e) wins when the awaited fallback fails (#130)", () => {
+  const url = "https://example.test/AboutMeGame/";
+  const notAllowed = () =>
+    Object.assign(new Error("gesture expired"), { name: "NotAllowedError" });
+
+  it("THE PINNED COMBINED CASE: share rejects NotAllowedError AND writeText rejects NotAllowedError → 'failed', never a throw", async () => {
+    // On Safari both APIs are gesture-gated: a NotAllowedError after a
+    // NotAllowedError is the expected real-device path, not exotic. The
+    // fallback's own rejection must resolve "failed" — rule (e) beats the
+    // fallback's "copied" promise of rule (c).
+    const share = vi.fn().mockRejectedValue(notAllowed());
+    const writeText = vi.fn().mockRejectedValue(notAllowed());
+
+    await expect(
+      performShare({ share, clipboard: { writeText } }, url),
+    ).resolves.toBe("failed");
+
+    // "failed" is the awaited fallback's verdict, not a skip: writeText WAS
+    // routed to, with the exact injected url.
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(writeText).toHaveBeenCalledWith(url);
+  });
+
+  it("share rejects non-abort AND writeText synchronously THROWS → 'failed', promise never rejects", async () => {
+    const share = vi.fn().mockRejectedValue(notAllowed());
+    const writeText = vi.fn((): Promise<void> => {
+      throw notAllowed();
+    });
+
+    await expect(
+      performShare({ share, clipboard: { writeText } }, url),
+    ).resolves.toBe("failed");
+    expect(writeText).toHaveBeenCalledTimes(1);
+  });
+
+  it("share rejects non-abort and writeText is absent (partial-capability clipboard) → 'failed' without throwing", async () => {
+    const share = vi.fn().mockRejectedValue(notAllowed());
+
+    await expect(performShare({ share, clipboard: {} }, url)).resolves.toBe(
+      "failed",
+    );
+  });
+});
+
 describe("useShare hook — stateless useCallback binder (#130)", () => {
   const url = "https://example.test/AboutMeGame/";
 
