@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   CANONICAL_ORIGIN,
   SOCIAL_PREVIEW_FILENAME,
+  SOCIAL_PREVIEW_MAX_BYTES,
   socialImageHref,
   socialUrlHref,
 } from "./socialMeta";
@@ -22,6 +23,10 @@ describe("socialMeta constants", () => {
 
   it("pins the canonical origin: lowercase host, no trailing slash", () => {
     expect(CANONICAL_ORIGIN).toBe("https://nikolajmosbaek.github.io");
+  });
+
+  it("sets a per-image byte ceiling in the tens-of-KB range (the T4 byte-bound guard's single source)", () => {
+    expect(SOCIAL_PREVIEW_MAX_BYTES).toBe(96 * 1024);
   });
 });
 

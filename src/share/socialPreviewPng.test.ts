@@ -2,7 +2,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { SOCIAL_PREVIEW_FILENAME } from "./socialMeta";
+import { SOCIAL_PREVIEW_FILENAME, SOCIAL_PREVIEW_MAX_BYTES } from "./socialMeta";
 
 /*
  * F1 slice 1 (#129) — T3: the committed, rasterized social-preview PNG.
@@ -54,13 +54,12 @@ describe("public/social-preview.png — committed rasterized card", () => {
 
   it("stays a few tens of KB, so a bloated re-export fails independently of the 6 MB total cap", () => {
     // The flat, few-colour, low-poly card must rasterize to a small file. The
-    // docs/perf-budget.md 6 MB total-payload gate will never trip on tens of KB
-    // and so cannot protect this per-image target — this explicit upper bound
-    // does. 96 KB gives comfortable headroom over the ~33 KB current export
-    // while still failing any accidentally photographic / re-scaled re-export.
-    const MAX_BYTES = 96 * 1024;
+    // per-image ceiling is single-sourced in socialMeta (SOCIAL_PREVIEW_MAX_BYTES)
+    // and owned by the dedicated T4 guard (socialPreviewByteBound.test.ts); this
+    // identity test asserts the same bound against the same constant so the two
+    // cannot drift.
     const { size } = statSync(pngPath);
     expect(size).toBeGreaterThan(0);
-    expect(size).toBeLessThanOrEqual(MAX_BYTES);
+    expect(size).toBeLessThanOrEqual(SOCIAL_PREVIEW_MAX_BYTES);
   });
 });

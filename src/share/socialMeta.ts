@@ -10,6 +10,15 @@
 // The committed preview image, sibling of favicon.svg under public/.
 export const SOCIAL_PREVIEW_FILENAME = "social-preview.png";
 
+// Per-image upper byte bound for public/social-preview.png. The flat, few-colour,
+// low-poly card rasterizes to a few tens of KB (~33 KB today); 96 KB gives
+// comfortable headroom while still failing any bloated / photographic re-export.
+// This is single-sourced HERE so the T3 identity test and the T4 byte-bound guard
+// consume the same ceiling and cannot drift. The docs/perf-budget.md 6 MB
+// total-payload cap sums the whole build (~752 KB today) and can never trip on a
+// tens-of-KB per-image regression, so it cannot substitute for this bound.
+export const SOCIAL_PREVIEW_MAX_BYTES = 96 * 1024;
+
 // The canonical deploy origin. Lowercase host, NO trailing slash. This literal
 // is a deployment knob alongside VITE_BASE: a custom domain would change both
 // this origin and the base path. Unfurl crawlers (Facebook/X/LinkedIn/Slack)
