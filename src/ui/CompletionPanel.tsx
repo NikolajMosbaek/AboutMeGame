@@ -2,6 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
 import type { DiscoveryStore, DiscoverySnapshot } from "../discovery/discoveryStore.ts";
 import { completionFor } from "./discoveryComplete.ts";
+import { useShare } from "./useShare.ts";
+import type { ShareCapabilities } from "./useShare.ts";
+import { realShareCapabilities, realShareUrl } from "./shareCapabilities.ts";
 
 export interface CompletionPanelProps {
   store: DiscoveryStore;
@@ -21,6 +24,16 @@ export interface CompletionPanelProps {
    * is up (mirrors Onboarding's `onOpenChange`).
    */
   onOpenChange?: (open: boolean) => void;
+  /**
+   * Share/clipboard capabilities for the Share CTA — defaults to the
+   * real-navigator adapter (src/ui/shareCapabilities.ts). Tests inject plain
+   * fakes here; no navigator stubbing. Must be referentially stable (the
+   * default is a module-level const; a test's literal is stable per render
+   * tree) per useShare's useCallback contract.
+   */
+  shareCapabilities?: ShareCapabilities;
+  /** The URL the Share CTA shares — defaults to the canonical deploy URL. */
+  shareUrl?: string;
 }
 
 /**
@@ -56,8 +69,12 @@ export function CompletionPanel({
   onReplay,
   containerRef,
   onOpenChange,
+  shareCapabilities = realShareCapabilities,
+  shareUrl = realShareUrl,
 }: CompletionPanelProps) {
   const [shown, setShown] = useState(false);
+  const [pending, setPending] = useState(false);
+  const { share } = useShare(shareCapabilities, shareUrl);
   const prevRef = useRef<DiscoverySnapshot | null>(null);
   const armedRef = useRef(false);
   const replayRef = useRef<HTMLButtonElement>(null);
@@ -96,6 +113,25 @@ export function CompletionPanel({
     onReplay();
     dismiss();
   }, [onReplay, dismiss]);
+
+  // Share the canonical URL. `share()` is invoked with no preceding await —
+  // an async function body runs synchronously up to its first await, and
+  // performShare calls the capability before ITS first await — so the share
+  // sheet opens inside the click gesture's transient activation (iOS gates
+  // navigator.share on it). setPending(false) is an UNCONDITIONAL finally:
+  // the panel renders null while hidden but never unmounts (see the early
+  // return below), so the setState is safe after a mid-pending dismissal —
+  // and a liveness-gated clear would leave a sticky latch bricking Share for
+  // the session. share() never rejects (performShare's contract), but
+  // finally keeps the latch structurally unstickable either way.
+  const handleShare = useCallback(async () => {
+    setPending(true);
+    try {
+      await share();
+    } finally {
+      setPending(false);
+    }
+  }, [share]);
 
   // Move focus to the primary CTA on open; contain Tab and Escape while up.
   // NOTE this trap contains Tab/Escape ONLY — movement input listens on window
@@ -182,6 +218,20 @@ export function CompletionPanel({
           onClick={handleReplay}
         >
           Replay
+        </button>
+        {/* Middle placement is CONSTRAINED, not chosen: the protected a11y
+            cases pin Replay as genuine-first and Keep exploring as
+            genuine-last, and a side-effectful action must never receive
+            default dialog focus. Native `disabled` (not aria-disabled) while
+            pending: it blocks the click event outright — double-activation
+            protection — and the trap's live :not(:disabled) query skips it. */}
+        <button
+          type="button"
+          className="cta"
+          onClick={handleShare}
+          disabled={pending}
+        >
+          Share
         </button>
         <button type="button" className="cta" onClick={dismiss}>
           Keep exploring
