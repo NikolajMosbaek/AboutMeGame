@@ -5,6 +5,7 @@ import { completionFor } from "./discoveryComplete.ts";
 import { useShare } from "./useShare.ts";
 import type { ShareCapabilities } from "./useShare.ts";
 import { realShareCapabilities, realShareUrl } from "./shareCapabilities.ts";
+import { shareAnnouncementFor } from "./shareAnnouncement.ts";
 
 export interface CompletionPanelProps {
   store: DiscoveryStore;
@@ -74,11 +75,24 @@ export function CompletionPanel({
 }: CompletionPanelProps) {
   const [shown, setShown] = useState(false);
   const [pending, setPending] = useState(false);
+  // The share-outcome message, rendered on BOTH surfaces (the sr-only live
+  // region and the visible mirror line); null = say nothing / show nothing.
+  const [announcement, setAnnouncement] = useState<string | null>(null);
   const { share } = useShare(shareCapabilities, shareUrl);
   const prevRef = useRef<DiscoverySnapshot | null>(null);
   const armedRef = useRef(false);
   const replayRef = useRef<HTMLButtonElement>(null);
+  const shareRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
+  // Liveness token for in-flight shares: bumped on every dismiss, captured at
+  // click. Every path to hiding the panel runs through dismiss(), so
+  // "generation unchanged" implies "panel still shown since this click" — one
+  // check covers both liveness conditions.
+  const shareGenRef = useRef(0);
+  // Set (inside the generation guard only) when native `disabled` dropped
+  // focus out of the dialog during a pending share; consumed by the
+  // focus-restore effect below once the CTA re-enables.
+  const restoreShareFocusRef = useRef(false);
 
   useEffect(() => {
     // Seed the baseline so saved progress at mount isn't read as a fresh edge.
@@ -104,7 +118,13 @@ export function CompletionPanel({
 
   // Lower the panel and return focus to the canvas container (the panel has no
   // opener to restore to). `onDismiss` lets GameCanvas clear `completionOpen`.
+  // Bumping the share generation invalidates any in-flight share's cosmetics
+  // (announcement + focus restore — never the pending clear), and resetting
+  // the message matters because the component renders null while hidden but
+  // never unmounts: without it, stale text would survive to a re-raised panel.
   const dismiss = useCallback(() => {
+    shareGenRef.current += 1;
+    setAnnouncement(null);
     setShown(false);
     containerRef?.current?.focus();
   }, [containerRef]);
@@ -124,14 +144,43 @@ export function CompletionPanel({
   // and a liveness-gated clear would leave a sticky latch bricking Share for
   // the session. share() never rejects (performShare's contract), but
   // finally keeps the latch structurally unstickable either way.
+  //
+  // Only the COSMETICS — the outcome announcement and the focus-restore flag
+  // — sit behind the generation guard: dismiss() bumps the token, so an
+  // unchanged token means the panel has stayed up since this click. For
+  // "cancelled"/"shared" the mapped message is null (deliberate silence),
+  // which also clears any previous message without speaking.
   const handleShare = useCallback(async () => {
+    const gen = shareGenRef.current;
     setPending(true);
     try {
-      await share();
+      const outcome = await share();
+      if (shareGenRef.current === gen) {
+        setAnnouncement(shareAnnouncementFor(outcome));
+        // Native `disabled` relinquishes focus in Chromium, dropping a
+        // keyboard user to <body>; queue a restore to the Share button for
+        // once it re-enables. HONEST FLAG: jsdom never blurs a disabled
+        // control, so this branch is unexercisable under Vitest — it is on
+        // the run log's needs-verification list, not claimed as proven.
+        const dialog = dialogRef.current;
+        if (dialog && !dialog.contains(document.activeElement)) {
+          restoreShareFocusRef.current = true;
+        }
+      }
     } finally {
       setPending(false);
     }
   }, [share]);
+
+  // Consume the focus-restore flag AFTER the commit that clears `disabled` —
+  // focusing a still-disabled button is a silent no-op, so the handler above
+  // cannot do this itself. The flag is only ever set inside the generation
+  // guard, so a dismissed panel never steals focus back.
+  useEffect(() => {
+    if (pending || !restoreShareFocusRef.current) return;
+    restoreShareFocusRef.current = false;
+    shareRef.current?.focus();
+  }, [pending]);
 
   // Move focus to the primary CTA on open; contain Tab and Escape while up.
   // NOTE this trap contains Tab/Escape ONLY — movement input listens on window
@@ -226,6 +275,7 @@ export function CompletionPanel({
             pending: it blocks the click event outright — double-activation
             protection — and the trap's live :not(:disabled) query skips it. */}
         <button
+          ref={shareRef}
           type="button"
           className="cta"
           onClick={handleShare}
@@ -236,6 +286,29 @@ export function CompletionPanel({
         <button type="button" className="cta" onClick={dismiss}>
           Keep exploring
         </button>
+        {announcement !== null && (
+          // Visible mirror of the announcement, aria-hidden so AT hears the
+          // message exactly once — via the live region below. Renders only
+          // for the non-null outcomes ("copied"/"failed").
+          <p className="completion-panel__share-status" aria-hidden="true">
+            {announcement}
+          </p>
+        )}
+        {/* Polite live region — DiscoveryAnnouncer's pattern verbatim.
+            PERSISTENT and mounted EMPTY from panel open, INSIDE the
+            aria-modal dialog: AT may silently drop a sibling region under
+            aria-modal, and a region injected together with its first message
+            is unreliably announced. Setting its text never moves focus.
+            Known AT coalescing of repeated identical strings is accepted
+            parity with DiscoveryAnnouncer. */}
+        <div
+          className="sr-only"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          {announcement}
+        </div>
       </div>
     </div>
   );

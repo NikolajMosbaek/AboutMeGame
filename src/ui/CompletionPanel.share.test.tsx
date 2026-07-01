@@ -159,3 +159,133 @@ describe("CompletionPanel share CTA (T4)", () => {
     expect(screen.getByRole("button", { name: "Share" })).toBeEnabled();
   });
 });
+
+// T5 (F1 slice 3, #131) — the announcement plumbing.
+//
+// A PERSISTENT sr-only role=status aria-live=polite aria-atomic region
+// (DiscoveryAnnouncer's pattern verbatim) mounted EMPTY from panel open and
+// INSIDE the aria-modal dialog, plus a one-line visible aria-hidden mirror
+// under the CTAs so a sighted mouse user isn't left with a silently-dead
+// button. Only the non-null outcomes ("copied"/"failed") surface anywhere;
+// "cancelled" and "shared" are asserted as region-STAYS-EMPTY, not merely
+// "not Link copied". Both surfaces reset on dismiss (the component never
+// unmounts, so stale state would otherwise survive to a re-raise), and the
+// announcement — unlike the pending clear — sits behind a generation guard,
+// so a share resolving after a dismissal never speaks onto a re-raised panel.
+
+function mirrorLine(): Element | null {
+  return screen
+    .getByRole("dialog")
+    .querySelector('p[aria-hidden="true"]');
+}
+
+describe("CompletionPanel share announcement (T5)", () => {
+  it("mounts the polite live region EMPTY inside the dialog from panel open", () => {
+    mountWithShare({ clipboard: { writeText: async () => {} } });
+
+    const region = screen.getByRole("status");
+    expect(screen.getByRole("dialog")).toContainElement(region);
+    expect(region).toHaveAttribute("aria-live", "polite");
+    expect(region).toHaveAttribute("aria-atomic", "true");
+    expect(region).toHaveClass("sr-only");
+    expect(region.textContent).toBe("");
+    // No visible status line before any outcome either.
+    expect(mirrorLine()).toBeNull();
+  });
+
+  it("announces 'Link copied' in the region AND the visible aria-hidden mirror, without moving focus", async () => {
+    mountWithShare({ clipboard: { writeText: async () => {} } });
+
+    // Entry focus sits on Replay; the announcement must not move it.
+    const before = document.activeElement;
+    expect(before).toBe(screen.getByRole("button", { name: "Replay" }));
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Share" }));
+    });
+
+    expect(screen.getByRole("status").textContent).toBe("Link copied");
+    expect(mirrorLine()?.textContent).toBe("Link copied");
+    expect(document.activeElement).toBe(before);
+  });
+
+  it("announces the recoverable address-bar copy on 'failed'", async () => {
+    // No usable capability at all → performShare resolves "failed".
+    mountWithShare({});
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Share" }));
+    });
+
+    const expected = "Couldn't share — copy the link from the address bar";
+    expect(screen.getByRole("status").textContent).toBe(expected);
+    expect(mirrorLine()?.textContent).toBe(expected);
+  });
+
+  it("stays silent on 'cancelled': the region text STAYS empty and no visible line renders", async () => {
+    mountWithShare({ share: () => Promise.reject({ name: "AbortError" }) });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Share" }));
+    });
+
+    expect(screen.getByRole("status").textContent).toBe("");
+    expect(mirrorLine()).toBeNull();
+  });
+
+  it("stays silent on 'shared': the region text STAYS empty and no visible line renders", async () => {
+    mountWithShare({ share: async () => {} });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Share" }));
+    });
+
+    expect(screen.getByRole("status").textContent).toBe("");
+    expect(mirrorLine()).toBeNull();
+  });
+
+  it("resets both message surfaces on dismiss so a re-raised panel carries no stale text", async () => {
+    const { store } = mountWithShare({
+      clipboard: { writeText: async () => {} },
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Share" }));
+    });
+    expect(screen.getByRole("status").textContent).toBe("Link copied");
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    act(() => store.setDiscovered([]));
+    driveToShown(store);
+
+    expect(screen.getByRole("status").textContent).toBe("");
+    expect(mirrorLine()).toBeNull();
+  });
+
+  it("drops a stale announcement resolving after dismissal (generation guard): the re-raised panel stays silent", async () => {
+    const d = deferred();
+    const { store } = mountWithShare({
+      clipboard: { writeText: () => d.promise },
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Share" }));
+    });
+
+    // Dismiss mid-pending, then re-raise BEFORE the share settles: the panel
+    // is shown again, so a shown-only liveness check would announce the stale
+    // outcome — the generation guard must not.
+    fireEvent.keyDown(window, { key: "Escape" });
+    act(() => store.setDiscovered([]));
+    driveToShown(store);
+
+    await act(async () => {
+      d.resolve();
+    });
+
+    expect(screen.getByRole("status").textContent).toBe("");
+    expect(mirrorLine()).toBeNull();
+    // The pending clear stays UNGATED: the stale resolution re-enables Share.
+    expect(screen.getByRole("button", { name: "Share" })).toBeEnabled();
+  });
+});
