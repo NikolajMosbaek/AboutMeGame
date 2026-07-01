@@ -145,4 +145,40 @@ describe("CompletionPanel accessibility (T6)", () => {
     fireEvent.keyDown(keep, { key: "Tab", shiftKey: true });
     expect(document.activeElement).toBe(share);
   });
+
+  // T7 — the COMPLETE three-button cycle in both directions, driven with raw
+  // Tab/Shift+Tab keydowns from the panel's real initial state (entry focus
+  // on Replay), asserting every intermediate document.activeElement.
+  it("cycles Tab through Replay → Share → Keep exploring → Replay", () => {
+    mountWithContainer();
+    const replay = screen.getByRole("button", { name: /replay/i });
+    const share = screen.getByRole("button", { name: "Share" });
+    const keep = screen.getByRole("button", { name: /keep exploring/i });
+
+    // Entry focus is still on Replay — the cycle starts where a user does.
+    expect(document.activeElement).toBe(replay);
+
+    fireEvent.keyDown(replay, { key: "Tab" });
+    expect(document.activeElement).toBe(share);
+    fireEvent.keyDown(share, { key: "Tab" });
+    expect(document.activeElement).toBe(keep);
+    fireEvent.keyDown(keep, { key: "Tab" });
+    expect(document.activeElement).toBe(replay);
+  });
+
+  it("cycles Shift+Tab through Replay → Keep exploring → Share → Replay", () => {
+    mountWithContainer();
+    const replay = screen.getByRole("button", { name: /replay/i });
+    const share = screen.getByRole("button", { name: "Share" });
+    const keep = screen.getByRole("button", { name: /keep exploring/i });
+
+    expect(document.activeElement).toBe(replay);
+
+    fireEvent.keyDown(replay, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(keep);
+    fireEvent.keyDown(keep, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(share);
+    fireEvent.keyDown(share, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(replay);
+  });
 });
