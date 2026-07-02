@@ -51,6 +51,7 @@
 // reports a running state, or any day-cycle / landmark-tour / completion-panel
 // check fails — so it works as a verification gate, not just a screenshot tool.
 import { chromium } from "playwright";
+import { assessVerify } from "./verify/assess.mjs";
 
 const args = process.argv.slice(2);
 const url = args.find((a) => !a.startsWith("--")) ?? "http://localhost:5173/";
@@ -207,22 +208,43 @@ async function smokeShot(page) {
     window.render_game_to_text ? window.render_game_to_text() : "null",
   );
 
+  // Canvas presence, scoped to the game container (GameCanvas.tsx) rather
+  // than a bare 'canvas' selector. This proves the GameCanvas React shell
+  // mounted; renderer ATTACHMENT is proven by drawCalls > 0, not by this.
+  const canvasPresent = await page.evaluate(
+    () => document.querySelector(".game-canvas-container canvas") !== null,
+  );
+
   await page.waitForTimeout(200);
   await page.screenshot({ path: out });
 
-  const state = JSON.parse(stateJson);
+  // Parse failure maps to state: null so the assessor owns that verdict
+  // instead of an uncaught exception. Evidence (STATE + SCREENSHOT) is logged
+  // BEFORE the verdict so red runs still ship their visual proof.
+  let state = null;
+  try {
+    state = JSON.parse(stateJson);
+  } catch {
+    state = null;
+  }
   console.log("STATE:", JSON.stringify(state, null, 2));
   console.log("SCREENSHOT:", out);
 
-  const problems = [];
-  if (!state) problems.push("render_game_to_text returned null");
-  if (state && state.fps <= 0) problems.push(`fps not positive: ${state?.fps}`);
-  const webglErr = consoleErrors.find((e) => /webgl|context|THREE/i.test(e));
-  if (webglErr) problems.push(`WebGL/three error: ${webglErr}`);
-  if (consoleErrors.length) {
-    console.log("CONSOLE ERRORS:\n" + consoleErrors.join("\n"));
+  // Snapshot AFTER the screenshot settle — consoleErrors is a live array fed
+  // by the page.on handlers, and late errors must count toward the verdict.
+  const errorsSnapshot = [...consoleErrors];
+  if (errorsSnapshot.length) {
+    console.log("CONSOLE ERRORS:\n" + errorsSnapshot.join("\n"));
   }
 
+  // The verdict is owned entirely by the pure assessor (scripts/verify/
+  // assess.mjs): running:true + drawCalls > 0 + a mounted canvas + no
+  // WEBGL_ERROR_RE console hits. fps is advisory-only (visible in STATE above).
+  const { problems } = assessVerify({
+    state,
+    consoleErrors: errorsSnapshot,
+    canvasPresent,
+  });
   report(problems);
 }
 
@@ -355,6 +377,7 @@ async function verifyDayCycle(page) {
       `seam jump at wrap: φ→φ+period max channel delta ${seamDelta.toFixed(1)} > ${MAX_SEAM_DELTA}`,
     );
 
+  // Inline copy pinned to WEBGL_ERROR_RE in scripts/verify/assess.mjs (G3/G4/F1 modes stay mode-local by contract).
   const webglErr = consoleErrors.find((e) => /webgl|context|THREE/i.test(e));
   if (webglErr) problems.push(`WebGL/three error: ${webglErr}`);
 
@@ -570,6 +593,7 @@ async function verifyLandmarkTour(page) {
         `(all archetypes render the same blob?)`,
     );
 
+  // Inline copy pinned to WEBGL_ERROR_RE in scripts/verify/assess.mjs (G3/G4/F1 modes stay mode-local by contract).
   const webglErr = consoleErrors.find((e) => /webgl|context|THREE/i.test(e));
   if (webglErr) problems.push(`WebGL/three error: ${webglErr}`);
 
@@ -660,6 +684,7 @@ async function verifyCompletionPanel(page) {
         `discovered ${discovered} != ${EXPECTED_LANDMARKS} after the final find`,
       );
   }
+  // Inline copy pinned to WEBGL_ERROR_RE in scripts/verify/assess.mjs (G3/G4/F1 modes stay mode-local by contract).
   const webglErr = consoleErrors.find((e) => /webgl|context|THREE/i.test(e));
   if (webglErr) problems.push(`WebGL/three error: ${webglErr}`);
   if (consoleErrors.length) {
