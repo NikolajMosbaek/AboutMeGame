@@ -83,3 +83,18 @@ jobs:
       # never hand-pin a browser version here.
       - run: npx playwright install --with-deps chromium
       - run: npm run verify
+      # Evidence upload, green AND red (`if: always()` — a red run is exactly
+      # when the screenshot matters most). The root `*.png` glob is safe because
+      # zero committed PNGs sit at the repo root (the verifier drops its
+      # screenshot there, untracked); the repo's 28 committed PNGs live under
+      # public/, docs/team/runs/assets/, and .claude/skills/ — they are
+      # NOT gitignored — so never widen this path to `**/*.png` or committed
+      # asset PNGs would bury the run evidence. `if-no-files-found: warn` is
+      # explicit: a build-phase red legitimately produces no PNG and must not
+      # stack a second red on top of the real one.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: render-verifier-screenshot
+          path: "*.png"
+          if-no-files-found: warn
