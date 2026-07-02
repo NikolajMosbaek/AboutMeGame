@@ -12,8 +12,13 @@ import {
   buildTextViewModel,
   splitBodySegments,
   type BodySegment,
+  type TextViewRow,
 } from "./textViewModel.ts";
-import type { ContentSet, PoiContent } from "../content/contentModel.ts";
+import {
+  loadContent,
+  type ContentSet,
+  type PoiContent,
+} from "../content/contentModel.ts";
 
 /** The lossless invariant: no split may ever gain or lose body text. */
 function expectConcatEquals(segments: BodySegment[], body: string): void {
@@ -238,5 +243,132 @@ describe("buildTextViewModel", () => {
     for (const row of [plain, guess, highlight]) {
       expectConcatEquals(row.bodySegments, content.pois.find((p) => p.id === row.id)!.body);
     }
+  });
+});
+
+// ── Real-dataset acceptance tier ──
+//
+// The synthetic fixtures above pin every branch; these cases run the selector
+// over the actual `loadContent()` dataset so the named acceptance POIs and
+// the authored copy itself stay honest. Assertions are structural — derived
+// from the loaded POI, never hard-coded prose — except poi-arrivals-gate's
+// teaser, which is pinned verbatim because nothing renders it until #144.
+
+/** Dataset lookup that fails loudly if a named POI ever disappears. */
+function poiById(content: ContentSet, id: string): PoiContent {
+  const poi = content.pois.find((p) => p.id === id);
+  if (poi === undefined) throw new Error(`dataset has no POI "${id}"`);
+  return poi;
+}
+
+function rowById(rows: TextViewRow[], id: string): TextViewRow {
+  const row = rows.find((r) => r.id === id);
+  if (row === undefined) throw new Error(`no row for POI "${id}"`);
+  return row;
+}
+
+/** Narrow to a highlight POI's emphasis; throws if the POI's type drifted. */
+function emphasisOf(poi: PoiContent): string {
+  if (poi.interaction.type !== "highlight") {
+    throw new Error(`expected "${poi.id}" to be a highlight POI, got "${poi.interaction.type}"`);
+  }
+  return poi.interaction.emphasis;
+}
+
+describe("buildTextViewModel(loadContent()) — real-dataset acceptance", () => {
+  let warn: ReturnType<typeof vi.spyOn>;
+  let content: ContentSet;
+  let rows: TextViewRow[];
+
+  beforeEach(() => {
+    // The spy is installed BEFORE the build, so an authored emphasis that no
+    // longer matches its body surfaces as a warn call in the canary below.
+    warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    content = loadContent();
+    rows = buildTextViewModel(content);
+  });
+
+  afterEach(() => {
+    warn.mockRestore();
+  });
+
+  it("splits poi-end-state-overlook into exactly 3 segments with only the middle emphasized", () => {
+    const poi = poiById(content, "poi-end-state-overlook");
+    const row = rowById(rows, "poi-end-state-overlook");
+
+    expect(row.bodySegments).toHaveLength(3);
+    expect(row.bodySegments.map((s) => s.emphasized)).toEqual([false, true, false]);
+    expect(row.bodySegments[1].text).toBe(emphasisOf(poi));
+    expectConcatEquals(row.bodySegments, poi.body);
+  });
+
+  it("carries answerReveal on BOTH real guess POIs and on no other row", () => {
+    // The rule is "defined iff the source guess carries it" — the dataset has
+    // TWO such POIs, so a single exemplar would under-specify it. Values are
+    // compared byte-for-byte against the source interaction, never prose.
+    for (const id of ["poi-staff-engineer-gate", "poi-force-push-dam"]) {
+      const poi = poiById(content, id);
+      if (poi.interaction.type !== "guess") {
+        throw new Error(`expected "${id}" to be a guess POI`);
+      }
+      expect(poi.interaction.answerReveal).toBeTypeOf("string");
+      expect(rowById(rows, id).answerReveal).toBe(poi.interaction.answerReveal);
+    }
+
+    // ...and the key is genuinely absent from every other row.
+    const idsWithReveal = rows
+      .filter((r) => "answerReveal" in r)
+      .map((r) => r.id)
+      .sort();
+    expect(idsWithReveal).toEqual(["poi-force-push-dam", "poi-staff-engineer-gate"]);
+  });
+
+  it("maps poi-arrivals-gate to one unemphasized full-body segment with no answerReveal", () => {
+    const poi = poiById(content, "poi-arrivals-gate");
+    const row = rowById(rows, "poi-arrivals-gate");
+
+    expect(row.bodySegments).toEqual([{ text: poi.body, emphasized: false }]);
+    expect("answerReveal" in row).toBe(false);
+    expect(row.answerReveal).toBeUndefined();
+    // Teaser CONTENT, not just presence — nothing renders it until #144, so
+    // this is the only assertion keeping the field wired end-to-end.
+    expect(row.teaser).toBe(
+      "Hi, I'm Nikolaj. I work in iOS and Swift — drive on, I'll show you how.",
+    );
+  });
+
+  it("holds the lossless invariant across all 13 POIs, one row each, ascending by order", () => {
+    expect(content.pois).toHaveLength(13);
+    expect(rows).toHaveLength(13);
+    expect(new Set(rows.map((r) => r.id)).size).toBe(13);
+    expect(rows.map((r) => r.order)).toEqual(
+      content.pois.map((p) => p.order).sort((a, b) => a - b),
+    );
+    for (const row of rows) {
+      expectConcatEquals(row.bodySegments, poiById(content, row.id).body);
+      expect(row.bodySegments.filter((s) => s.emphasized).length).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("content-drift canary: every authored highlight emphasis is a verbatim substring of its body", () => {
+    const highlights = content.pois.filter((p) => p.interaction.type === "highlight");
+    // The canary must have something to watch; if the last highlight POI is
+    // ever removed, decide that deliberately rather than passing vacuously.
+    expect(highlights.length).toBeGreaterThan(0);
+
+    for (const poi of highlights) {
+      const emphasis = emphasisOf(poi);
+      expect(poi.body.includes(emphasis)).toBe(true);
+      const row = rowById(rows, poi.id);
+      // A verbatim match always splits (>1 segments) with exactly the
+      // emphasis span marked — a future copy edit that breaks the match
+      // fails HERE instead of silently un-emphasizing the text view.
+      expect(row.bodySegments.length).toBeGreaterThan(1);
+      expect(row.bodySegments.filter((s) => s.emphasized)).toEqual([
+        { text: emphasis, emphasized: true },
+      ]);
+    }
+    // Building from the shipped dataset is warn-free: no fallback fired.
+    expect(warn).not.toHaveBeenCalled();
   });
 });
