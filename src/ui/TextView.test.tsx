@@ -32,6 +32,36 @@ describe("TextView", () => {
     expect(screen.getByRole("heading", { level: 1 })).toBeInTheDocument();
   });
 
+  it("renders poi-end-state-overlook's authored emphasis as exactly one <mark> inside a byte-equal body", () => {
+    const poi = loadContent().pois.find((p) => p.id === "poi-end-state-overlook")!;
+    // Derive the emphasis structurally from the content — never hard-code
+    // prose, so copy edits and the content canary fail in the same place.
+    if (poi.interaction.type !== "highlight") {
+      throw new Error("fixture drift: poi-end-state-overlook is no longer a highlight POI");
+    }
+    const emphasis = poi.interaction.emphasis;
+
+    render(<TextView onBack={() => {}} />);
+    const article = screen
+      .getAllByRole("article")
+      .find((a) => a.getAttribute("aria-labelledby") === `tv-${poi.id}`)!;
+    expect(article).toBeDefined();
+
+    // Query by element/class, NOT getByRole("mark") — ARIA 1.3 role support
+    // is version-dependent in the pinned testing stack.
+    const marks = within(article).getByText(emphasis, { selector: "mark" });
+    const allMarks = article.querySelectorAll("mark.text-view__emphasis");
+    expect(allMarks).toHaveLength(1);
+    expect(allMarks[0]).toBe(marks);
+    expect(allMarks[0].textContent).toBe(emphasis);
+
+    // The mark lives inside the single body paragraph, whose textContent is
+    // still byte-equal to poi.body — the selector's lossless invariant.
+    const body = article.querySelector(".text-view__body")!;
+    expect(allMarks[0].closest(".text-view__body")).toBe(body);
+    expect(body.textContent).toBe(poi.body);
+  });
+
   it("wires the Back control(s)", () => {
     const onBack = vi.fn();
     render(<TextView onBack={onBack} />);
