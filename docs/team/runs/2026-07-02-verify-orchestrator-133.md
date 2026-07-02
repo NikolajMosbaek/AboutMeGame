@@ -200,3 +200,74 @@ passed in the `arg` slot, so the intended 15 s timeout is silently ignored
 and the 30 s default applies. Harmless for this gate (the wait still rejects,
 just 15 s later), but it belongs to #132's cleanup of the verifier;
 `scripts/verify-game.mjs` keeps its required zero-line diff in this run.
+
+## V6 — Terminal output-contract & failure-legibility review
+
+Date: 2026-07-02, branch tip `b1c6c25`. Reviewer lens: the terminal transcript
+IS this feature's UI; every state must be legible by plain text alone.
+
+### Live test — strictPort conflict on 4173
+
+Prescribed probe first: a bare `require('net').createServer().listen(4173)`
+(wildcard bind). **Observed: no conflict on macOS** — BSD `SO_REUSEADDR` lets
+Vite's more-specific `localhost` bind coexist with a wildcard listener, the
+specific bind wins localhost traffic, and the run was a **true green against
+the freshly built preview** (exit 0, `VERIFY OK`, 5 277 ms). Same for a
+`127.0.0.1`-only squatter while Vite resolved `localhost` to `::1`. Neither is
+a false green: in both runs the readiness poll and Playwright reached the
+orchestrator's own live server.
+
+The genuine conflict class — **another preview bound the way Vite binds**
+(`listen(4173, "localhost")`, resolved `::1` here) — trips strictPort exactly
+as designed. Verbatim tail (after Vite's normal build output):
+
+```
+✓ built in 638ms
+[verify] could not start the preview server on port 4173: Port 4173 is already in use
+[verify] is another preview already running? (strictPort is on — the port is never silently bumped)
+```
+
+Exit **1**, total elapsed **834 ms** — fail-fast proven: no 30 s readiness
+poll, no `preview ready` line, no verifier launch. The message names port
+4173 (twice), states the likely cause, and is plain text.
+
+Port 4173 free (`lsof` exit 1) before and after every probe; squatters were
+scoped to the test harness process and closed with it.
+
+*Platform nuance (needs verification, low severity):* the wildcard-squat
+pass-through is macOS `SO_REUSEADDR` behaviour; on Linux the wildcard bind
+would collide and trip the same strictPort message. No path observed on any
+variant verifies a stale server.
+
+### Live test — build-failed state (a), previously untranscripted
+
+Temporary parse-error injection (`echo 'this is not typescript (' >>
+src/buildGame.ts`), never committed. Verbatim tail:
+
+```
+✓ 27 modules transformed.
+x Build failed in 83ms
+[verify] build failed: [vite:esbuild] Transform failed with 1 error:
+/Users/nsos/Documents/Workspace/AboutMeGame/src/buildGame.ts:164:5: ERROR: Expected ";" but found "is"
+```
+
+Exit **1**, elapsed **428 ms**; no preview, no verifier, esbuild's own
+diagnostic speaks under the phase-naming `[verify] build failed:` line.
+Reverted: `git status --short` empty, `git diff HEAD | wc -l` → 0.
+
+### Contract review — V4 happy path, V5 failure, V6 probes
+
+| Contract clause | Evidence | Verdict |
+| --- | --- | --- |
+| `[verify]` phase prefixes on every orchestrator line | `building…`, `preview ready at…`, `running…against…` in GREEN/RED; `build failed:` / `could not start…` on failure paths (`scripts/verify.mjs:32-33` — one prefix template) | PASS |
+| Resolved URL printed before any verifier output | GREEN & RED: `preview ready at http://localhost:4173/AboutMeGame/` then `running scripts/verify-game.mjs against <same URL>` precede the first child byte (`STATE:`/TimeoutError) | PASS |
+| Verifier stdio verbatim, no orchestrator rephrasing | RED: after the `running…` line every byte is the child's; orchestrator adds no line on non-zero child exit (`verify.mjs:131` fires only on signal death) | PASS |
+| Exactly one verdict line | GREEN: one `VERIFY OK`, nothing after; RED: zero `VERIFY` lines (boot-fatal aborts before `report()`) and no orchestrator substitute — state (c) reads as "last `[verify]` line is `running…`, then the verifier's own failure" | PASS |
+| Three failure states distinguishable by text alone | (a) `[verify] build failed:` + tool diagnostic (V6 transcript); (b) `preview never became ready: <url> … within <ms> (last observed state: …)` pinned by `scripts/verify/lib.test.mjs:68-100`, plus the strictPort variant naming port 4173 (V6 transcript); (c) verifier-speaks-alone (V5 RED) | PASS |
+| No colour-only or emoji signaling | Orchestrator lines are plain template strings via `console.log/error`; meaning carried by words. Vite's `✓`/colours are the tool's own streamed output ("tool output speaks for itself" — design) | PASS |
+| strictPort conflict fails fast naming the port | 834 ms total, message names 4173 + likely cause (V6 transcript) | PASS |
+
+### Gate state after review
+
+`npm test`: 102 files, 980 passed / 1 skipped. Working tree clean at
+`b1c6c25`; no product or script files changed by this review.
