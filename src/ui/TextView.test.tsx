@@ -135,6 +135,32 @@ describe("TextView", () => {
     });
   });
 
+  it("renders teaser + body only for a landmark with neither highlight nor answerReveal (poi-arrivals-gate)", () => {
+    const poi = loadContent().pois.find((p) => p.id === "poi-arrivals-gate")!;
+    // Fixture-drift guard: the graceful default is only exercised by a plain
+    // POI. If arrivals-gate ever gains a highlight or a guess reveal, pick a
+    // new plain fixture rather than weakening the negatives below.
+    if (poi.interaction.type !== "plain") {
+      throw new Error("fixture drift: poi-arrivals-gate is no longer a plain POI");
+    }
+
+    render(<TextView onBack={() => {}} />);
+    const article = screen
+      .getAllByRole("article")
+      .find((a) => a.getAttribute("aria-labelledby") === `tv-${poi.id}`)!;
+    expect(article).toBeDefined();
+
+    // The graceful default falls out structurally: teaser + body render…
+    expect(article.querySelector("p.text-view__lede-teaser")!.textContent).toBe(poi.teaser);
+    expect(article.querySelector(".text-view__body")!.textContent).toBe(poi.body);
+
+    // …and nothing else does — no emphasis mark, no takeaway note. queryBy
+    // negatives, scoped to the article (other articles legitimately carry
+    // marks and notes, so a global query would be wrong here).
+    expect(article.querySelector("mark")).toBeNull();
+    expect(within(article).queryByRole("note")).toBeNull();
+  });
+
   it("wires the Back control(s)", () => {
     const onBack = vi.fn();
     render(<TextView onBack={onBack} />);
