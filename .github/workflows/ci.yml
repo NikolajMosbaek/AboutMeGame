@@ -53,3 +53,33 @@ jobs:
       # deploy.yml, whose pre-build `npm test` must never read dist.
       - name: Check social metadata
         run: npm run check:social
+
+  # Render gate (Q1, #134): boots the real build in headless Chromium via the
+  # Playwright verifier and fails the PR when the world doesn't actually draw.
+  # Runs in PARALLEL with build-and-test (deliberately no `needs:`) — the two
+  # gates are independent evidence, so a lint/test red never masks a render red.
+  # This YAML holds ZERO verdict logic: pass/fail is exactly the exit code of
+  # `npm run verify` (scripts/verify.mjs → scripts/verify/assess.mjs — running,
+  # finite drawCalls > 0, canvas mounted, no fatal WebGL/THREE console error;
+  # fps/draw-call/triangle numbers stay advisory because SwiftShader numbers on
+  # GPU-less runners bear no relation to docs/perf-budget.md targets). No
+  # continue-on-error, no retries, no output parsing. The 15-minute job bound
+  # wraps the verifier's own 5-minute watchdog plus npm ci and the Chromium
+  # download (the GitHub default of 360 minutes violates the bounded-run
+  # doctrine).
+  render-gate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      # Browser build resolves from the locked playwright ^1.61 devDependency —
+      # never hand-pin a browser version here.
+      - run: npx playwright install --with-deps chromium
+      - run: npm run verify
