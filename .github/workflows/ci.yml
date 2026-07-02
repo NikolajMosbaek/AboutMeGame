@@ -63,10 +63,10 @@ jobs:
   # finite drawCalls > 0, canvas mounted, no fatal WebGL/THREE console error;
   # fps/draw-call/triangle numbers stay advisory because SwiftShader numbers on
   # GPU-less runners bear no relation to docs/perf-budget.md targets). No
-  # continue-on-error, no retries, no output parsing. The 15-minute job bound
-  # wraps the verifier's own 5-minute watchdog plus npm ci and the Chromium
-  # download (the GitHub default of 360 minutes violates the bounded-run
-  # doctrine).
+  # red-swallowing step settings, no retries, no output parsing. The
+  # 15-minute job bound wraps the verifier's own 5-minute watchdog plus npm ci
+  # and the Chromium download (the GitHub default of 360 minutes violates the
+  # bounded-run doctrine).
   render-gate:
     runs-on: ubuntu-latest
     permissions:
