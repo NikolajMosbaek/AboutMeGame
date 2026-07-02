@@ -7,6 +7,8 @@
 // that emphasizes body text uses ONE segmentation implementation, keeping the
 // 3D reveal path and the no-WebGL text view from drifting apart.
 
+import type { ContentSet, PoiContent } from "../content/contentModel.ts";
+
 /** One run of body text; `emphasized` marks the highlight span, if any. */
 export interface BodySegment {
   text: string;
@@ -67,4 +69,58 @@ export function splitBodySegments(body: string, emphasis?: string): BodySegment[
   segments.push({ text: emphasis, emphasized: true });
   if (after.length > 0) segments.push({ text: after, emphasized: false });
   return segments;
+}
+
+/** The interaction-dependent slice of a row: how the body segments, and
+ *  whether the guess takeaway crosses over. One exhaustive switch with the
+ *  never-default discipline from `parseInteraction`, so a future fourth
+ *  variant fails typecheck here too. `answerReveal` is built conditionally —
+ *  the key is genuinely absent unless the guess interaction carries it, never
+ *  an explicit `undefined`. The guess prompt/options deliberately do NOT
+ *  cross: the text view is a readable document, not a playable quiz. */
+function interactionFields(poi: PoiContent): Pick<TextViewRow, "bodySegments" | "answerReveal"> {
+  const { interaction } = poi;
+  switch (interaction.type) {
+    case "plain":
+      return { bodySegments: splitBodySegments(poi.body) };
+
+    case "guess":
+      return interaction.answerReveal === undefined
+        ? { bodySegments: splitBodySegments(poi.body) }
+        : {
+            bodySegments: splitBodySegments(poi.body),
+            answerReveal: interaction.answerReveal,
+          };
+
+    case "highlight":
+      return { bodySegments: splitBodySegments(poi.body, interaction.emphasis) };
+
+    default: {
+      // Compile-time exhaustiveness: adding a variant to `PoiInteraction`
+      // without an arm here fails to typecheck. Unreachable at runtime —
+      // `loadContent` only produces the variants above.
+      const _exhaustive: never = interaction;
+      void _exhaustive;
+      throw new Error("content: unknown interaction type");
+    }
+  }
+}
+
+/**
+ * Shape an injected `ContentSet` into text-view rows, one per POI, sorted
+ * ascending by narrative `order` (copy-then-sort — the input is never
+ * mutated; equal orders keep their authored relative order via ES2019+ sort
+ * stability).
+ */
+export function buildTextViewModel(content: ContentSet): TextViewRow[] {
+  return [...content.pois]
+    .sort((a, b) => a.order - b.order)
+    .map((poi) => ({
+      id: poi.id,
+      order: poi.order,
+      title: poi.title,
+      teaser: poi.teaser,
+      tags: poi.tags,
+      ...interactionFields(poi),
+    }));
 }

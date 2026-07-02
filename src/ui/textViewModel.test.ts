@@ -8,7 +8,12 @@
 // segment. No WebGL, no DOM — pure functions in, plain data out.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { splitBodySegments, type BodySegment } from "./textViewModel.ts";
+import {
+  buildTextViewModel,
+  splitBodySegments,
+  type BodySegment,
+} from "./textViewModel.ts";
+import type { ContentSet, PoiContent } from "../content/contentModel.ts";
 
 /** The lossless invariant: no split may ever gain or lose body text. */
 function expectConcatEquals(segments: BodySegment[], body: string): void {
@@ -114,5 +119,124 @@ describe("splitBodySegments", () => {
     expect(segments).toEqual([{ text: body, emphasized: false }]);
     expectConcatEquals(segments, body);
     expect(warn).not.toHaveBeenCalled();
+  });
+});
+
+/** Synthetic POI with valid defaults; tests override only what they exercise. */
+function makePoi(overrides: Partial<PoiContent> & Pick<PoiContent, "id" | "order">): PoiContent {
+  return {
+    title: `Title of ${overrides.id}`,
+    teaser: `Teaser of ${overrides.id}`,
+    body: `Body of ${overrides.id}`,
+    tags: [],
+    interaction: { type: "plain" },
+    ...overrides,
+  };
+}
+
+function makeContent(pois: PoiContent[]): ContentSet {
+  return { schemaVersion: "test", contentSet: "synthetic", voice: "test", pois };
+}
+
+/** A structurally valid guess interaction; `answerReveal` only when passed. */
+function guessInteraction(answerReveal?: string): PoiContent["interaction"] {
+  const base = {
+    type: "guess" as const,
+    prompt: "Which?",
+    options: [
+      { text: "Right", correct: true },
+      { text: "Wrong", correct: false },
+    ],
+  };
+  return answerReveal === undefined ? base : { ...base, answerReveal };
+}
+
+describe("buildTextViewModel", () => {
+  it("returns rows sorted ascending by order and never mutates the injected ContentSet", () => {
+    const content = makeContent([
+      makePoi({ id: "poi-c", order: 3 }),
+      makePoi({ id: "poi-a", order: 1, tags: ["planning", "verification"] }),
+      makePoi({ id: "poi-b", order: 2 }),
+    ]);
+    const snapshot = structuredClone(content);
+
+    const rows = buildTextViewModel(content);
+
+    expect(rows.map((r) => r.id)).toEqual(["poi-a", "poi-b", "poi-c"]);
+    expect(rows.map((r) => r.order)).toEqual([1, 2, 3]);
+    // Full row shape for one POI: every field crosses, nothing extra rides along.
+    expect(rows[0]).toEqual({
+      id: "poi-a",
+      order: 1,
+      title: "Title of poi-a",
+      teaser: "Teaser of poi-a",
+      tags: ["planning", "verification"],
+      bodySegments: [{ text: "Body of poi-a", emphasized: false }],
+    });
+    // The injected ContentSet is untouched — deep-equal to its pre-call
+    // snapshot, and the pois array keeps its authored (unsorted) order.
+    expect(content).toEqual(snapshot);
+    expect(content.pois.map((p) => p.id)).toEqual(["poi-c", "poi-a", "poi-b"]);
+  });
+
+  it("keeps equal-order POIs in input order (stable-sort determinism)", () => {
+    const content = makeContent([
+      makePoi({ id: "poi-late", order: 2 }),
+      makePoi({ id: "poi-tie-first", order: 1 }),
+      makePoi({ id: "poi-tie-second", order: 1 }),
+    ]);
+    expect(buildTextViewModel(content).map((r) => r.id)).toEqual([
+      "poi-tie-first",
+      "poi-tie-second",
+      "poi-late",
+    ]);
+  });
+
+  it("omits the answerReveal key entirely on a guess without one", () => {
+    const content = makeContent([
+      makePoi({ id: "poi-guess-bare", order: 1, interaction: guessInteraction() }),
+    ]);
+    const [row] = buildTextViewModel(content);
+    expect("answerReveal" in row).toBe(false);
+    expect(row.answerReveal).toBeUndefined();
+  });
+
+  it("copies answerReveal onto the row when the guess interaction carries it", () => {
+    const content = makeContent([
+      makePoi({
+        id: "poi-guess-reveal",
+        order: 1,
+        interaction: guessInteraction("The takeaway."),
+      }),
+    ]);
+    const [row] = buildTextViewModel(content);
+    expect(row.answerReveal).toBe("The takeaway.");
+  });
+
+  it("maps plain and guess bodies to one unemphasized segment and highlight bodies through splitBodySegments", () => {
+    const content = makeContent([
+      makePoi({ id: "poi-plain", order: 1, body: "plain body" }),
+      makePoi({ id: "poi-guess", order: 2, body: "guess body", interaction: guessInteraction() }),
+      makePoi({
+        id: "poi-highlight",
+        order: 3,
+        body: "aaa BBB ccc",
+        interaction: { type: "highlight", emphasis: "BBB" },
+      }),
+    ]);
+
+    const [plain, guess, highlight] = buildTextViewModel(content);
+
+    expect(plain.bodySegments).toEqual([{ text: "plain body", emphasized: false }]);
+    expect(guess.bodySegments).toEqual([{ text: "guess body", emphasized: false }]);
+    // ONE segmentation implementation: the highlight row matches the exported
+    // splitter byte-for-byte, so no surface can drift on what is emphasized.
+    expect(highlight.bodySegments).toEqual(splitBodySegments("aaa BBB ccc", "BBB"));
+    expect(highlight.bodySegments.filter((s) => s.emphasized)).toEqual([
+      { text: "BBB", emphasized: true },
+    ]);
+    for (const row of [plain, guess, highlight]) {
+      expectConcatEquals(row.bodySegments, content.pois.find((p) => p.id === row.id)!.body);
+    }
   });
 });
