@@ -5,6 +5,114 @@ Branch: `feat/133-verify-orchestrator` (tip at injection time: `c496136`)
 Issue: #133 — `npm run verify`: build → preview → readiness-gate → Playwright
 smoke, with exit-code fidelity and guaranteed teardown.
 
+## Roundtable positions
+
+> Provenance: the workflow persisted the converge output (design + decision
+> trail), not a verbatim roundtable transcript. The positions below are the
+> per-lens demands that trail explicitly encodes — each one is traceable to a
+> decision in the converged design, none is reconstructed from memory.
+
+- **Product Owner** — one command, `npm run verify`, whose exit code is the
+  whole interface: exit 0 must mean "the world loaded", never "some server
+  answered". The terminal transcript IS this feature's UI, so failures must be
+  legible by plain text alone.
+- **Tech Lead** — use Vite's programmatic JS API in-process (`await build()`
+  then `await preview()`), so `vite.config.ts` stays the single source of
+  base/port truth (`VITE_BASE ?? "/AboutMeGame/"` resolves exactly as
+  production) and the preview server's lifetime is the orchestrator's
+  lifetime. Zero new dependencies, zero shell chaining; the only child is one
+  `spawn(process.execPath, …)`.
+- **Senior Quality Engineer** — the readiness poll must require HTTP 2xx at
+  the FULL base URL: a 404 at `/` answering is exactly the bug class behind
+  the verifier's 5173 root default (`verify-game.mjs:56`), so "any status" or
+  "root URL" readiness is a false green. `waitForReady` must take an injected
+  fetch AND an injected sleep/clock so the timeout path is tested in
+  milliseconds. Exit-code fidelity includes signal death (`code null` maps to
+  non-zero). The AC4 proof must be BOOT-FATAL: the smoke's failure predicate
+  (`verify-game.mjs:217-226`) survives per-frame errors, so a survivable
+  injection would print `VERIFY OK` and prove nothing.
+- **Senior Sound Engineer** — "no `tsc --noEmit` inside verify" must be an
+  explicit decision, not an accident: verify is a render smoke; typechecking
+  stays `npm run build`'s job and the gates remain orthogonal.
+- **Lead UI/UX Designer** — stable plain-text `[verify]` phase prefixes, the
+  resolved URL printed before the verifier launches, three failure states
+  distinguishable by text alone, no colour-only or emoji signaling, and the
+  verifier's own verdict streamed verbatim with no second verdict line.
+- **Scope stewards (all lenses)** — `scripts/verify-game.mjs` keeps a
+  zero-line diff (#132's territory), no CI workflow files change (#134's
+  territory), and the `vite.config.ts` change is one tight test-include glob
+  that structurally cannot sweep the verifier.
+
+## Converged design
+
+A dependency-free Node ESM orchestrator at `scripts/verify.mjs`, wired as
+`"verify": "node scripts/verify.mjs"` in `package.json`:
+
+1. **Build + serve in-process** via Vite's JS API — `await build()` then
+   `await preview({ preview: { port: 4173, strictPort: true } })`. Both
+   auto-load `vite.config.ts`, so base resolves exactly as production and no
+   server child can be orphaned. `strictPort: true` is the deliberate
+   port-conflict stance: fail loudly naming the port, never silently bump.
+2. **URL truth** — primary source is the live server's
+   `resolvedUrls.local[0]`; the pure fallback composer
+   `resolveVerifyUrl({ port, base, env })` mirrors `vite.config.ts:12`'s
+   `VITE_BASE ?? "/AboutMeGame/"` expression and normalizes slashes, so
+   config drift is caught by a unit test, not a 2am CI red.
+3. **Readiness gate** — pure `waitForReady(url, { fetchImpl, sleep,
+   timeoutMs, intervalMs })` polls the FULL base URL and treats only 2xx as
+   ready; connection errors and non-2xx keep polling; timeout rejects naming
+   the URL, the elapsed bound, and the last observed state. This poll is the
+   404 guard the issue exists to add.
+4. **Pure seam** — both helpers live in `scripts/verify/lib.mjs`
+   (side-effect-free; importing it never boots a server), tested headlessly
+   in `scripts/verify/lib.test.mjs`, swept by exactly one new vitest include
+   glob `"scripts/verify/*.test.mjs"`.
+5. **Verifier untouched, as a child** — `spawn(process.execPath,
+   ["scripts/verify-game.mjs", url], { stdio: "inherit" })`; its output
+   streams verbatim; its close-event code (signal death mapped to non-zero)
+   becomes the orchestrator's via `process.exitCode`, never `process.exit()`
+   in `finally`.
+6. **Teardown on every path** — `try/finally` `server.close()`, SIGINT/
+   SIGTERM handlers, and a logged ~5-minute watchdog on the verifier child
+   (bounded-run doctrine; the cap is never hidden).
+7. **Output contract** — `[verify]` phase prefixes; the resolved URL printed
+   before the verifier launches; three distinguishable non-zero failure
+   states (build failed / preview never ready / verifier failed).
+8. **Hygiene** — one `.gitignore` line for the verifier's default
+   `scratchpad-shot.png` artifact.
+
+Files: NEW `scripts/verify.mjs`, `scripts/verify/lib.mjs`,
+`scripts/verify/lib.test.mjs`; EDIT `package.json` (one script),
+`vite.config.ts` (one include glob), `.gitignore` (one line).
+
+## Rejected alternatives
+
+- **Shell-chained npm scripts / `concurrently` / `wait-on`** — rejected: new
+  dependencies, `npm.cmd`/shell spawn fragility on Windows, and an orphanable
+  server child. The JS API is cross-platform by construction.
+- **Spawning `vite preview` as a separate child process** — rejected: the
+  in-process `PreviewServer` dies with the orchestrator; no process-tree kill
+  problem, no squatter on 4173 after Ctrl+C.
+- **`strictPort: false` (silent port bump)** — rejected: risks verifying a
+  stale server or a drifted URL; a held 4173 must fail fast naming the port.
+- **`tsc --noEmit` inside verify** — rejected (made an explicit decision at
+  Sound's insistence): the gates stay orthogonal; verify is a render smoke,
+  not a second compile gate.
+- **Polling the root URL, or accepting any HTTP status as "ready"** —
+  rejected: that is precisely the 404-false-green this issue exists to kill;
+  only 2xx at the full base URL counts.
+- **Touching `scripts/verify-game.mjs`** (its 5173 default, flags, verdict) —
+  rejected as #132's territory; the orchestrator always passes the resolved
+  URL explicitly instead.
+- **Orchestrator CLI flags / argv pass-through / retries / modes** —
+  rejected: scope freeze; one behaviour, no mode flags.
+- **`process.exit()` in `finally`** — rejected: it truncates buffered verdict
+  output and skips teardown ordering; `process.exitCode` instead.
+- **A survivable per-frame error as the AC4 fault injection** — rejected: the
+  smoke's failure predicate would still print `VERIFY OK`; only a BOOT-FATAL
+  throw during world construction (no `window.advanceTime`, `enterWorld`
+  rejects) proves the failure path.
+
 ## V5 — BOOT-FATAL fault-injection proof (AC4)
 
 **Claim under test:** when the app genuinely fails to boot, `npm run verify`
@@ -343,3 +451,22 @@ changed.
 | Glob cannot sweep `verify-game.mjs` (structural + `vitest list`) | PASS |
 | `npm test` exit 0 | PASS |
 | `npm run build` exit 0 | PASS |
+
+## Needs verification — Windows execution (explicit caveat)
+
+**True Windows execution of `npm run verify` is unproven.** No Windows runner
+exists in this project — every transcript above ran on macOS (Darwin), and CI
+has no Windows job. Per the charter's "never a silent pass" rule this is
+recorded as a needs-verification gap, not claimed as covered.
+
+What the design does about it: the platform surface is minimized by
+construction. The build and preview run in-process through Vite's JS API (no
+`npm.cmd` wrapper child, no shell chaining, no process-tree kill needed for
+teardown — `server.close()` is a function call), and the only child process is
+a single `spawn(process.execPath, [script, url])` with array arguments — the
+one spawn shape Node guarantees cross-platform without a shell. The remaining
+untested residue is Windows-specific socket/signal behaviour (e.g. SIGINT
+handler semantics under cmd.exe), which no macOS transcript can stand in for.
+
+If a Windows environment becomes available, the check is one command:
+`npm run verify` → expect `VERIFY OK`, exit 0, and port 4173 free afterwards.
