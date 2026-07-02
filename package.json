@@ -12,6 +12,7 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest run",
+    "verify": "node scripts/verify.mjs",
     "lint": "eslint .",
     "check:bundle": "vite-node scripts/check-bundle-size.mjs",
     "check:social": "vite-node scripts/check-social-meta.mjs",

@@ -37,8 +37,10 @@ export default defineConfig(({ command, isPreview }) => ({
     environment: "jsdom",
     setupFiles: ["./src/setupTests.ts"],
     // Unit tests live beside the source. Browser-driven verification
-    // (scripts/verify-game.mjs) is run separately and must not be swept here.
-    include: ["src/**/*.{test,spec}.{ts,tsx}"],
+    // (scripts/verify-game.mjs) is run separately and must not be swept here —
+    // the scripts/verify/ glob only matches the verify orchestrator's pure,
+    // headless helper tests, never verify-game.mjs itself.
+    include: ["src/**/*.{test,spec}.{ts,tsx}", "scripts/verify/*.test.mjs"],
     // Keep vitest's defaults (node_modules, dist, …) AND skip any git
     // worktrees checked out under the repo. Stray worktrees carry their own
     // (often broken) node_modules and test files; sweeping them produces
