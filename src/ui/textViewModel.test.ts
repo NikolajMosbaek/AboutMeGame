@@ -74,6 +74,23 @@ describe("splitBodySegments", () => {
     expect(segments.filter((s) => s.emphasized)).toHaveLength(1);
   });
 
+  it("warns exactly once when a non-empty emphasis shares nothing with the body", () => {
+    const segments = splitBodySegments("abc", "zzz");
+    expect(segments).toEqual([{ text: "abc", emphasized: false }]);
+    expectConcatEquals(segments, "abc");
+    expect(warn).toHaveBeenCalledTimes(1);
+    // Mirrors parseInteraction's coerce convention (contentModel.ts): a
+    // "content:"-prefixed dev-time warn, visible but never fatal.
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("content:"));
+  });
+
+  it("takes the empty-string fallback with zero warn calls", () => {
+    const segments = splitBodySegments("abc", "");
+    expect(segments).toEqual([{ text: "abc", emphasized: false }]);
+    expectConcatEquals(segments, "abc");
+    expect(warn).not.toHaveBeenCalled();
+  });
+
   it("falls back to one unemphasized full-body segment WITH a warn when a non-empty emphasis is not found verbatim", () => {
     const body = "aaa BBB ccc";
     // Case differs — no trimming, case folding, or normalization: verbatim or fallback.
