@@ -27,6 +27,33 @@ describe("TextView", () => {
     });
   });
 
+  it("renders each authored teaser as a lede preceding the body", () => {
+    render(<TextView onBack={() => {}} />);
+    const { pois } = loadContent();
+    const articles = screen.getAllByRole("article");
+    const ordered = [...pois].sort((a, b) => a.order - b.order);
+
+    // Sanity: the claim below must not pass vacuously.
+    expect(ordered.filter((p) => p.teaser !== "").length).toBeGreaterThan(0);
+
+    ordered.forEach((poi, i) => {
+      if (poi.teaser === "") return; // the lede is conditional on an authored teaser
+      // Scope every query to the article — the page header's .text-view__lede
+      // is a collision hazard; never query lede classes globally.
+      const article = articles[i];
+      const teaser = article.querySelector("p.text-view__lede-teaser");
+      expect(teaser).not.toBeNull();
+      expect(teaser!.textContent).toBe(poi.teaser);
+
+      // "Between the h2 and the body" is an ORDER claim, not just presence:
+      // the teaser must PRECEDE the body paragraph in document order.
+      const body = article.querySelector(".text-view__body")!;
+      expect(
+        teaser!.compareDocumentPosition(body) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    });
+  });
+
   it("has a single top-level page heading", () => {
     render(<TextView onBack={() => {}} />);
     expect(screen.getByRole("heading", { level: 1 })).toBeInTheDocument();

@@ -50,6 +50,9 @@ export function TextView({ onBack }: TextViewProps) {
           <h2 id={`tv-${row.id}`} className="text-view__entry-title">
             {row.title}
           </h2>
+          {/* Approach teaser as the article's lede — deliberately NOT part of
+              aria-labelledby: the h2 alone stays the accessible name. */}
+          {row.teaser !== "" && <p className="text-view__lede-teaser">{row.teaser}</p>}
           {/* ONE paragraph, children from a single JSX expression — no stray
               whitespace text nodes, so the paragraph's textContent stays
               byte-equal to the POI body (the selector's lossless invariant)
