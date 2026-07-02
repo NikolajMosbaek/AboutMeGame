@@ -271,3 +271,75 @@ Reverted: `git status --short` empty, `git diff HEAD | wc -l` → 0.
 
 `npm test`: 102 files, 980 passed / 1 skipped. Working tree clean at
 `b1c6c25`; no product or script files changed by this review.
+
+## V7 — Scope-freeze and gates audit
+
+Date: 2026-07-02, branch tip `715ff32`, clean working tree. Auditor lens: the
+diff against `main` must contain exactly the converged design's files and
+nothing from the frozen surfaces.
+
+### Frozen surfaces — zero-line diffs
+
+```
+git diff main -- scripts/verify-game.mjs .github/workflows .claude
+```
+
+→ **empty output, exit 0.** The verifier's pass/fail semantics, defaults and
+CLI are untouched (#132's territory), no CI workflow changed (#134's
+territory), and no `.claude/` harness file was touched.
+
+### Full diff surface vs `main` (`git diff main --stat`)
+
+| File | Change | In design? |
+| --- | --- | --- |
+| `scripts/verify.mjs` | +140 (new orchestrator) | yes (NEW) |
+| `scripts/verify/lib.mjs` | +76 (pure helpers) | yes (NEW) |
+| `scripts/verify/lib.test.mjs` | +101 (headless tests) | yes (NEW) |
+| `package.json` | +1: `"verify": "node scripts/verify.mjs"` | yes (one script) |
+| `.gitignore` | +1: `scratchpad-shot.png` | yes (one line) |
+| `vite.config.ts` | +1 include glob, ±3 comment lines (below) | yes (one glob) |
+| `docs/team/runs/2026-07-02-verify-orchestrator-133.md` | +273 (this log) | yes (audit trail) |
+
+Nothing else — no `src/` change survives (V5/V6 fault injections reverted to
+zero-line diffs, transcripts above).
+
+### vite.config.ts — the one-glob check, verbatim
+
+The only functional change is the single include entry:
+
+```diff
+-    include: ["src/**/*.{test,spec}.{ts,tsx}"],
++    include: ["src/**/*.{test,spec}.{ts,tsx}", "scripts/verify/*.test.mjs"],
+```
+
+plus the amendment of the adjacent comment so it stays truthful — it still
+states that `scripts/verify-game.mjs` "must not be swept here" and now
+documents why the new glob cannot sweep it. Recorded honestly: the diff is
+one include line **and** its documenting comment; no other key of the config
+changed.
+
+**The glob cannot sweep the verifier** — structurally
+(`scripts/verify/*.test.mjs` requires the `scripts/verify/` directory and a
+`.test.mjs` suffix; `scripts/verify-game.mjs` has neither) and empirically:
+`npx vitest list` shows all 10 `scripts/verify/lib.test.mjs` tests
+(5 × `resolveVerifyUrl`, 4 × `waitForReady`) and **zero** entries matching
+`verify-game`.
+
+### Gates
+
+| Gate | Result |
+| --- | --- |
+| `npm test` | **exit 0** — 102 files passed, 980 passed / 1 skipped |
+| `npm run build` (`tsc --noEmit && vite build`) | **exit 0** — `✓ built in 653ms` |
+
+### V7 verdict
+
+| Check | Result |
+| --- | --- |
+| `scripts/verify-game.mjs` zero-line diff vs `main` | PASS |
+| No `.github/workflows` changes | PASS |
+| No `.claude/` or harness files touched | PASS |
+| `vite.config.ts` = one include glob (+ truthful comment), nothing else | PASS |
+| Glob cannot sweep `verify-game.mjs` (structural + `vitest list`) | PASS |
+| `npm test` exit 0 | PASS |
+| `npm run build` exit 0 | PASS |
