@@ -69,6 +69,22 @@ export function TextView({ onBack }: TextViewProps) {
               ),
             )}
           </p>
+          {/* The guess takeaway, data-driven: rendered iff the row carries an
+              answerReveal. role="note" + the visible <strong> label (wired via
+              a per-POI-unique id) announce it as labelled content, never a
+              control — nothing focusable, no disclosure pattern. The label
+              says "The takeaway", not "Answer": the quiz prompt never renders
+              in this view, so an answer-labelled block would be an orphaned
+              reference. */}
+          {row.answerReveal !== undefined && (
+            <p
+              className="text-view__callout"
+              role="note"
+              aria-labelledby={`tv-${row.id}-reveal`}
+            >
+              <strong id={`tv-${row.id}-reveal`}>The takeaway:</strong> {row.answerReveal}
+            </p>
+          )}
           {row.tags.length > 0 && (
             <ul className="text-view__tags" aria-label="Tags">
               {row.tags.map((tag) => (

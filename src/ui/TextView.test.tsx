@@ -89,6 +89,52 @@ describe("TextView", () => {
     expect(body.textContent).toBe(poi.body);
   });
 
+  it("renders 'The takeaway' callout iff the POI carries an answerReveal — across all 13 articles", () => {
+    render(<TextView onBack={() => {}} />);
+    const { pois } = loadContent();
+    const articles = screen.getAllByRole("article");
+    const ordered = [...pois].sort((a, b) => a.order - b.order);
+
+    // Sanity, non-vacuous: today exactly these two guess POIs carry a reveal.
+    // If content authoring changes, this pins WHERE the iff-rule is exercised.
+    const withReveal = ordered.filter(
+      (p) => p.interaction.type === "guess" && p.interaction.answerReveal !== undefined,
+    );
+    expect(withReveal.map((p) => p.id).sort()).toEqual([
+      "poi-force-push-dam",
+      "poi-staff-engineer-gate",
+    ]);
+
+    ordered.forEach((poi, i) => {
+      const article = articles[i];
+      const reveal =
+        poi.interaction.type === "guess" ? poi.interaction.answerReveal : undefined;
+
+      if (reveal === undefined) {
+        // The iff-rule's negative half: no note role anywhere else.
+        expect(within(article).queryByRole("note")).toBeNull();
+        return;
+      }
+
+      // Headless proxy for "announced by AT as labelled content, not a
+      // control" (jsdom cannot prove real AT behavior): accessible role
+      // note + resolved accessible name + zero interactive roles inside.
+      const callout = within(article).getByRole("note", { name: /takeaway/i });
+      expect(callout.className).toContain("text-view__callout");
+      expect(callout.textContent).toContain(reveal);
+
+      // The callout sits AFTER the body in document order.
+      const body = article.querySelector(".text-view__body")!;
+      expect(
+        body.compareDocumentPosition(callout) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+
+      // Nothing focusable, no disclosure pattern.
+      expect(within(callout).queryAllByRole("button")).toHaveLength(0);
+      expect(within(callout).queryAllByRole("link")).toHaveLength(0);
+    });
+  });
+
   it("wires the Back control(s)", () => {
     const onBack = vi.fn();
     render(<TextView onBack={onBack} />);
