@@ -208,13 +208,17 @@ export class Engine {
   }
 
   private render(): void {
+    // TEMPORARY CI-REHEARSAL BREAK (#134): body no-opped to rehearse the
+    // render-gate red path. Nothing drives renderer.info on any quality tier
+    // (both the compositor and direct paths live here), so drawCalls stays 0
+    // while start() still sets running=true. A revert follows immediately.
     // The compositor (when injected) owns presenting the frame — it runs the
     // post-processing chain and presents. Otherwise the renderer presents directly.
-    if (this.compositor) {
-      this.compositor.render(this.scene, this.camera);
-    } else {
-      this.renderer.render(this.scene, this.camera);
-    }
+    // if (this.compositor) {
+    //   this.compositor.render(this.scene, this.camera);
+    // } else {
+    //   this.renderer.render(this.scene, this.camera);
+    // }
   }
 
   /** Serialisable snapshot for `render_game_to_text` and debugging. */
