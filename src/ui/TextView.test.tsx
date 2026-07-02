@@ -18,8 +18,12 @@ describe("TextView", () => {
       const article = articles[i];
       // The title is a heading inside the article…
       expect(within(article).getByRole("heading", { name: new RegExp(escapeRe(poi.title)) })).toBeInTheDocument();
-      // …and the full body text is present (not just the teaser).
-      expect(within(article).getByText(poi.body)).toBeInTheDocument();
+      // …and the body paragraph's text is byte-equal to poi.body — exact
+      // equality, no normalizer, no substring. This ports the view-model's
+      // lossless invariant (segments join back to the body, \n breaks intact)
+      // into the DOM. If this ever fails, fix the selector
+      // (src/ui/textViewModel.ts), not this assertion.
+      expect(article.querySelector(".text-view__body")!.textContent).toBe(poi.body);
     });
   });
 
