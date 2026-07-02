@@ -945,11 +945,41 @@ body {
   margin: 0 0 var(--space-2);
   font-size: clamp(1.4rem, 4vw, 2rem);
 }
+.text-view__lede-teaser {
+  /* Deck/standfirst: the approach teaser as an intentional per-article lede,
+     visually distinct from the body (italic, a touch larger). The 0.88 floor
+     keeps --color-fg on --color-bg (16.9:1) comfortably past 4.5:1. */
+  margin: 0 0 var(--space-2);
+  font-size: 1.15rem;
+  font-style: italic;
+  opacity: 0.88;
+}
 .text-view__body {
   margin: 0 0 var(--space-2);
   font-size: 1.05rem;
   line-height: 1.7;
   white-space: pre-line; /* honour paragraph breaks in the source body text */
+}
+.text-view__emphasis {
+  /* Native <mark> ships a UA yellow-on-black default — a contrast regression
+     on the dark theme unless BOTH paints are re-declared from tokens (the
+     accent pair holds 12.2:1). The weight shift keeps the distinction from
+     being color-alone (WCAG 1.4.1). */
+  background: var(--color-accent);
+  color: var(--color-accent-fg);
+  font-weight: 600;
+  padding: 0 0.15em;
+  border-radius: 0.2rem;
+}
+.text-view__callout {
+  /* The guess takeaway: a bordered/inset note set off from the body. Its
+     visible label relies on semantic bold defaults — no descendant rule. */
+  margin: 0 0 var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border-left: 3px solid var(--color-accent);
+  border-radius: 0 0.4rem 0.4rem 0;
+  background: rgba(255, 255, 255, 0.06);
+  line-height: 1.6;
 }
 .text-view__tags {
   display: flex;

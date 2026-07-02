@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { TextView } from "./TextView.tsx";
@@ -169,6 +171,81 @@ describe("TextView", () => {
     expect(backs.length).toBeGreaterThanOrEqual(1);
     fireEvent.click(backs[0]);
     expect(onBack).toHaveBeenCalledOnce();
+  });
+});
+
+describe("TextView styling (src/tokens.css)", () => {
+  // jsdom cannot compute CSS, so these checks are STATIC: read the shipped
+  // stylesheet and pin its structure. Visual verification (mark contrast on
+  // the dark theme, lede hierarchy) is explicitly deferred to the UX review
+  // gate of the running build.
+  const css = readFileSync(resolve(process.cwd(), "src/tokens.css"), "utf8");
+  // The .text-view block runs from its section banner to the next section.
+  const block = css.slice(
+    css.indexOf("/* ----- Text-based / fallback content view"),
+    css.indexOf("@keyframes overlay-rise"),
+  );
+  // Strip comments before collecting selectors — prose mentions of class
+  // names (e.g. the scroll-padding note naming .text-view__footer) must not
+  // count as rules.
+  const stripped = block.replace(/\/\*[\s\S]*?\*\//g, "");
+
+  it("extends the .text-view block with exactly the three new rules — lede-teaser, emphasis, callout", () => {
+    expect(block.length).toBeGreaterThan(0);
+
+    const names = new Set(
+      [...stripped.matchAll(/\.text-view__([a-z-]+)/g)].map((m) => m[1]),
+    );
+    // The pre-existing eleven selectors plus EXACTLY the three this slice
+    // introduces — an honest rule count: no fourth rule sneaks in, none of
+    // the three lands outside the block.
+    expect([...names].sort()).toEqual(
+      [
+        "back",
+        "body",
+        "callout",
+        "emphasis",
+        "entry",
+        "entry-title",
+        "eyebrow",
+        "footer",
+        "header",
+        "lede",
+        "lede-teaser",
+        "tag",
+        "tags",
+        "title",
+      ].sort(),
+    );
+
+    // The callout's <strong> label uses semantic bold defaults — a descendant
+    // selector would be a fourth rule by honest count.
+    expect(css).not.toMatch(/\.text-view__callout\s+strong/);
+  });
+
+  it(".text-view__emphasis overrides BOTH UA <mark> paints from tokens and shifts weight (WCAG 1.4.1)", () => {
+    const rule = /\.text-view__emphasis\s*\{([^}]*)\}/.exec(stripped);
+    expect(rule).not.toBeNull();
+    const body = rule![1];
+    // The UA default for <mark> is yellow-on-black — a dark-theme contrast
+    // regression unless BOTH paint properties are re-declared from tokens.
+    expect(body).toMatch(/background(?:-color)?:\s*var\(--/);
+    expect(body).toMatch(/(?:^|[\s;{])color:\s*var\(--/);
+    // …and the distinction must not be color-alone.
+    expect(body).toMatch(/font-weight:/);
+  });
+
+  it(".text-view__lede-teaser reads as a deck, .text-view__callout as a bordered note", () => {
+    const teaser = /\.text-view__lede-teaser\s*\{([^}]*)\}/.exec(stripped);
+    expect(teaser).not.toBeNull();
+    // If the deck treatment dims the teaser, it must hold ≥ 0.85 so --color-fg
+    // on --color-bg (16.9:1) stays comfortably past 4.5:1.
+    const opacity = /opacity:\s*([\d.]+)/.exec(teaser![1]);
+    if (opacity) expect(parseFloat(opacity[1])).toBeGreaterThanOrEqual(0.85);
+
+    const callout = /\.text-view__callout\s*\{([^}]*)\}/.exec(stripped);
+    expect(callout).not.toBeNull();
+    expect(callout![1]).toMatch(/border/);
   });
 });
 
