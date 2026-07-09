@@ -727,7 +727,7 @@ async function raiseCompletionPanel(page, problems, label) {
       opened = true;
       break;
     }
-    const pos = state?.systems?.vehicle?.pos;
+    const pos = state?.systems?.explorer?.pos;
     const dist = Array.isArray(pos)
       ? Math.hypot(pos[0] - FINAL_POI.x, pos[1] - FINAL_POI.z)
       : Infinity;

@@ -1,10 +1,10 @@
 import type { Engine } from "../engine/Engine.ts";
 import type { System, FrameContext } from "../engine/types.ts";
-import type { World } from "../world/buildWorld.ts";
+import type { World, ReducedMotionSource } from "../world/buildWorld.ts";
 import type { GameSession } from "../gameSession.ts";
 import { createPlayerInput, type PlayerInputController } from "./input.ts";
 import { ExplorerSystem } from "./explorer.ts";
-import { FirstPersonCameraSystem, type MotionSource } from "./fpCamera.ts";
+import { FirstPersonCameraSystem } from "./fpCamera.ts";
 
 export interface Player {
   input: PlayerInputController;
@@ -24,12 +24,19 @@ export function buildPlayer(
   world: World,
   overlay: HTMLElement,
   session: GameSession,
-  motion?: MotionSource,
+  motion?: ReducedMotionSource,
 ): Player {
-  const input = createPlayerInput(overlay);
+  const input = createPlayerInput(overlay, undefined, () => !session.paused);
   engine.addSystem(new InputPollSystem(input, session));
 
-  const explorer = new ExplorerSystem(input, world.terrain, world.boundaries, { x: 0, z: 0, yaw: 0 }, session);
+  const explorer = new ExplorerSystem(
+    input,
+    world.terrain,
+    world.boundaries,
+    world.waterDepthAt,
+    { x: 0, z: 0, yaw: 0 },
+    session,
+  );
   engine.addSystem(explorer);
 
   engine.addSystem(new FirstPersonCameraSystem(engine, explorer, motion));
@@ -38,19 +45,18 @@ export function buildPlayer(
 }
 
 /** Polls all input sources once per frame, before the explorer reads them. Owns
- *  the input controller's teardown, and releases pointer lock whenever the
- *  session pauses (a panel or menu is up) so the cursor is available to it. */
+ *  the input controller's teardown. While the session is paused (a panel or
+ *  menu is up) it asks the controller to release its pointer lock so the cursor
+ *  is available — the *when* lives here, every lock transition lives in input. */
 class InputPollSystem implements System {
   readonly id = "input";
   constructor(
     private readonly input: PlayerInputController,
     private readonly session?: GameSession,
   ) {}
-  update(_ctx: FrameContext): void {
-    this.input.update();
-    if (this.session?.paused && typeof document !== "undefined" && document.pointerLockElement) {
-      document.exitPointerLock?.();
-    }
+  update(ctx: FrameContext): void {
+    this.input.update(ctx.dt);
+    if (this.session?.paused) this.input.releasePointerLock();
   }
   describe(): Record<string, unknown> {
     return { touch: this.input.touchActive };

@@ -2,41 +2,9 @@ import { describe, expect, it } from "vitest";
 import * as THREE from "three";
 import { FirstPersonCameraSystem } from "./fpCamera.ts";
 import { ExplorerSystem, TUNE } from "./explorer.ts";
-import type { PlayerInputSnapshot, MoveState, LookDelta } from "./input.ts";
-import type { Terrain } from "../world/terrain.ts";
-import type { Boundaries } from "../world/boundaries.ts";
 import type { Engine } from "../engine/Engine.ts";
-import type { FrameContext } from "../engine/types.ts";
+import { FRAME as ctx, fakeInput, fakeTerrain as flat, openBounds as open, noWater } from "./testDoubles.ts";
 
-const ctx: FrameContext = {
-  scene: new THREE.Scene(),
-  camera: new THREE.PerspectiveCamera(),
-  dt: 1 / 60,
-  elapsed: 0,
-};
-
-function fakeInput() {
-  const state: MoveState = { moveX: 0, moveZ: 0, sprint: false };
-  const look: LookDelta = { dx: 0, dy: 0 };
-  const snap: PlayerInputSnapshot = {
-    state,
-    consumeLook: () => {
-      const d = { ...look };
-      look.dx = 0;
-      look.dy = 0;
-      return d;
-    },
-    consumeInteract: () => false,
-  };
-  return { snap, state, look };
-}
-
-function flat(height = 0): Terrain {
-  return { heightAt: () => height } as unknown as Terrain;
-}
-function open(): Boundaries {
-  return { clampToBounds: () => {} } as unknown as Boundaries;
-}
 function fakeEngine() {
   return { camera: new THREE.PerspectiveCamera() } as unknown as Engine;
 }
@@ -48,7 +16,7 @@ function motion(reducedMotion: boolean) {
 describe("FirstPersonCameraSystem (pivot slice B)", () => {
   it("puts the eye at eye height above the feet when standing still", () => {
     const engine = fakeEngine();
-    const explorer = new ExplorerSystem(fakeInput().snap, flat(5), open(), { x: 2, z: 3 });
+    const explorer = new ExplorerSystem(fakeInput().snap, flat(5), open(), noWater(), { x: 2, z: 3 });
     const cam = new FirstPersonCameraSystem(engine, explorer);
     explorer.update(ctx);
     cam.update(ctx);
@@ -60,7 +28,7 @@ describe("FirstPersonCameraSystem (pivot slice B)", () => {
   it("faces the camera along the explorer's ground forward", () => {
     const engine = fakeEngine();
     const input = fakeInput();
-    const explorer = new ExplorerSystem(input.snap, flat(0), open(), { x: 0, z: 0, yaw: 0 });
+    const explorer = new ExplorerSystem(input.snap, flat(0), open(), noWater(), { x: 0, z: 0, yaw: 0 });
     const cam = new FirstPersonCameraSystem(engine, explorer);
     explorer.update(ctx);
     cam.update(ctx);
@@ -69,18 +37,18 @@ describe("FirstPersonCameraSystem (pivot slice B)", () => {
     expect(fwd.z).toBeCloseTo(1, 3);
     expect(Math.abs(fwd.x)).toBeLessThan(1e-3);
 
-    input.look.dx = Math.PI / 2; // turn right (east = +X)
+    input.look.dx = Math.PI / 2; // device "turn right": facing +Z (south), right is west = -X
     explorer.update(ctx);
     cam.update(ctx);
     const fwd2 = new THREE.Vector3(0, 0, -1).applyQuaternion(engine.camera.quaternion);
-    expect(fwd2.x).toBeCloseTo(1, 3);
+    expect(fwd2.x).toBeCloseTo(-1, 3);
   });
 
   it("bobs the head while walking and holds steady when reduced motion is on", () => {
     const walkedHeights = (reduced: boolean) => {
       const engine = fakeEngine();
       const input = fakeInput();
-      const explorer = new ExplorerSystem(input.snap, flat(0), open(), { x: 0, z: 0 });
+      const explorer = new ExplorerSystem(input.snap, flat(0), open(), noWater(), { x: 0, z: 0 });
       const cam = new FirstPersonCameraSystem(engine, explorer, motion(reduced));
       input.state.moveZ = 1;
       const ys: number[] = [];

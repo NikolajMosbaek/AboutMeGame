@@ -1,63 +1,26 @@
 import { describe, expect, it } from "vitest";
 import * as THREE from "three";
-import { ExplorerSystem, TUNE } from "./explorer.ts";
-import type { PlayerInputSnapshot, MoveState, LookDelta } from "./input.ts";
-import type { Terrain } from "../world/terrain.ts";
+import { ExplorerSystem, TUNE, forwardXZFromYaw, rightXZFromYaw, compassDegFromYaw } from "./explorer.ts";
 import type { Boundaries } from "../world/boundaries.ts";
 import { createSession } from "../gameSession.ts";
-import type { FrameContext } from "../engine/types.ts";
+import { FRAME, fakeInput, fakeTerrain, openBounds, seaLevelWater, noWater } from "./testDoubles.ts";
 import { WORLD } from "../world/worldConfig.ts";
 
-const ctx: FrameContext = {
-  scene: new THREE.Scene(),
-  camera: new THREE.PerspectiveCamera(),
-  dt: 1 / 60,
-  elapsed: 0,
-};
-
-/** A scripted input: tests write `state`/`look`/`interact` directly. */
-function fakeInput() {
-  const state: MoveState = { moveX: 0, moveZ: 0, sprint: false };
-  const look: LookDelta = { dx: 0, dy: 0 };
-  const snap: PlayerInputSnapshot = {
-    state,
-    consumeLook: () => {
-      const d = { ...look };
-      look.dx = 0;
-      look.dy = 0;
-      return d;
-    },
-    consumeInteract: () => false,
-  };
-  return { snap, state, look };
-}
-
-/** Flat terrain at a fixed height, with optional overrides per region. */
-function flatTerrain(height = 5, heightAt?: (x: number, z: number) => number): Terrain {
-  return {
-    heightAt: heightAt ?? (() => height),
-    mesh: undefined,
-  } as unknown as Terrain;
-}
-
-function openBounds(): Boundaries {
-  return { clampToBounds: () => {} } as unknown as Boundaries;
-}
-
 function run(sys: ExplorerSystem, frames: number) {
-  for (let i = 0; i < frames; i++) sys.update(ctx);
+  for (let i = 0; i < frames; i++) sys.update(FRAME);
 }
 
 describe("ExplorerSystem (pivot slice B)", () => {
   it("spawns with feet on the terrain", () => {
-    const sys = new ExplorerSystem(fakeInput().snap, flatTerrain(7), openBounds(), { x: 3, z: 4 });
+    const t = fakeTerrain(7);
+    const sys = new ExplorerSystem(fakeInput().snap, t, openBounds(), noWater(), { x: 3, z: 4 });
     expect(sys.state.position.y).toBe(7);
-    expect(sys.state.mode).toBe("walk");
   });
 
   it("walks forward along +Z at walk speed when facing yaw 0", () => {
     const input = fakeInput();
-    const sys = new ExplorerSystem(input.snap, flatTerrain(0), openBounds(), { x: 0, z: 0, yaw: 0 });
+    const t = fakeTerrain(0);
+    const sys = new ExplorerSystem(input.snap, t, openBounds(), noWater(), { x: 0, z: 0, yaw: 0 });
     input.state.moveZ = 1;
     run(sys, 120); // 2 s — plenty to reach cruise
     const s = sys.state;
@@ -70,7 +33,7 @@ describe("ExplorerSystem (pivot slice B)", () => {
 
   it("sprints faster than walking, and reports it", () => {
     const input = fakeInput();
-    const sys = new ExplorerSystem(input.snap, flatTerrain(0), openBounds(), { x: 0, z: 0 });
+    const sys = new ExplorerSystem(input.snap, fakeTerrain(0), openBounds(), noWater(), { x: 0, z: 0 });
     input.state.moveZ = 1;
     input.state.sprint = true;
     run(sys, 120);
@@ -80,7 +43,7 @@ describe("ExplorerSystem (pivot slice B)", () => {
 
   it("sprint held with no movement is not sprinting", () => {
     const input = fakeInput();
-    const sys = new ExplorerSystem(input.snap, flatTerrain(0), openBounds(), { x: 0, z: 0 });
+    const sys = new ExplorerSystem(input.snap, fakeTerrain(0), openBounds(), noWater(), { x: 0, z: 0 });
     input.state.sprint = true;
     run(sys, 10);
     expect(sys.state.sprinting).toBe(false);
@@ -89,33 +52,30 @@ describe("ExplorerSystem (pivot slice B)", () => {
 
   it("look deltas turn the view and clamp pitch", () => {
     const input = fakeInput();
-    const sys = new ExplorerSystem(input.snap, flatTerrain(0), openBounds(), { x: 0, z: 0, yaw: 0 });
-    input.look.dx = Math.PI / 2; // quarter turn right
-    sys.update(ctx);
-    expect(sys.state.yaw).toBeCloseTo(Math.PI / 2, 5);
+    const sys = new ExplorerSystem(input.snap, fakeTerrain(0), openBounds(), noWater(), { x: 0, z: 0, yaw: 0 });
+    input.look.dx = Math.PI / 2; // quarter turn right (yaw is CCW-positive, so it decreases)
+    sys.update(FRAME);
+    expect(sys.state.yaw).toBeCloseTo(-Math.PI / 2, 5);
 
     input.look.dy = 10; // an absurd downward drag…
-    sys.update(ctx);
+    sys.update(FRAME);
     expect(sys.state.pitch).toBe(-TUNE.maxPitch); // …clamps, never flips
-
-    // The nose follows yaw/pitch and stays unit length.
-    expect(sys.state.nose.length()).toBeCloseTo(1, 5);
   });
 
-  it("strafe moves perpendicular to the view", () => {
+  it("strafe right moves along the camera's screen-right (-X when facing +Z)", () => {
     const input = fakeInput();
-    const sys = new ExplorerSystem(input.snap, flatTerrain(0), openBounds(), { x: 0, z: 0, yaw: 0 });
-    input.state.moveX = 1; // strafe right while facing +Z
+    const sys = new ExplorerSystem(input.snap, fakeTerrain(0), openBounds(), noWater(), { x: 0, z: 0, yaw: 0 });
+    input.state.moveX = 1; // strafe right while facing +Z (south) → west = -X
     run(sys, 60);
-    expect(sys.state.position.x).toBeGreaterThan(2);
+    expect(sys.state.position.x).toBeLessThan(-2);
     expect(Math.abs(sys.state.position.z)).toBeLessThan(1e-6);
   });
 
   it("refuses steps up a cliff (grade beyond slopeBlockGrade)", () => {
     const input = fakeInput();
     // A wall at z >= 2: instant +50 m rise.
-    const terrain = flatTerrain(0, (_x, z) => (z >= 2 ? 50 : 0));
-    const sys = new ExplorerSystem(input.snap, terrain, openBounds(), { x: 0, z: 0, yaw: 0 });
+    const t = fakeTerrain(0, (_x, z) => (z >= 2 ? 50 : 0));
+    const sys = new ExplorerSystem(input.snap, t, openBounds(), noWater(), { x: 0, z: 0, yaw: 0 });
     input.state.moveZ = 1;
     run(sys, 240); // 4 s of pushing at the wall
     expect(sys.state.position.z).toBeLessThan(2); // never climbed it
@@ -124,8 +84,8 @@ describe("ExplorerSystem (pivot slice B)", () => {
   it("slows but passes a moderate uphill", () => {
     const input = fakeInput();
     // A steady 30% grade — hikeable.
-    const terrain = flatTerrain(0, (_x, z) => Math.max(0, z) * 0.3);
-    const sys = new ExplorerSystem(input.snap, terrain, openBounds(), { x: 0, z: 0, yaw: 0 });
+    const t = fakeTerrain(0, (_x, z) => Math.max(0, z) * 0.3);
+    const sys = new ExplorerSystem(input.snap, t, openBounds(), noWater(), { x: 0, z: 0, yaw: 0 });
     input.state.moveZ = 1;
     run(sys, 120);
     expect(sys.state.position.z).toBeGreaterThan(4); // still makes progress
@@ -135,10 +95,10 @@ describe("ExplorerSystem (pivot slice B)", () => {
   it("wades slowly through shallow water and refuses deep water", () => {
     const input = fakeInput();
     // Ground dips below sea level past z=0: -0.6 m (wade) then -3 m (deep) past z=6.
-    const terrain = flatTerrain(0, (_x, z) =>
+    const t = fakeTerrain(0, (_x, z) =>
       z < 0 ? 1 : z < 6 ? WORLD.seaLevel - 0.6 : WORLD.seaLevel - 3,
     );
-    const sys = new ExplorerSystem(input.snap, terrain, openBounds(), { x: 0, z: 2, yaw: 0 });
+    const sys = new ExplorerSystem(input.snap, t, openBounds(), seaLevelWater(t), { x: 0, z: 2, yaw: 0 });
     input.state.moveZ = 1;
     run(sys, 60);
     expect(sys.state.wading).toBe(true);
@@ -153,7 +113,7 @@ describe("ExplorerSystem (pivot slice B)", () => {
   it("holds still and drains look while the session is paused", () => {
     const input = fakeInput();
     const session = createSession();
-    const sys = new ExplorerSystem(input.snap, flatTerrain(0), openBounds(), { x: 0, z: 0 }, session);
+    const sys = new ExplorerSystem(input.snap, fakeTerrain(0), openBounds(), noWater(), { x: 0, z: 0 }, session);
     input.state.moveZ = 1;
     run(sys, 60);
     const before = sys.state.position.clone();
@@ -162,11 +122,12 @@ describe("ExplorerSystem (pivot slice B)", () => {
     session.setPaused("menu", true);
     input.look.dx = 2; // a big drag behind the menu
     run(sys, 30);
-    expect(sys.state.position).toEqual(before);
+    expect(sys.state.position.x).toBe(before.x);
+    expect(sys.state.position.z).toBe(before.z);
     expect(sys.state.speed).toBe(0);
 
     session.setPaused("menu", false);
-    sys.update(ctx);
+    sys.update(FRAME);
     // The drag from behind the menu was drained, not applied on resume.
     expect(sys.state.yaw).toBeCloseTo(yawBefore, 5);
   });
@@ -178,9 +139,39 @@ describe("ExplorerSystem (pivot slice B)", () => {
         p.x = Math.min(p.x, 10);
       },
     } as unknown as Boundaries;
-    const sys = new ExplorerSystem(input.snap, flatTerrain(0), clamped, { x: 8, z: 0, yaw: Math.PI / 2 });
+    const sys = new ExplorerSystem(input.snap, fakeTerrain(0), clamped, noWater(), { x: 8, z: 0, yaw: Math.PI / 2 });
     input.state.moveZ = 1; // facing +X
     run(sys, 300);
     expect(sys.state.position.x).toBeLessThanOrEqual(10);
+  });
+});
+
+describe("yaw convention helpers (the ONE definition)", () => {
+  it("forwardXZFromYaw: yaw 0 faces +Z, +π/2 (a CCW/left turn) faces +X, and stays unit", () => {
+    expect(forwardXZFromYaw(0)).toEqual({ x: 0, z: 1 });
+    const east = forwardXZFromYaw(Math.PI / 2);
+    expect(east.x).toBeCloseTo(1, 6);
+    expect(east.z).toBeCloseTo(0, 6);
+    const f = forwardXZFromYaw(1.234);
+    expect(Math.hypot(f.x, f.z)).toBeCloseTo(1, 6);
+  });
+
+  it("rightXZFromYaw is forward × up: facing +Z, screen-right is -X; the pair stays perpendicular", () => {
+    const r0 = rightXZFromYaw(0);
+    expect(r0.x).toBeCloseTo(-1, 6);
+    expect(r0.z).toBeCloseTo(0, 6);
+    const yaw = 0.83;
+    const f = forwardXZFromYaw(yaw);
+    const r = rightXZFromYaw(yaw);
+    expect(f.x * r.x + f.z * r.z).toBeCloseTo(0, 6); // perpendicular
+  });
+
+  it("compassDegFromYaw: yaw 0 (facing +Z) reads S=180°, facing -Z reads N=0°, facing +X reads E=90°", () => {
+    expect(compassDegFromYaw(0)).toBe(180);
+    expect(compassDegFromYaw(Math.PI)).toBeCloseTo(0, 6);
+    expect(compassDegFromYaw(Math.PI / 2)).toBeCloseTo(90, 6);
+    // Always normalised into 0..360.
+    expect(compassDegFromYaw(-7 * Math.PI)).toBeGreaterThanOrEqual(0);
+    expect(compassDegFromYaw(-7 * Math.PI)).toBeLessThan(360);
   });
 });

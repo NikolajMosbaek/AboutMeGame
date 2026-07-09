@@ -32,6 +32,15 @@ export interface CapabilityEnv {
  * is capped at "medium" no matter how many cores it reports — a phone SoC with 8
  * cores still can't carry a desktop-high render budget.
  */
+/** The one definition of "a touch device" (coarse pointer OR touch points) —
+ *  shared by the tier heuristic below and the input layer's eager touch-controls
+ *  mount, so the two can never disagree about what class of device this is.
+ *  (controlScheme.ts deliberately uses a narrower coarse-only signal for
+ *  onboarding copy — see the divergence note there.) */
+export function isTouchEnv(env: CapabilityEnv): boolean {
+  return env.coarsePointer || env.maxTouchPoints > 0;
+}
+
 export function detectTier(env: CapabilityEnv): DeviceTier {
   const cores = env.hardwareConcurrency ?? 4; // unknown ⇒ assume a modest 4
   const mem = env.deviceMemory ?? 4; // unknown ⇒ assume a modest 4 GB

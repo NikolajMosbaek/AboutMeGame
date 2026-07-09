@@ -241,35 +241,6 @@ body {
   height: 100%;
 }
 
-/* ----- Speed vignette (#53 movement feedback) ----- */
-/* A purely decorative edge-darkening overlay whose opacity is driven inline from
-   the hud speed (fx/SpeedVignette.tsx). Pointer-events off so it never eats the
-   world's input; a radial gradient so only the corners darken and the centre
-   stays clear. Non-essential motion: hidden under the OS reduced-motion query
-   (the in-game setting zeroes its opacity in JS), so both gates apply. */
-.speed-vignette {
-  position: fixed;
-  inset: 0;
-  z-index: 11; /* above the canvas, below the HUD/markers */
-  pointer-events: none;
-  background: radial-gradient(
-    ellipse at center,
-    transparent 52%,
-    rgba(10, 9, 16, 0.9) 100%
-  );
-  transition: opacity 200ms ease;
-  will-change: opacity;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .speed-vignette {
-    display: none;
-  }
-}
-:root[data-reduced-motion="true"] .speed-vignette {
-  display: none;
-}
-
 /* ----- Runtime stats overlay (#14) ----- */
 .stats-overlay {
   position: fixed;

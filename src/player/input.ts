@@ -7,12 +7,12 @@
 // per frame by the explorer (mouse movement events arrive between frames, so a
 // per-frame consume keeps rotation frame-rate independent without buffering).
 
-import { readEnv } from "../perf/deviceCapability.ts";
+import { isTouchEnv, readEnv } from "../perf/deviceCapability.ts";
 
-/** Coarse-pointer/touch capability — same single source as deviceCapability. */
+/** Coarse-pointer/touch capability — the ONE `isTouchEnv` classification the
+ *  quality tier also uses, so controls and render tier agree on device class. */
 function defaultTouchCapable(): boolean {
-  const env = readEnv();
-  return env.coarsePointer || env.maxTouchPoints > 0;
+  return isTouchEnv(readEnv());
 }
 
 export interface MoveState {
@@ -46,10 +46,16 @@ export interface PlayerInputSnapshot {
 }
 
 export interface PlayerInputController extends PlayerInputSnapshot {
-  /** Poll per-frame sources (gamepad). Call once per frame before reading. */
-  update(): void;
+  /** Poll per-frame sources (gamepad). Call once per frame, with the frame's
+   *  dt, before reading — stick-look integrates over it, so aim speed doesn't
+   *  scale with the display's refresh rate. */
+  update(dt?: number): void;
   /** Whether touch controls are active (so the HUD can adapt). */
   readonly touchActive: boolean;
+  /** Release the pointer lock iff THIS controller's overlay holds it. Every
+   *  lock transition lives in this module; callers only choose when (e.g. the
+   *  poll system releases while the session is paused so panels get a cursor). */
+  releasePointerLock(): void;
   dispose(): void;
 }
 
@@ -57,9 +63,9 @@ export interface PlayerInputController extends PlayerInputSnapshot {
 const MOUSE_SENS = 0.0022;
 /** Touch look-drag sensitivity: pixels → radians (a thumb sweep ≈ a mouse arc). */
 const TOUCH_SENS = 0.0044;
-/** Gamepad right-stick look rate, radians per polled frame at full deflection
- *  (poll is per rendered frame; at 60fps this is ~3.4 rad/s). */
-const PAD_LOOK_RATE = 0.056;
+/** Gamepad right-stick look rate at full deflection, radians per SECOND —
+ *  integrated over the polled dt so a 120 Hz display doesn't double aim speed. */
+const PAD_LOOK_RATE = 3.4;
 
 /**
  * Build the first-person input controller. `overlay` is the canvas container:
@@ -73,9 +79,16 @@ const PAD_LOOK_RATE = 0.056;
 export function createPlayerInput(
   overlay: HTMLElement,
   touchCapable: boolean = defaultTouchCapable(),
+  // The game-state gate for grabbing the mouse: buildPlayer passes "not
+  // paused", so a click inside an open panel/menu never engages the lock
+  // (engage-then-force-exit churn triggers Chrome's ~1.3s lock cooldown).
+  shouldLock: () => boolean = () => true,
 ): PlayerInputController {
   const state = zeroMove();
   const look: LookDelta = { dx: 0, dy: 0 };
+  // Handed out by consumeLook — reused, valid until the next consume (the one
+  // caller reads it immediately; per-frame allocation here is pure GC churn).
+  const lookOut: LookDelta = { dx: 0, dy: 0 };
   let interactQueued = false;
   let touchActive = false;
 
@@ -88,17 +101,26 @@ export function createPlayerInput(
     if (MOVE_KEYS.has(k)) e.preventDefault();
   };
   const onKeyUp = (e: KeyboardEvent) => keys.delete(e.key.toLowerCase());
+  // Focus leaving the window eats the matching keyups — clear the held set so
+  // W can't stay latched and auto-walk while the player is cmd-tabbed away.
+  const onBlur = () => keys.clear();
   window.addEventListener("keydown", onKeyDown);
   window.addEventListener("keyup", onKeyUp);
+  window.addEventListener("blur", onBlur);
+
+  // Written in place by readKeyboard/readGamepad each poll — update() runs at
+  // 60Hz, so these avoid two object allocations per frame.
+  const kb = { x: 0, z: 0, sprint: false };
+  const gp = { connected: false, x: 0, z: 0, sprint: false };
 
   const readKeyboard = () => {
-    let x = 0;
-    let z = 0;
-    if (keys.has("w") || keys.has("arrowup")) z += 1;
-    if (keys.has("s") || keys.has("arrowdown")) z -= 1;
-    if (keys.has("a") || keys.has("arrowleft")) x -= 1;
-    if (keys.has("d") || keys.has("arrowright")) x += 1;
-    return { x, z, sprint: keys.has("shift") };
+    kb.x = 0;
+    kb.z = 0;
+    if (keys.has("w") || keys.has("arrowup")) kb.z += 1;
+    if (keys.has("s") || keys.has("arrowdown")) kb.z -= 1;
+    if (keys.has("a") || keys.has("arrowleft")) kb.x -= 1;
+    if (keys.has("d") || keys.has("arrowright")) kb.x += 1;
+    kb.sprint = keys.has("shift");
   };
 
   // ---- Pointer-lock mouse look ----
@@ -109,6 +131,11 @@ export function createPlayerInput(
   const onPointerUp = (e: PointerEvent) => {
     if (e.pointerType === "touch") return;
     if (document.pointerLockElement) return;
+    if (!shouldLock()) return;
+    // Clicks on interactive UI inside the overlay (HUD buttons, panels) must
+    // not grab the mouse — only clicks on the world itself do.
+    const target = e.target as HTMLElement | null;
+    if (target?.closest?.("button, a, input, select, textarea, [role='dialog'], [role='menu']")) return;
     // A refused lock (headless, iframe policy, no recent gesture) is non-fatal:
     // the game stays playable and the next click simply tries again. Chrome
     // returns a promise (swallow the rejection); older engines throw instead.
@@ -141,24 +168,34 @@ export function createPlayerInput(
     touchCapable,
   );
 
-  // ---- Gamepad: left stick move, right stick look, A interact, LT/RB sprint ----
+  // ---- Gamepad: left stick move, right stick look, A interact, LT/L3 sprint ----
   const padPrev = { a: false };
-  const readGamepad = (): { x: number; z: number; sprint: boolean } | null => {
-    const pads = typeof navigator !== "undefined" && navigator.getGamepads ? navigator.getGamepads() : [];
-    const pad = pads && Array.from(pads).find((p) => p && p.connected);
-    if (!pad) return null;
-    const dz = (v: number) => (Math.abs(v) < 0.15 ? 0 : v);
-    const lx = dz(pad.axes[0] ?? 0);
-    const ly = dz(pad.axes[1] ?? 0);
-    const rx = dz(pad.axes[2] ?? 0);
-    const ry = dz(pad.axes[3] ?? 0);
-    look.dx += rx * PAD_LOOK_RATE;
-    look.dy += ry * PAD_LOOK_RATE;
+  const readGamepad = (dt: number): void => {
+    gp.connected = false;
+    const pads = typeof navigator !== "undefined" && navigator.getGamepads ? navigator.getGamepads() : null;
+    if (!pads) return;
+    let pad: Gamepad | null = null;
+    for (let i = 0; i < pads.length; i++) {
+      const p = pads[i];
+      if (p && p.connected) {
+        pad = p;
+        break;
+      }
+    }
+    if (!pad) return;
+    gp.connected = true;
+    const lx = deadzone(pad.axes[0] ?? 0);
+    const ly = deadzone(pad.axes[1] ?? 0);
+    const rx = deadzone(pad.axes[2] ?? 0);
+    const ry = deadzone(pad.axes[3] ?? 0);
+    look.dx += rx * PAD_LOOK_RATE * dt;
+    look.dy += ry * PAD_LOOK_RATE * dt;
     const a = pad.buttons[0]?.pressed ?? false;
     if (a && !padPrev.a) interactQueued = true;
     padPrev.a = a;
-    const sprint = (pad.buttons[6]?.value ?? 0) > 0.5 || (pad.buttons[10]?.pressed ?? false);
-    return { x: lx, z: -ly, sprint };
+    gp.x = lx;
+    gp.z = -ly;
+    gp.sprint = (pad.buttons[6]?.value ?? 0) > 0.5 || (pad.buttons[10]?.pressed ?? false);
   };
 
   return {
@@ -166,13 +203,13 @@ export function createPlayerInput(
     get touchActive() {
       return touchActive;
     },
-    update() {
-      const kb = readKeyboard();
-      const gp = readGamepad();
+    update(dt = 1 / 60) {
+      readKeyboard();
+      readGamepad(dt);
       const tc = touch.read();
-      let x = kb.x + (gp?.x ?? 0);
-      let z = kb.z + (gp?.z ?? 0);
-      let sprint = kb.sprint || (gp?.sprint ?? false);
+      let x = kb.x + (gp.connected ? gp.x : 0);
+      let z = kb.z + (gp.connected ? gp.z : 0);
+      let sprint = kb.sprint || (gp.connected && gp.sprint);
       if (tc.active) {
         x += tc.moveX;
         z += tc.moveZ;
@@ -183,19 +220,24 @@ export function createPlayerInput(
       state.sprint = sprint;
     },
     consumeLook() {
-      const d = { dx: look.dx, dy: look.dy };
+      lookOut.dx = look.dx;
+      lookOut.dy = look.dy;
       look.dx = 0;
       look.dy = 0;
-      return d;
+      return lookOut;
     },
     consumeInteract() {
       const v = interactQueued;
       interactQueued = false;
       return v;
     },
+    releasePointerLock() {
+      if (document.pointerLockElement === overlay) document.exitPointerLock?.();
+    },
     dispose() {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", onBlur);
       window.removeEventListener("mousemove", onMouseMove);
       overlay.removeEventListener("pointerup", onPointerUp);
       if (document.pointerLockElement === overlay) document.exitPointerLock?.();
@@ -204,12 +246,20 @@ export function createPlayerInput(
   };
 }
 
+// Space stays here although nothing binds it: preventDefault keeps a habitual
+// press from re-activating a focused HUD button or page-scrolling the game
+// (the old climb key's guard, kept deliberately — review, slice B).
 const MOVE_KEYS = new Set([
-  "w", "a", "s", "d", "arrowup", "arrowdown", "arrowleft", "arrowright",
+  "w", "a", "s", "d", "arrowup", "arrowdown", "arrowleft", "arrowright", " ",
 ]);
 
 function clamp(v: number, lo: number, hi: number): number {
   return v < lo ? lo : v > hi ? hi : v;
+}
+
+/** Gamepad stick deadzone. */
+function deadzone(v: number): number {
+  return Math.abs(v) < 0.15 ? 0 : v;
 }
 
 // ---------------------------------------------------------------------------
@@ -313,7 +363,11 @@ function createTouchControls(overlay: HTMLElement, h: TouchHandlers, touchCapabl
 
   const onLookStart = (e: PointerEvent) => {
     if (e.pointerType !== "touch" || lookId !== null) return;
-    if (e.target !== overlay && !(e.target as HTMLElement)?.classList?.contains("game-canvas")) return;
+    // Structural hit test: any touch that isn't on one of OUR controls drives
+    // the look — never a foreign class-name check that a GameCanvas restyle
+    // could silently break (review, slice B).
+    const target = e.target as HTMLElement | null;
+    if (target?.closest?.(".touch-btn, .touch-joystick")) return;
     const r = overlay.getBoundingClientRect();
     if (e.clientX - r.left < r.width * 0.4) return; // left zone belongs to the stick
     lookId = e.pointerId;

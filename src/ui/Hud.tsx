@@ -90,7 +90,7 @@ export function Hud({ hud, discovery, onOpenMenu, onOpenJournal }: HudProps) {
 
 /** Compass point for a heading in degrees (0 = N), 8-wind resolution — the HUD
  *  shows where you're facing, which is how the clue texts give directions. */
-export function compassPoint(heading: number): string {
+function compassPoint(heading: number): string {
   const POINTS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"] as const;
   const idx = Math.round((((heading % 360) + 360) % 360) / 45) % 8;
   return POINTS[idx];
