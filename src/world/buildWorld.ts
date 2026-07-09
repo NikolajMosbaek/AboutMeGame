@@ -18,13 +18,19 @@ export interface ReducedMotionSource {
   getSnapshot(): { reducedMotion: boolean };
 }
 
-/** The assembled world. Epic 3 (movement) reads `terrain`/`boundaries`; Epic 4
- *  (discovery) reads `landmarks.placed`. Shared by reference — the DI seam. */
+/** The assembled world. The player reads `terrain`/`boundaries`/`waterDepthAt`;
+ *  discovery reads `landmarks.placed`. Shared by reference — the DI seam. */
 export interface World {
   terrain: Terrain;
   sky: Sky;
   boundaries: Boundaries;
   landmarks: Landmarks;
+  /** Still water depth at a ground point, metres (`<= 0` = dry land). The ONE
+   *  definition of "where water is": today the sea plane at `WORLD.seaLevel`
+   *  over anything the terrain dips below it — the same `seaLevel - height`
+   *  the foam bake uses. Movement (wading/blocking), and later drinking,
+   *  audio and FX all ask here, so a reshaped river changes one function. */
+  waterDepthAt(x: number, z: number): number;
   dispose(): void;
 }
 
@@ -71,6 +77,7 @@ export function buildWorld(
     sky,
     boundaries,
     landmarks,
+    waterDepthAt: (x, z) => WORLD.seaLevel - terrain.heightAt(x, z),
     dispose() {
       terrain.dispose();
       sky.dispose();

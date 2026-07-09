@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import type { Engine } from "../engine/Engine.ts";
 import type { World } from "../world/buildWorld.ts";
-import type { Movement } from "../movement/buildMovement.ts";
+import type { Player } from "../player/buildPlayer.ts";
 import type { GameSession } from "../gameSession.ts";
 import {
   buildDiscoverablePois,
@@ -37,13 +37,13 @@ export interface Discovery {
 /**
  * Wire discovery into the engine: resolve each landmark's world position from
  * `world.landmarks`, join it to content, and register the `DiscoverySystem`
- * (after the vehicle/camera, so it reads fresh positions). Returns the store the
- * React reveal UI subscribes to.
+ * (after the explorer/camera, so it reads fresh positions). Returns the store
+ * the React reveal UI subscribes to.
  */
 export function buildDiscovery(
   engine: Engine,
   world: World,
-  movement: Movement,
+  player: Player,
   session: GameSession,
   persist: DiscoveryPersistence = createPersistence(),
 ): Discovery {
@@ -52,8 +52,8 @@ export function buildDiscovery(
 
   const store = createDiscoveryStore(pois.length);
   const system = new DiscoverySystem(
-    movement.input,
-    movement.vehicle,
+    player.input,
+    player.explorer,
     pois,
     store,
     persist,
@@ -66,6 +66,6 @@ export function buildDiscovery(
     pois,
     journalPois: pois.map(toJournalPoi),
     reset: () => system.reset(),
-    consumeInteract: () => movement.input.consumeInteract(),
+    consumeInteract: () => player.input.consumeInteract(),
   };
 }

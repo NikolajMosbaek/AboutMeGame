@@ -11,34 +11,38 @@ function text(entry: ControlEntry): string {
 }
 
 describe("resolveControlScheme", () => {
-  it("returns the full keyboard table from Onboarding (W A S D / F / Shift / Space / E / Esc)", () => {
+  it("returns the full first-person keyboard table (W A S D / Mouse / Shift / E / Esc)", () => {
     const scheme = resolveControlScheme("keyboard");
     expect(scheme.channel).toBe("keyboard");
 
     const labels = scheme.entries.map((e) => e.label);
-    for (const key of ["W A S D", "F", "Shift", "Space", "E", "Esc"]) {
+    for (const key of ["W A S D", "Mouse", "Shift", "E", "Esc"]) {
       expect(labels).toContain(key);
     }
 
-    // The action copy is carried verbatim from Onboarding's CONTROLS.
+    // The action copy names the explorer verbs.
     const byLabel = (label: string) =>
       scheme.entries.find((e) => e.label === label)?.action;
-    expect(byLabel("W A S D")).toBe("Drive / steer");
-    expect(byLabel("F")).toBe("Toggle flight");
-    expect(byLabel("Shift")).toBe("Boost");
-    expect(byLabel("Space")).toBe("Climb (in flight)");
-    expect(byLabel("E")).toBe("Reveal a landmark");
+    expect(byLabel("W A S D")).toBe("Walk");
+    expect(byLabel("Mouse")).toBe("Look (click to grab)");
+    expect(byLabel("Shift")).toBe("Sprint");
+    expect(byLabel("E")).toBe("Use / examine");
     expect(byLabel("Esc")).toBe("Menu");
+
+    // The vehicle-era hints are gone.
+    expect(labels).not.toContain("F");
+    expect(labels).not.toContain("Space");
   });
 
-  it("returns the on-screen touch controls (joystick / thrust('▲') / FLY / USE) and never 'W A S D'", () => {
+  it("returns the on-screen touch controls (joystick / look drag / SPRINT / USE) and never 'W A S D'", () => {
     const scheme = resolveControlScheme("touch");
     expect(scheme.channel).toBe("touch");
 
     const labels = scheme.entries.map((e) => e.label);
-    expect(labels).toContain("▲");
-    expect(labels).toContain("FLY");
+    expect(labels).toContain("SPRINT");
     expect(labels).toContain("USE");
+    expect(labels).not.toContain("FLY");
+    expect(labels).not.toContain("▲");
     // The drive control is the on-screen joystick, named by its action, not WASD.
     expect(scheme.entries.some((e) => /joystick/i.test(text(e)))).toBe(true);
 

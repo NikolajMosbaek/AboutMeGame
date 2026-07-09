@@ -241,35 +241,6 @@ body {
   height: 100%;
 }
 
-/* ----- Speed vignette (#53 movement feedback) ----- */
-/* A purely decorative edge-darkening overlay whose opacity is driven inline from
-   the hud speed (fx/SpeedVignette.tsx). Pointer-events off so it never eats the
-   world's input; a radial gradient so only the corners darken and the centre
-   stays clear. Non-essential motion: hidden under the OS reduced-motion query
-   (the in-game setting zeroes its opacity in JS), so both gates apply. */
-.speed-vignette {
-  position: fixed;
-  inset: 0;
-  z-index: 11; /* above the canvas, below the HUD/markers */
-  pointer-events: none;
-  background: radial-gradient(
-    ellipse at center,
-    transparent 52%,
-    rgba(10, 9, 16, 0.9) 100%
-  );
-  transition: opacity 200ms ease;
-  will-change: opacity;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .speed-vignette {
-    display: none;
-  }
-}
-:root[data-reduced-motion="true"] .speed-vignette {
-  display: none;
-}
-
 /* ----- Runtime stats overlay (#14) ----- */
 .stats-overlay {
   position: fixed;
@@ -296,7 +267,7 @@ body {
   color: #ff5c5c;
 }
 
-/* ----- Touch controls (#32) — created lazily by movement/input.ts ----- */
+/* ----- Touch controls — created by player/input.ts (eager on touch devices) ----- */
 .touch-joystick {
   position: fixed;
   left: calc(5vw + var(--safe-left));
@@ -335,12 +306,7 @@ body {
   user-select: none;
 }
 
-.touch-thrust {
-  right: calc(6vw + var(--safe-right));
-  bottom: calc(18vh + var(--safe-bottom));
-  font-size: 1.4rem;
-}
-.touch-fly {
+.touch-sprint {
   right: calc(22vw + var(--safe-right));
   bottom: calc(7vh + var(--safe-bottom));
 }
@@ -609,7 +575,7 @@ body {
   letter-spacing: 0.08em;
   color: var(--color-drive);
 }
-.hud-mode--fly {
+.hud-mode--sprint {
   color: var(--color-fly);
 }
 
@@ -1182,10 +1148,7 @@ body {
     height: 96px;
     bottom: calc(4vh + var(--safe-bottom));
   }
-  .touch-thrust {
-    bottom: calc(14vh + var(--safe-bottom));
-  }
-  .touch-fly,
+  .touch-sprint,
   .touch-use {
     bottom: calc(4vh + var(--safe-bottom));
   }
@@ -1206,8 +1169,8 @@ body {
     min-height: var(--tap-min);
     min-width: var(--tap-min);
   }
-  /* The on-screen joystick + buttons are already large (≥72px); the USE/FLY/
-     thrust buttons sit at the screen edges, clear of the centred prompt and the
+  /* The on-screen joystick + buttons are already large (≥72px); the USE and
+     SPRINT buttons sit at the screen edges, clear of the centred prompt and the
      top HUD, so they never overlap the markers or telemetry. */
   .touch-btn {
     min-width: var(--tap-min);

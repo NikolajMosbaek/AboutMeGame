@@ -7,22 +7,20 @@ import { createHudStore } from "./hudStore.ts";
 import { createDiscoveryStore } from "../discovery/discoveryStore.ts";
 
 describe("Hud", () => {
-  it("shows DRIVE mode and speed but hides altitude on the ground", () => {
+  it("shows the compass point and speed while walking", () => {
     const hud = createHudStore();
-    hud.set({ mode: "drive", speed: 42, altitude: 0 });
+    hud.set({ speed: 4, sprinting: false, heading: 90 });
     render(<Hud hud={hud} discovery={createDiscoveryStore(13)} onOpenMenu={() => {}} onOpenJournal={() => {}} />);
-    expect(screen.getByText("DRIVE")).toBeInTheDocument();
-    expect(screen.getByText("42")).toBeInTheDocument();
-    expect(screen.queryByText(/alt/i)).not.toBeInTheDocument();
+    expect(screen.getByText("E")).toBeInTheDocument();
+    expect(screen.getByText("4")).toBeInTheDocument();
   });
 
-  it("shows FLY mode and altitude in flight", () => {
+  it("shows SPRINT while sprinting", () => {
     const hud = createHudStore();
-    hud.set({ mode: "fly", speed: 30, altitude: 88 });
+    hud.set({ speed: 7, sprinting: true, heading: 0 });
     render(<Hud hud={hud} discovery={createDiscoveryStore(13)} onOpenMenu={() => {}} onOpenJournal={() => {}} />);
-    expect(screen.getByText("FLY")).toBeInTheDocument();
-    expect(screen.getByText("88")).toBeInTheDocument();
-    expect(screen.getByText(/alt/i)).toBeInTheDocument();
+    expect(screen.getByText("SPRINT")).toBeInTheDocument();
+    expect(screen.getByText("7")).toBeInTheDocument();
   });
 
   it("renders the single discovery-progress badge from the discovery store", () => {

@@ -1,7 +1,7 @@
 import type { Engine } from "./engine/Engine.ts";
 import type { System } from "./engine/types.ts";
 import { buildWorld, type World } from "./world/buildWorld.ts";
-import { buildMovement, type Movement } from "./movement/buildMovement.ts";
+import { buildPlayer, type Player } from "./player/buildPlayer.ts";
 import { buildDiscovery, type Discovery } from "./discovery/buildDiscovery.ts";
 import { createSession, type GameSession } from "./gameSession.ts";
 import { createHudStore, type HudStore } from "./ui/hudStore.ts";
@@ -16,10 +16,10 @@ import { DiscoveryBurstSystem } from "./fx/DiscoveryBurstSystem.ts";
 
 export interface Game {
   world: World;
-  movement: Movement;
+  player: Player;
   discovery: Discovery;
   session: GameSession;
-  /** Throttled vehicle telemetry for the HUD (#42). */
+  /** Throttled explorer telemetry for the HUD (#42). */
   hud: HudStore;
   /** Projected nav hints to undiscovered landmarks (#44). */
   nav: NavStore;
@@ -32,14 +32,14 @@ export interface Game {
 }
 
 /**
- * Compose the whole playable game into an engine: the world (Epic 2), the
- * vehicle/input/camera (Epic 3), discovery (Epic 4) and the shell overlays —
- * HUD, nav hints, settings (Epic 5). This is the default `GameCanvas` builder.
- * `overlay` is the canvas container touch controls mount into.
+ * Compose the whole playable game into an engine: the world, the first-person
+ * explorer (input/controller/camera), discovery and the shell overlays — HUD,
+ * nav hints, settings. This is the default `GameCanvas` builder. `overlay` is
+ * the canvas container touch controls mount into (and the pointer-lock target).
  *
  * System update order is registration order, so the shell systems go in *after*
- * the systems they read: the HUD feed after the vehicle, and the nav projector
- * after the camera (both established by `buildMovement`). The returned stores are
+ * the systems they read: the HUD feed after the explorer, and the nav projector
+ * after the camera (both established by `buildPlayer`). The returned stores are
  * what the React overlays subscribe to; `session` is the shared pause flag (set
  * while a reveal panel or the menu is open).
  *
@@ -64,19 +64,19 @@ export function buildGame(
   // it live (#49), so non-essential motion is gated by the in-game toggle too.
   const settings = createSettingsStore();
   const world = buildWorld(engine, quality, settings);
-  const movement = buildMovement(engine, world, overlay, session);
-  const discovery = buildDiscovery(engine, world, movement, session);
+  const player = buildPlayer(engine, world, overlay, session, settings);
+  const discovery = buildDiscovery(engine, world, player, session);
 
-  // HUD telemetry feed — registered after the vehicle so it reads fresh state.
+  // HUD telemetry feed — registered after the explorer so it reads fresh state.
   const hud = createHudStore();
-  engine.addSystem(new HudSystem(movement.vehicle, hud));
+  engine.addSystem(new HudSystem(player.explorer, hud));
 
   // Nav hints — registered after the camera so it reads the updated view matrix.
   const nav = createNavStore();
   engine.addSystem(
     new NavSystem(
       engine,
-      movement.vehicle,
+      player.explorer,
       discovery.pois,
       nav,
       discovery.store,
@@ -87,8 +87,8 @@ export function buildGame(
   // Visual juice (#53): a particle pop at a landmark the instant it's revealed.
   // It listens to the same discovery-store event the chime does, and is gated by
   // reduced motion inside the system. Registered after discovery so the store is
-  // populated. The speed-cue half of #53 is a DOM overlay (SpeedVignette) mounted
-  // by GameCanvas, so it isn't a system here.
+  // populated. (The drive-era speed vignette was retired with the vehicle in the
+  // first-person pivot — slice B.)
   engine.addSystem(
     new DiscoveryBurstSystem(engine.scene, discovery.store, world.landmarks.placed, settings),
   );
@@ -99,7 +99,7 @@ export function buildGame(
   if (ctxFactory) {
     const audio = new AudioEngine(ctxFactory);
     engine.addSystem(
-      new AudioSystem(audio, discovery.store, movement.vehicle, movement.input, settings),
+      new AudioSystem(audio, discovery.store, player.input, settings),
     );
     // Autoplay fallback: browsers may keep the context suspended until a real
     // user gesture even though GameCanvas mounts post-click. Resume on the first
@@ -110,7 +110,7 @@ export function buildGame(
 
   return {
     world,
-    movement,
+    player,
     discovery,
     session,
     hud,

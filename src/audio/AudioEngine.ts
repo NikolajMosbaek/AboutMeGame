@@ -69,7 +69,7 @@ const MUSIC_GAIN = 0.12;
 const MUTE_RAMP = 0.04;
 
 /**
- * AudioEngine — synthesises the game's whole soundscape. SFX (`chime`, `whoosh`,
+ * AudioEngine — synthesises the game's whole soundscape. SFX (`chime`,
  * `boost`) are one-shot voices; the ambient bed (`startMusic`/`stopMusic`) is a
  * pair of detuned pads through a low-pass filter with a slow LFO, seamless by
  * construction (no loop point, so no seam). `setMuted` gates everything at the
@@ -127,29 +127,6 @@ export class AudioEngine {
     const t = this.ctx.currentTime;
     this.blip(880, t, 0.12, 0.35, "triangle");
     this.blip(1320, t + 0.09, 0.22, 0.3, "triangle");
-  }
-
-  /** Mode-switch "whoosh" (#51) — a filtered down-sweep on drive↔fly. */
-  whoosh(): void {
-    if (!this.canPlay()) return;
-    const t = this.ctx.currentTime;
-    const osc = this.ctx.createOscillator();
-    const gain = this.ctx.createGain();
-    const filter = this.ctx.createBiquadFilter();
-    osc.type = "sawtooth";
-    osc.frequency.setValueAtTime(620, t);
-    osc.frequency.exponentialRampToValueAtTime(140, t + 0.34);
-    filter.type = "lowpass";
-    filter.frequency.setValueAtTime(1800, t);
-    filter.frequency.exponentialRampToValueAtTime(400, t + 0.34);
-    gain.gain.setValueAtTime(0.0001, t);
-    gain.gain.linearRampToValueAtTime(0.28, t + 0.04);
-    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.36);
-    osc.connect(filter);
-    filter.connect(gain);
-    gain.connect(this.master);
-    osc.start(t);
-    osc.stop(t + 0.4);
   }
 
   /** Soft "boost" cue (#51) — a quick rising blip when boost engages. */

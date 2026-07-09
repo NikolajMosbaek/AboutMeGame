@@ -110,12 +110,11 @@ describe("AudioEngine", () => {
     }
   });
 
-  it("plays whoosh and boost as one-shot voices", () => {
+  it("plays boost as a one-shot voice", () => {
     const { ctx, oscillators } = fakeContext();
     const engine = new AudioEngine(() => ctx);
-    engine.whoosh();
     engine.boost();
-    expect(oscillators.length).toBe(2);
+    expect(oscillators.length).toBe(1);
     for (const o of oscillators) expect(o.start).toHaveBeenCalled();
   });
 
@@ -124,7 +123,6 @@ describe("AudioEngine", () => {
     const engine = new AudioEngine(() => ctx);
     engine.setMuted(true);
     engine.chime();
-    engine.whoosh();
     engine.boost();
     expect(oscillators.length).toBe(0);
   });

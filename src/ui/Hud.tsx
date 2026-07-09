@@ -25,25 +25,18 @@ export interface HudProps {
 export function Hud({ hud, discovery, onOpenMenu, onOpenJournal }: HudProps) {
   const h = useSyncExternalStore(hud.subscribe, hud.getSnapshot);
   const d = useSyncExternalStore(discovery.subscribe, discovery.getSnapshot);
-  const flying = h.mode === "fly";
   const remaining = d.total - d.discoveredCount;
 
   return (
     <>
-      <div className="hud-telemetry" role="status" aria-label="vehicle telemetry">
-        <span className={`hud-mode${flying ? " hud-mode--fly" : ""}`}>
-          {flying ? "FLY" : "DRIVE"}
+      <div className="hud-telemetry" role="status" aria-label="explorer status">
+        <span className={`hud-mode${h.sprinting ? " hud-mode--sprint" : ""}`}>
+          {h.sprinting ? "SPRINT" : compassPoint(h.heading)}
         </span>
         <span className="hud-stat">
           <span className="hud-stat__value">{h.speed}</span>
           <span className="hud-stat__unit">m/s</span>
         </span>
-        {flying && (
-          <span className="hud-stat">
-            <span className="hud-stat__value">{h.altitude}</span>
-            <span className="hud-stat__unit">m alt</span>
-          </span>
-        )}
       </div>
 
       <div className="hud-top-right">
@@ -89,8 +82,16 @@ export function Hud({ hud, discovery, onOpenMenu, onOpenJournal }: HudProps) {
       </div>
 
       <p className="hud-controls" aria-hidden="true">
-        WASD move · F fly · E reveal · J journal · Esc menu
+        WASD move · Mouse look · Shift sprint · E use · J journal · Esc menu
       </p>
     </>
   );
+}
+
+/** Compass point for a heading in degrees (0 = N), 8-wind resolution — the HUD
+ *  shows where you're facing, which is how the clue texts give directions. */
+function compassPoint(heading: number): string {
+  const POINTS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"] as const;
+  const idx = Math.round((((heading % 360) + 360) % 360) / 45) % 8;
+  return POINTS[idx];
 }
