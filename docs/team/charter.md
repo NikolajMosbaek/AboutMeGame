@@ -1,29 +1,39 @@
 # AboutMeGame — Team Charter
 
 > Owned by the Product Owner agent. Every `/team` run reads this file to stay
-> grounded. **Updated 2026-06-22** to reflect the project's pivot (below).
+> grounded. **Updated 2026-07-08** to reflect the project's second pivot (below).
 
 ## Product vision
 
-AboutMeGame is a browser-based **3D world you drive and fly around to discover
-how I build software with Claude.** A small, hand-crafted island holds 13
-landmarks; approach one for a teaser, interact to reveal a piece of how I
-actually work (planning, verification, guardrails, git hygiene, reusable
-tooling). No installs, just a shared link. There is a non-game **text view** for
-anyone who can't or won't play.
+The product is **The Lost Idol** — a browser-based, first-person **jungle
+survival treasure hunt**. You are an explorer on an uncharted island: five
+readable clues lead from your riverside camp to a buried idol, while you manage
+hunger, thirst, stamina and health — drinking from the river, foraging fruit,
+and keeping your distance from the wildlife. As realistic as a procedural,
+no-external-assets budget allows: first-person immersion, dense lit vegetation,
+living water, day cycle, reactive animals, a full soundscape. No installs, just
+a shared link.
 
-The discoverable content is real and already written (`content/working-with-
-claude.json`, evidence in `content/PROVENANCE.md`).
+The binding spec is `docs/design/2026-07-08-the-lost-idol-design.md`.
+
+### Pivot note (2026-07-08)
+
+The user rejected the "3D about-me world" outright and ordered a from-scratch
+replacement (see `docs/team/runs/2026-07-08-jungle-pivot.md`). "From scratch"
+applies to the game, not the chassis: the engine seam, terrain/water/day-cycle
+pipeline, discovery-store idiom, procedural audio, perf budgets and CI gates
+carry over; every player-facing system is replaced. Work lands as slice PRs into
+the long-lived **`jungle`** integration branch, which merges to `main` (and so
+to the live site) only when the complete game passes all gates and a full-game
+review — mid-pivot hybrids never deploy. Pre-pivot board items are obsolete
+unless they are chassis/quality work.
 
 ### Pivot note (2026-06-22)
 
-The project began as a "social party guessing game" and an initial React
-Title→Prompt→Reveal slice was built under that framing. It was then redirected:
-the GitHub issues (Epics #1–#7) define the current product — a **3D explorable
-"about me" world** — and the content payload + game-dev toolkits were added to
-support it. The party-game slice has been replaced by the 3D engine. This
-charter and `package.json` now describe the real product; the old framing
-survives only in early git history and run logs.
+The project began as a "social party guessing game", was redirected to a **3D
+explorable "about me" world** (Epics #1–#7), and the party-game slice was
+replaced by the 3D engine. That product has now itself been replaced (above);
+it survives in git history, run logs, and the pre-pivot issues.
 
 ## Chosen stack
 
@@ -49,12 +59,19 @@ via a URL.
 ## Architecture map
 
 - `src/engine/` — engine seam, renderer, canvas, asset pipeline.
-- `src/world/` — terrain, sky, landmarks, props, boundaries, world config.
+- `src/world/` — terrain, sky, river/lagoon water, vegetation, sites, day cycle,
+  boundaries, world config.
 - `src/perf/` — performance budget + runtime stats overlay.
-- `src/movement/` — vehicle, flight, camera, input (Epic 3).
-- `src/content/`, `src/discovery/` — content model, POI binding, reveal (Epic 4).
-- `src/ui/` — React shell: title, HUD, menus, reveal panel, text view (Epic 5/6).
-- `src/audio/` — procedural Web Audio engine + the audio `System` (Epic 7, #51/#52).
+- `src/player/` — first-person controller: walk/sprint, look, touch input,
+  terrain clamp (replaces the old `src/movement/` vehicle+flight).
+- `src/survival/` — hunger/thirst/stamina/health store + system, drink/eat/forage.
+- `src/wildlife/` — birds, butterflies/fireflies, fish, snakes.
+- `src/quest/`, `src/content/` — clue-chain content model, clue triggers,
+  journal, dig site, completion (reworks the old `src/discovery/`).
+- `src/ui/` — React shell: title, survival HUD, compass, clue/journal panels,
+  pause menu, onboarding, completion.
+- `src/audio/` — procedural Web Audio engine + the audio `System` (jungle bed,
+  survival/quest SFX).
 
 ## Conventions
 
