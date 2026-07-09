@@ -1,10 +1,19 @@
+import type * as THREE from "three";
 import type { System, FrameContext } from "../engine/types.ts";
 import type { DiscoverablePoi } from "../content/discoverablePois.ts";
 import type { DiscoveryStore } from "./discoveryStore.ts";
 import type { DiscoveryPersistence } from "./persistence.ts";
-import type { InputSnapshot } from "../movement/input.ts";
-import type { VehicleSystem } from "../movement/vehicle.ts";
 import type { GameSession } from "../gameSession.ts";
+
+/** The interact edge the system consumes — the player input satisfies it. */
+export interface InteractSource {
+  consumeInteract(): boolean;
+}
+
+/** Where the player is — the explorer satisfies it via `state.position`. */
+export interface PositionSource {
+  readonly state: { position: THREE.Vector3 };
+}
 
 /** Show the teaser + nav prompt within this horizontal distance of a landmark. */
 const TEASER_RADIUS = 32;
@@ -18,7 +27,7 @@ const INTERACT_RADIUS = 16;
  * player is in teaser range (show the line + a nav prompt) or interact range
  * (an interact reveals the full body). Revealing marks the POI discovered,
  * persists it, and pauses the sim (`session.paused`) so the craft holds while
- * reading; a second interact closes the panel and resumes. Reads the vehicle's
+ * reading; a second interact closes the panel and resumes. Reads the player's
  * position and the shared input — both injected, so it's unit-tested with fakes.
  */
 export class DiscoverySystem implements System {
@@ -26,8 +35,8 @@ export class DiscoverySystem implements System {
   private readonly discovered: Set<string>;
 
   constructor(
-    private readonly input: InputSnapshot,
-    private readonly vehicle: VehicleSystem,
+    private readonly input: InteractSource,
+    private readonly player: PositionSource,
     private readonly pois: DiscoverablePoi[],
     private readonly store: DiscoveryStore,
     private readonly persist: DiscoveryPersistence,
@@ -54,7 +63,7 @@ export class DiscoverySystem implements System {
     // drained above, so we just bail — no reveal opens behind the menu.
     if (this.session.paused) return;
 
-    const p = this.vehicle.state.position;
+    const p = this.player.state.position;
     let nearest: DiscoverablePoi | null = null;
     let nearestDist = Infinity;
     for (const poi of this.pois) {

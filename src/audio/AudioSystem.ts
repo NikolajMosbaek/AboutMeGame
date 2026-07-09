@@ -8,24 +8,17 @@
 // Responsibilities:
 //  - reveal (discovery store: discoveredCount rises) → chime, fired exactly once
 //    per new landmark via a store subscription (the same event the FX burst uses);
-//  - mode change (drive↔fly) → whoosh, on the rising edge each frame;
-//  - boost engages → a soft boost cue, on the rising edge each frame;
+//  - sprint engages → a soft exertion cue, on the rising edge each frame;
 //  - keep the engine's mute in sync with the live settings store each frame;
 //  - start the ambient bed once the world is running.
 
 import type { System, FrameContext } from "../engine/types.ts";
 import type { AudioEngine } from "./AudioEngine.ts";
 import type { DiscoveryStore } from "../discovery/discoveryStore.ts";
-import type { DriveMode } from "../movement/vehicle.ts";
 
-/** The vehicle's current drive mode — `VehicleSystem` satisfies it via `state`. */
-export interface ModeSource {
-  readonly state: { mode: DriveMode };
-}
-
-/** Whether boost is held — the input controller satisfies it via `state.boost`. */
-export interface BoostSource {
-  readonly state: { boost: boolean };
+/** Whether sprint is held — the player input satisfies it via `state.sprint`. */
+export interface SprintSource {
+  readonly state: { sprint: boolean };
 }
 
 /** Live mute flag — a `SettingsStore` satisfies it via `getSnapshot().muted`. */
@@ -36,8 +29,7 @@ export interface MutedSource {
 export class AudioSystem implements System {
   readonly id = "audio";
 
-  private lastMode: DriveMode | null = null;
-  private lastBoost = false;
+  private lastSprint = false;
   private lastDiscovered: number;
   private musicStarted = false;
   private unsubscribe: () => void;
@@ -45,8 +37,7 @@ export class AudioSystem implements System {
   constructor(
     private readonly engine: AudioEngine,
     private readonly discovery: DiscoveryStore,
-    private readonly mode: ModeSource,
-    private readonly boost: BoostSource,
+    private readonly sprint: SprintSource,
     private readonly muted: MutedSource,
   ) {
     // Apply the persisted mute before anything plays.
@@ -76,15 +67,11 @@ export class AudioSystem implements System {
       this.musicStarted = true;
     }
 
-    // Mode change → whoosh (skip the first observation so mount isn't a whoosh).
-    const mode = this.mode.state.mode;
-    if (this.lastMode !== null && mode !== this.lastMode) this.engine.whoosh();
-    this.lastMode = mode;
-
-    // Boost rising edge → soft cue.
-    const boost = this.boost.state.boost;
-    if (boost && !this.lastBoost) this.engine.boost();
-    this.lastBoost = boost;
+    // Sprint rising edge → soft exertion cue (the old boost synth carries over
+    // until the jungle SFX slice replaces the palette wholesale).
+    const sprint = this.sprint.state.sprint;
+    if (sprint && !this.lastSprint) this.engine.boost();
+    this.lastSprint = sprint;
   }
 
   dispose(): void {

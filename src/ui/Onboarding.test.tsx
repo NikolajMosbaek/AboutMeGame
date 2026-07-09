@@ -52,10 +52,10 @@ describe("Onboarding", () => {
     // The four on-screen widgets a touch visitor actually has, each paired with
     // its action in the adjacent <dd> (mirrors resolveControlScheme("touch")).
     const expected: ReadonlyArray<[string, string]> = [
-      ["Joystick", "Drive / steer"],
-      ["▲", "Climb (in flight)"],
-      ["FLY", "Toggle flight"],
-      ["USE", "Reveal a landmark"],
+      ["Joystick", "Walk"],
+      ["Drag right side", "Look"],
+      ["SPRINT", "Sprint (hold)"],
+      ["USE", "Use / examine"],
     ];
     for (const [label, action] of expected) {
       expect(screen.getByText(label)).toBeInTheDocument();
@@ -78,11 +78,12 @@ describe("Onboarding", () => {
     const { container: touchContainer } = render(
       <Onboarding channel="touch" persistence={fakePersistence(false)} />,
     );
-    // Under the touch channel no label is a <kbd>: 'FLY' is a button name, not a
-    // key, so it renders as a plain leaf inside its <dt> with no key-cap chrome.
+    // Under the touch channel no label is a <kbd>: 'SPRINT' is a button name,
+    // not a key, so it renders as a plain leaf inside its <dt> with no key-cap
+    // chrome.
     expect(touchContainer.querySelector("dt kbd")).toBeNull();
-    const fly = screen.getByText("FLY");
-    expect(fly.closest("dt")).not.toBeNull();
+    const sprint = screen.getByText("SPRINT");
+    expect(sprint.closest("dt")).not.toBeNull();
   });
 
   // The channel seam must not regress the dialog's focus/dismiss behaviour under

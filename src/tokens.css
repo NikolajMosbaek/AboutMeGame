@@ -296,7 +296,7 @@ body {
   color: #ff5c5c;
 }
 
-/* ----- Touch controls (#32) — created lazily by movement/input.ts ----- */
+/* ----- Touch controls — created by player/input.ts (eager on touch devices) ----- */
 .touch-joystick {
   position: fixed;
   left: calc(5vw + var(--safe-left));
@@ -335,12 +335,7 @@ body {
   user-select: none;
 }
 
-.touch-thrust {
-  right: calc(6vw + var(--safe-right));
-  bottom: calc(18vh + var(--safe-bottom));
-  font-size: 1.4rem;
-}
-.touch-fly {
+.touch-sprint {
   right: calc(22vw + var(--safe-right));
   bottom: calc(7vh + var(--safe-bottom));
 }
@@ -609,7 +604,7 @@ body {
   letter-spacing: 0.08em;
   color: var(--color-drive);
 }
-.hud-mode--fly {
+.hud-mode--sprint {
   color: var(--color-fly);
 }
 
@@ -1182,10 +1177,7 @@ body {
     height: 96px;
     bottom: calc(4vh + var(--safe-bottom));
   }
-  .touch-thrust {
-    bottom: calc(14vh + var(--safe-bottom));
-  }
-  .touch-fly,
+  .touch-sprint,
   .touch-use {
     bottom: calc(4vh + var(--safe-bottom));
   }
@@ -1206,8 +1198,8 @@ body {
     min-height: var(--tap-min);
     min-width: var(--tap-min);
   }
-  /* The on-screen joystick + buttons are already large (≥72px); the USE/FLY/
-     thrust buttons sit at the screen edges, clear of the centred prompt and the
+  /* The on-screen joystick + buttons are already large (≥72px); the USE and
+     SPRINT buttons sit at the screen edges, clear of the centred prompt and the
      top HUD, so they never overlap the markers or telemetry. */
   .touch-btn {
     min-width: var(--tap-min);

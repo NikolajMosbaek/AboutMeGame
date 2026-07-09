@@ -17,7 +17,6 @@ import { SettingsMenu } from "../ui/SettingsMenu.tsx";
 import { JournalPanel } from "../ui/JournalPanel.tsx";
 import { DiscoveryAnnouncer } from "../ui/DiscoveryAnnouncer.tsx";
 import { CompletionPanel } from "../ui/CompletionPanel.tsx";
-import { SpeedVignette } from "../fx/SpeedVignette.tsx";
 import type { DiscoveryStore } from "../discovery/discoveryStore.ts";
 import type { JournalPoi } from "../content/discoverablePois.ts";
 import type { HudStore } from "../ui/hudStore.ts";
@@ -322,7 +321,6 @@ export function GameCanvas({
       {showStats && engine && <StatsOverlay engine={engine} />}
       {game && (
         <>
-          <SpeedVignette hud={game.hud} settings={game.settings} />
           <Hud
             hud={game.hud}
             discovery={game.discovery.store}

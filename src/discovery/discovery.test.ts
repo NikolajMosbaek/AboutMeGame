@@ -5,8 +5,7 @@ import { createPersistence } from "./persistence.ts";
 import { DiscoverySystem } from "./DiscoverySystem.ts";
 import { createSession } from "../gameSession.ts";
 import type { DiscoverablePoi } from "../content/discoverablePois.ts";
-import type { ControlState, InputSnapshot } from "../movement/input.ts";
-import type { VehicleSystem } from "../movement/vehicle.ts";
+import type { InteractSource, PositionSource } from "./DiscoverySystem.ts";
 import type { FrameContext } from "../engine/types.ts";
 
 const ctx: FrameContext = {
@@ -18,9 +17,7 @@ const ctx: FrameContext = {
 
 function fakeInput() {
   let interact = false;
-  const snap: InputSnapshot = {
-    state: { forward: 0, turn: 0, thrust: 0, boost: false } as ControlState,
-    consumeToggleMode: () => false,
+  const snap: InteractSource = {
     consumeInteract: () => {
       const v = interact;
       interact = false;
@@ -30,8 +27,8 @@ function fakeInput() {
   return { snap, press: () => (interact = true) };
 }
 
-function fakeVehicle(pos: THREE.Vector3): VehicleSystem {
-  return { state: { position: pos } } as unknown as VehicleSystem;
+function fakePlayer(pos: THREE.Vector3): PositionSource {
+  return { state: { position: pos } };
 }
 
 const POIS: DiscoverablePoi[] = [
@@ -44,7 +41,7 @@ describe("DiscoverySystem (#37, #39)", () => {
     const input = fakeInput();
     const store = createDiscoveryStore(POIS.length);
     const pos = new THREE.Vector3(12, 1, 0); // within interact radius of POI a
-    const sys = new DiscoverySystem(input.snap, fakeVehicle(pos), POIS, store, mem(), createSession());
+    const sys = new DiscoverySystem(input.snap, fakePlayer(pos), POIS, store, mem(), createSession());
 
     sys.update(ctx);
     const n = store.getSnapshot().nearby;
@@ -55,7 +52,7 @@ describe("DiscoverySystem (#37, #39)", () => {
   it("shows teaser but not in-range when only within teaser radius", () => {
     const input = fakeInput();
     const store = createDiscoveryStore(POIS.length);
-    const sys = new DiscoverySystem(input.snap, fakeVehicle(new THREE.Vector3(25, 1, 0)), POIS, store, mem(), createSession());
+    const sys = new DiscoverySystem(input.snap, fakePlayer(new THREE.Vector3(25, 1, 0)), POIS, store, mem(), createSession());
     sys.update(ctx);
     expect(store.getSnapshot().nearby?.inRange).toBe(false);
   });
@@ -65,7 +62,7 @@ describe("DiscoverySystem (#37, #39)", () => {
     const store = createDiscoveryStore(POIS.length);
     const persist = mem();
     const session = createSession();
-    const sys = new DiscoverySystem(input.snap, fakeVehicle(new THREE.Vector3(8, 1, 0)), POIS, store, persist, session);
+    const sys = new DiscoverySystem(input.snap, fakePlayer(new THREE.Vector3(8, 1, 0)), POIS, store, persist, session);
 
     input.press();
     sys.update(ctx);
@@ -107,7 +104,7 @@ describe("DiscoverySystem (#37, #39)", () => {
     ];
     const input = fakeInput();
     const store = createDiscoveryStore(pois.length);
-    const sys = new DiscoverySystem(input.snap, fakeVehicle(new THREE.Vector3(8, 1, 0)), pois, store, mem(), createSession());
+    const sys = new DiscoverySystem(input.snap, fakePlayer(new THREE.Vector3(8, 1, 0)), pois, store, mem(), createSession());
     input.press();
     sys.update(ctx);
     expect(store.getSnapshot().open?.interaction.type).toBe("guess");
@@ -117,7 +114,7 @@ describe("DiscoverySystem (#37, #39)", () => {
   it("reveals a POI with no interaction as plain (#T7)", () => {
     const input = fakeInput();
     const store = createDiscoveryStore(POIS.length);
-    const sys = new DiscoverySystem(input.snap, fakeVehicle(new THREE.Vector3(8, 1, 0)), POIS, store, mem(), createSession());
+    const sys = new DiscoverySystem(input.snap, fakePlayer(new THREE.Vector3(8, 1, 0)), POIS, store, mem(), createSession());
     input.press();
     sys.update(ctx);
     expect(store.getSnapshot().open?.interaction.type).toBe("plain");
@@ -128,7 +125,7 @@ describe("DiscoverySystem (#37, #39)", () => {
     const persist = mem();
     persist.save(new Set(["a"]));
     const store = createDiscoveryStore(POIS.length);
-    new DiscoverySystem(fakeInput().snap, fakeVehicle(new THREE.Vector3(500, 0, 500)), POIS, store, persist, createSession());
+    new DiscoverySystem(fakeInput().snap, fakePlayer(new THREE.Vector3(500, 0, 500)), POIS, store, persist, createSession());
     expect(store.getSnapshot().discoveredCount).toBe(1);
   });
 });

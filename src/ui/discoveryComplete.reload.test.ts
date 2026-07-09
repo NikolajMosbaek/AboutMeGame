@@ -7,8 +7,7 @@ import { DiscoverySystem } from "../discovery/DiscoverySystem.ts";
 import { createSession } from "../gameSession.ts";
 import type { DiscoverablePoi } from "../content/discoverablePois.ts";
 import type { DiscoverySnapshot } from "../discovery/discoveryStore.ts";
-import type { ControlState, InputSnapshot } from "../movement/input.ts";
-import type { VehicleSystem } from "../movement/vehicle.ts";
+import type { InteractSource, PositionSource } from "../discovery/DiscoverySystem.ts";
 import { completionFor } from "./discoveryComplete.ts";
 
 // Reload guard, proven where the real logic lives (not only in the pure
@@ -31,16 +30,14 @@ const POIS: DiscoverablePoi[] = Array.from({ length: TOTAL }, (_, i) => ({
   position: new THREE.Vector3(1000 + i, 0, 1000 + i),
 }));
 
-function fakeInput(): InputSnapshot {
+function fakeInput(): InteractSource {
   return {
-    state: { forward: 0, turn: 0, thrust: 0, boost: false } as ControlState,
-    consumeToggleMode: () => false,
     consumeInteract: () => false,
   };
 }
 
-function fakeVehicle(pos: THREE.Vector3): VehicleSystem {
-  return { state: { position: pos } } as unknown as VehicleSystem;
+function fakePlayer(pos: THREE.Vector3): PositionSource {
+  return { state: { position: pos } };
 }
 
 /** Persistence backed by an in-memory Storage shim. */
@@ -68,7 +65,7 @@ describe("completion reload guard (engine-seeded)", () => {
     // so the very first snapshot the React layer sees is already completed.
     new DiscoverySystem(
       fakeInput(),
-      fakeVehicle(new THREE.Vector3(0, 0, 0)),
+      fakePlayer(new THREE.Vector3(0, 0, 0)),
       POIS,
       store,
       persist,

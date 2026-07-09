@@ -81,12 +81,12 @@ describe("tokens.css — AC2 quality: USE->reveal path consumes safe-area/dvh to
     }
   });
 
-  it("the landscape .touch-fly, .touch-use bottom also adds var(--safe-bottom) (D2e, in-media)", () => {
+  it("the landscape .touch-sprint, .touch-use bottom also adds var(--safe-bottom) (D2e, in-media)", () => {
     // @media (max-height: 480px) re-declares the offsets; the migration must
     // reach INSIDE the media query or a notch clips the button in landscape.
     const body = mediaBody("max-height: 480px");
-    const grouped = blocksFor(body, ".touch-fly, .touch-use");
-    expect(grouped.length, "landscape .touch-fly, .touch-use rule must exist").toBeGreaterThan(0);
+    const grouped = blocksFor(body, ".touch-sprint, .touch-use");
+    expect(grouped.length, "landscape .touch-sprint, .touch-use rule must exist").toBeGreaterThan(0);
     const joined = grouped.join("\n");
     expect(joined).toMatch(/bottom:\s*calc\(\s*4vh\s*\+\s*var\(--safe-bottom\)\s*\)/);
     for (const v of bottomValues(joined)) {
@@ -176,7 +176,7 @@ describe("tokens.css — AC2 quality: USE->reveal path consumes safe-area/dvh to
     // The exhaustive D2 invariant across base + both media blocks. Every place a
     // .touch-* / .reveal-prompt declares `bottom`, it must be a calc() carrying
     // var(--safe-bottom), never a bare vh that a notch could clip under.
-    const inScope = [".touch-joystick", ".touch-thrust", ".touch-fly", ".touch-use", ".reveal-prompt"];
+    const inScope = [".touch-joystick", ".touch-sprint", ".touch-use", ".reveal-prompt"];
     const sources = [
       css,
       mediaBody("max-width: 480px"),
