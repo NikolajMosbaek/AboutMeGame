@@ -34,7 +34,7 @@ scope — no visual payoff, real migration risk).
 
 | Slice | PR | Result |
 |---|---|---|
-| 1 — foundation (three 0.185 + pmndrs post stack) | — | in progress |
+| 1 — foundation (three 0.185 + pmndrs post stack) | — | in progress; review finding fixed pre-PR: postprocessing was folded into the eager `three` chunk (low tier paid ~74 KB gz for nothing) → now a lazy `postfx` chunk behind a `quality.bloom`-gated dynamic import (`loadCompositor` seam), eager JS +7.6 KB (three's own growth only) |
 | 2 — lighting (sky IBL + N8AO + shadows) | — | |
 | 3 — terrain PBR splatting | — | |
 | 4 — water | — | |

@@ -19,20 +19,27 @@ export default defineConfig(({ command, isPreview }) => ({
   build: {
     rollupOptions: {
       output: {
-        // Split the rarely-changing render vendor (three + postprocessing) into
-        // its own chunk so a game-code change doesn't bust its cache, and the
-        // main chunk stays small. An id-based matcher (not the bare
-        // `{ three: ["three"] }` specifier) is required so three's own add-on
-        // modules (`three/examples/jsm/...`, used by `assets.ts`'s GLTFLoader
-        // and the `mergeGeometries` prop-batching callers) resolve to distinct
-        // ids but still fold into the same vendor chunk instead of leaking into
-        // the entry chunk. `postprocessing` (the compositor's effects library,
-        // `createCompositor.ts`) gets its own sibling matcher for the same
-        // reason — it's a `three` peer, not a `three` submodule, so it needs its
-        // own id pattern. See docs/perf-budget.md.
+        // Split the rarely-changing engine vendor (three) into its own chunk so
+        // a game-code change doesn't bust its cache, and the main chunk stays
+        // small. An id-based matcher (not the bare `{ three: ["three"] }`
+        // specifier) is required so three's own add-on modules
+        // (`three/examples/jsm/...`, used by `assets.ts`'s GLTFLoader and the
+        // `mergeGeometries` prop-batching callers) resolve to distinct ids but
+        // still fold into the same vendor chunk instead of leaking into the
+        // entry chunk.
+        //
+        // `postprocessing` gets its own SEPARATE bucket, never `three`'s: it is
+        // only reached through `GameCanvas`'s dynamic `import()` of
+        // `createCompositor.ts` (the bloom-tier gate), and folding it into the
+        // eagerly-loaded `three` chunk would silently re-eager-load it for the
+        // LOW tier — which must not pay postprocessing's bytes for an effect
+        // chain it never builds (docs/perf-budget.md). The bucket also keeps
+        // the lazy boundary safe against future accidental static imports: a
+        // stray eager import would drag `postfx` into the initial preload
+        // graph, but never invisibly merge the bytes into `three`.
         manualChunks(id) {
           if (/node_modules\/three\//.test(id)) return "three";
-          if (/node_modules\/postprocessing\//.test(id)) return "three";
+          if (/node_modules\/postprocessing\//.test(id)) return "postfx";
         },
       },
     },

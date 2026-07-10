@@ -288,6 +288,63 @@ describe("Engine", () => {
       expect(order).toEqual(["compositor.dispose", "renderer.dispose"]);
     });
 
+    describe("setCompositor (late attach — the lazy postfx chunk arrives after start)", () => {
+      it("routes presentation through the newly attached compositor from the next render", () => {
+        const compositor = stubCompositor();
+        const { engine, render } = makeEngine(); // starts BARE — no compositor
+        const sys = new RecordingSystem();
+        engine.addSystem(sys);
+
+        engine.advanceTime(100); // bare frame while the chunk is "in flight"
+        expect(render).toHaveBeenCalledTimes(1);
+
+        engine.setCompositor(compositor);
+        engine.advanceTime(100);
+
+        expect(compositor.render).toHaveBeenCalledTimes(1);
+        expect(compositor.render).toHaveBeenCalledWith(engine.scene, engine.camera);
+        expect(render).toHaveBeenCalledTimes(1); // bare path not used again
+      });
+
+      it("sizes the attached compositor to the CURRENT dimensions immediately", () => {
+        // Resizes that land while the chunk is downloading must not be lost —
+        // the late compositor would otherwise render its first frame at the
+        // constructor-default 1x1.
+        const compositor = stubCompositor();
+        const { engine } = makeEngine();
+        engine.resize(800, 400);
+
+        engine.setCompositor(compositor);
+
+        expect(compositor.setSize).toHaveBeenCalledWith(800, 400);
+      });
+
+      it("dispose tears down a late-attached compositor like an injected one", () => {
+        const compositor = stubCompositor();
+        const { engine, renderer } = makeEngine();
+        engine.setCompositor(compositor);
+
+        engine.dispose();
+
+        expect(compositor.dispose).toHaveBeenCalledOnce();
+        expect(renderer.dispose).toHaveBeenCalledOnce();
+      });
+
+      it("replacing a delegate disposes the old one; re-attaching the same is a no-op", () => {
+        const first = stubCompositor();
+        const second = stubCompositor();
+        const { engine } = makeEngine();
+
+        engine.setCompositor(first);
+        engine.setCompositor(first); // same instance — must not self-dispose
+        expect(first.dispose).not.toHaveBeenCalled();
+
+        engine.setCompositor(second);
+        expect(first.dispose).toHaveBeenCalledOnce();
+        expect(second.dispose).not.toHaveBeenCalled();
+      });
+    });
+
     it("with NO compositor injected, the existing renderer path is unchanged", () => {
       const { engine, render, renderer } = makeEngine(); // no compositor
       const sys = new RecordingSystem();

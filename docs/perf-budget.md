@@ -77,34 +77,53 @@ path's single tone-map + sRGB encode (the bare low-tier path grades with the
 same AgX mode, applied directly on the renderer instead — see
 `src/engine/compositorColor.ts`). Merging into one `EffectPass` costs ONE
 fullscreen fragment pass instead of the old chain's three separate blits — a
-mobile fill-rate win on top of the color-pipeline swap. `vite.config.ts`'s
-`manualChunks` grew a sibling `/node_modules\/postprocessing\//` matcher next
-to the existing `/node_modules\/three\//` one so `postprocessing` folds into
-the same cacheable vendor chunk instead of leaking into the entry chunk.
+mobile fill-rate win on top of the color-pipeline swap.
+
+**Postprocessing is a LAZY chunk, gated to the bloom tiers** (review finding on
+this slice: an early cut folded it into the eager `three` vendor chunk, making
+the low tier download ~74 KB gz it can never use — fixed before merge).
+`GameCanvas` reaches `createCompositor.ts` only through a dynamic `import()`
+behind the `quality.bloom` gate (the injectable `loadCompositor` seam,
+tier-gating pinned in `GameCanvas.compositor.test.tsx`), and `vite.config.ts`'s
+`manualChunks` gives `postprocessing` its own **`postfx`** bucket — deliberately
+NOT the `three` bucket, which would silently re-eager-load it. Verified in
+`dist/`: `index.html` modulepreloads only the `three` chunk; `postfx` +
+`createCompositor` are referenced solely from the entry's dynamic-import dep
+table (`__vitePreload`), fetched when the gate passes. On medium/high the
+engine renders correctly-graded bare frames (AgX on the renderer) until the
+chunk arrives, then `Engine.setCompositor` attaches the chain atomically —
+colour ownership flips to the `ToneMappingEffect` in the same synchronous step
+(progressive enhancement; a failed chunk load degrades to the bare path).
 
 Measured `vite build` (gzip), branch vs `main` at the same base commit,
 confirmed against the actual dist chunk listing:
 
-- **Entry chunk:** 90.52 → 90.70 KB (**+0.18 KB** — negligible; the compositor
-  wrapper stays thin GPU wiring, all the new logic lives in the vendor chunk).
-- **Vendor chunk** (`three` + now `postprocessing`): 126.17 → 205.46 KB
-  (**+79.29 KB**). This is the `three` 0.169→0.185 version growth PLUS the
-  whole `postprocessing` library — considerably larger than the four
-  single-purpose three-examples classes it replaces (SMAA alone ships its own
-  baked search/area antialiasing lookup data and worker fallback; the
-  attribute-merging `EffectPass` machinery that makes the single-pass merge
-  possible is real code) — but it stays ONE cacheable vendor chunk, unaffected
-  by ordinary game-code changes.
+- **Entry chunk:** 90.52 → 91.11 KB (**+0.59 KB** — the compositor wrapper +
+  loader seam stay thin; all the new library code lives in the lazy chunk).
+- **`three` vendor chunk (eager):** 126.17 → 133.17 KB (**+7.00 KB**, three's
+  own 0.169→0.185 growth — the one unavoidable eager cost of the upgrade).
+- **`postfx` chunk (lazy, medium/high only):** new, **73.96 KB** + a 0.51 KB
+  `createCompositor` split chunk. The whole `postprocessing` library is
+  considerably larger than the four single-purpose three-examples classes it
+  replaces (SMAA alone ships baked search/area antialiasing lookup data; the
+  attribute-merging `EffectPass` machinery is real code) — but only the tiers
+  that build the chain ever download it, post-mount, off the TTI path.
 - **CSS:** unchanged, 4.54 KB.
-- **Total JS gzip:** 216.2 → 295.5 KB (**+79.3 KB**), **104.5 KB** of the
-  400 KB cap still free. **Total initial download:** 257.3 → 336.6 KB,
-  **5.66 MB** of the 6 MB cap still free.
+- **Initial (eager) JS gzip:** 216.7 → 224.3 KB (**+7.6 KB** — the three
+  bump). This is what the LOW tier and time-to-interactive pay; the design
+  doc's "low must not get slower" holds for the effects stack (0 extra bytes,
+  0 extra passes), with the small three delta as the upgrade's floor cost.
+- **Summed JS gzip (all chunks, what `check:bundle` counts):** 216.2 →
+  298.1 KB, **101.9 KB** of the 400 KB cap still free. **Total download:**
+  257.3 → 339.2 KB, **5.66 MB** of the 6 MB cap still free.
 
 Both caps hold with real headroom, but this swap spent a meaningfully larger
-slice of the JS budget than the chain it replaced (`+79.3 KB` here vs the old
-chain's `+4.1 KB`, T9) — later visual-overhaul slices that add more
+slice of the summed-JS budget than the chain it replaced (`+81.9 KB` here vs
+the old chain's `+4.1 KB`, T9) — later visual-overhaul slices that add more
 `postprocessing` effects (e.g. slice 2's N8AO) should re-measure against this
-new baseline rather than assume similar headroom remains.
+new baseline rather than assume similar headroom remains, and anything imported
+from `postprocessing` must stay behind the `loadCompositor` seam so it lands in
+the `postfx` chunk, never the eager graph.
 
 ## How it is enforced
 

@@ -20,11 +20,12 @@ vi.mock("./createRenderer.ts", () => ({
   applyRendererQuality: () => {},
 }));
 
-// The bloom compositor is the sibling of createRenderer that constructs an
-// EffectComposer + three/examples/jsm postprocessing passes — all WebGL-only.
-// Stub it so the medium-default jsdom tier (bloom: true) doesn't drag a real
-// composer into the headless shell; the build-injects-only-when-bloom behaviour
-// is proven in the verify-game run (T9), not here.
+// The bloom compositor is the sibling of createRenderer that constructs a
+// postprocessing EffectComposer + effects — all WebGL-only. GameCanvas reaches
+// it through a dynamic import() (the lazy postfx chunk), which this vi.mock
+// intercepts the same as a static one, so the medium-default jsdom tier
+// (bloom: true) doesn't drag a real composer into the headless shell. The
+// tier-gating contract itself is proven in GameCanvas.compositor.test.tsx.
 vi.mock("./createCompositor.ts", () => ({
   createBloomCompositor: () => ({ render() {}, setSize() {}, dispose() {} }),
 }));
@@ -47,6 +48,7 @@ const engineStub = {
   stop() {},
   advanceTime() {},
   renderFromView: vi.fn(),
+  setCompositor() {}, // the lazy compositor attaches here on the bloom tiers
   getState: () => ({}),
   dispose() {},
 };

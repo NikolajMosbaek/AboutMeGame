@@ -20,7 +20,9 @@ export interface EngineOptions {
    *  When present, `render()` calls `compositor.render`, `resize()` forwards to
    *  `compositor.setSize`, and `dispose()` calls `compositor.dispose`. Omitted on
    *  the plain (low-quality / test) path, which uses `renderer.render` directly.
-   *  Injected, never constructed here — keeps three/examples/jsm out of Engine. */
+   *  Can also be attached later via {@link Engine.setCompositor} — the lazy
+   *  post-processing chunk arrives after mount on the bloom tiers. Injected,
+   *  never constructed here — keeps the postprocessing library out of Engine. */
   compositor?: RenderDelegate;
   /** Frame scheduler. Defaults to the real rAF; tests inject a manual one. */
   scheduler?: FrameScheduler;
@@ -62,8 +64,10 @@ export class Engine {
 
   private readonly renderer: RendererLike;
   /** When set, owns presenting the frame (post-processing). Undefined ⇒ the
-   *  Engine presents directly via `renderer.render`. */
-  private readonly compositor?: RenderDelegate;
+   *  Engine presents directly via `renderer.render`. Mutable: on the bloom
+   *  tiers the compositor arrives via `setCompositor` once its lazy chunk
+   *  loads, a few frames after the loop starts. */
+  private compositor?: RenderDelegate;
   private readonly scheduler: FrameScheduler;
   private readonly maxDt: number;
 
@@ -102,6 +106,23 @@ export class Engine {
 
   getSystem(id: string): System | undefined {
     return this.systems.find((s) => s.id === id);
+  }
+
+  /**
+   * Attach (or replace) the render delegate after construction — the seam the
+   * LAZY post-processing compositor lands on. On the bloom (medium/high) tiers
+   * `GameCanvas` renders bare-renderer frames while the `postprocessing` chunk
+   * downloads, then attaches the built compositor here; from the next frame,
+   * presentation routes through it. The newcomer is immediately sized to the
+   * current drawing dimensions so it never renders a stale-sized first frame
+   * (resizes that happened while the chunk was in flight would otherwise be
+   * lost). Replacing an existing delegate disposes the old one first.
+   */
+  setCompositor(compositor: RenderDelegate): void {
+    if (this.compositor === compositor) return;
+    this.compositor?.dispose();
+    this.compositor = compositor;
+    compositor.setSize(this.width, this.height);
   }
 
   /** Resize the drawing buffer and keep the camera aspect correct. */

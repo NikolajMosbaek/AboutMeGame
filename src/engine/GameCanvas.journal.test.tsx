@@ -20,8 +20,10 @@ vi.mock("./createRenderer.ts", () => ({
 }));
 
 // Sibling to createRenderer: the bloom compositor builds WebGL-only
-// postprocessing passes. Stub it so the medium-default jsdom tier (bloom: true)
-// keeps this headless shell test WebGL-free.
+// postprocessing effects. GameCanvas reaches it through a dynamic import()
+// (the lazy postfx chunk), which vi.mock intercepts the same as a static one —
+// so the medium-default jsdom tier (bloom: true) keeps this headless shell
+// test WebGL-free.
 vi.mock("./createCompositor.ts", () => ({
   createBloomCompositor: () => ({ render() {}, setSize() {}, dispose() {} }),
 }));
@@ -42,6 +44,7 @@ const engineStub = {
   stop() {},
   advanceTime() {},
   renderFromView() {},
+  setCompositor() {}, // the lazy compositor attaches here on the bloom tiers
   getState: () => ({}),
   dispose() {},
 };

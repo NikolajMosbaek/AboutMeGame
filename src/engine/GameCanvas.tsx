@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { Engine } from "./Engine.ts";
 import { createRenderer, applyRendererQuality } from "./createRenderer.ts";
-import { createBloomCompositor, type Compositor } from "./createCompositor.ts";
+import type { createBloomCompositor, Compositor } from "./createCompositor.ts";
 import { buildGame } from "../buildGame.ts";
 import { detectDeviceTier } from "../perf/deviceCapability.ts";
 import { resolveQuality, type QualityConfig } from "../perf/quality.ts";
@@ -67,6 +67,17 @@ export interface GameHandle {
   input?: { pressInteract(): void; touchActive: boolean };
 }
 
+/** Loader for the post-processing module — the code-splitting seam. The default
+ *  is a dynamic `import()` of `createCompositor.ts`, which Vite emits as its own
+ *  lazy chunk (the `postfx` bucket in `vite.config.ts`), so the LOW tier — which
+ *  never calls this — never downloads a byte of `postprocessing`. Injected so
+ *  tests can assert the tier gating against a spy instead of a real import. */
+export type CompositorLoader = () => Promise<{
+  createBloomCompositor: typeof createBloomCompositor;
+}>;
+
+const defaultCompositorLoader: CompositorLoader = () => import("./createCompositor.ts");
+
 export interface GameCanvasProps {
   /** Populate the engine with the game's systems (world + movement + discovery +
    *  shell). `overlay` is the canvas container touch controls mount into;
@@ -75,6 +86,8 @@ export interface GameCanvasProps {
    *  Defaults to the real game; injected so a preview/test can build a minimal
    *  scene instead. */
   build?: (engine: Engine, overlay: HTMLElement, quality: QualityConfig) => GameHandle | void;
+  /** Load the post-processing module (medium/high only — see the type's doc). */
+  loadCompositor?: CompositorLoader;
   /** Show the runtime stats overlay (#14). Defaults to dev-only. */
   showStats?: boolean;
   /** Return to the title screen (App dispatches `exitToTitle`). The engine is
@@ -97,6 +110,7 @@ export interface GameCanvasProps {
  */
 export function GameCanvas({
   build = buildGame,
+  loadCompositor = defaultCompositorLoader,
   showStats = import.meta.env.DEV,
   onExit,
 }: GameCanvasProps) {
@@ -143,26 +157,47 @@ export function GameCanvas({
     }
     rendererRef.current = renderer;
 
-    // Bloom is a bake-at-mount knob (like waterDisplacement): build the
-    // post-processing compositor ONCE here, only on the medium/high tiers where
-    // `quality.bloom` is true, so the emissive site accents (and, later, fireflies)
-    // glow. On low (`bloom: false`) we construct nothing and inject no delegate,
-    // so the Engine presents via the bare `renderer.render` — zero composer bytes,
-    // zero post-processing fill cost. The scene + camera are created here so they
-    // can be shared by the compositor's RenderPass and the Engine that renders
-    // through it; the Engine's own defaults match these exactly when bloom is off.
+    // Bloom is a bake-at-mount knob (like waterDisplacement), gated to the
+    // medium/high tiers where `quality.bloom` is true. The post-processing
+    // module is a LAZY chunk (the `postfx` bucket in `vite.config.ts`), pulled
+    // via `loadCompositor` only when the gate passes — so on low (`bloom:
+    // false`) the import is never even requested: zero postprocessing bytes
+    // downloaded, zero composer construction, zero post-processing fill cost,
+    // and the Engine presents via the bare `renderer.render` forever. On
+    // medium/high the Engine starts on the bare path too and renders correctly
+    // graded frames (the renderer mounts with AgX + sRGB — see
+    // `configureBareRendererColor`) while the chunk is in flight; when it
+    // resolves, `createBloomCompositor` atomically re-owns colour
+    // (`configureCompositorColor`: renderer → NoToneMapping, the chain's
+    // ToneMappingEffect grades with the same AgX) in the same synchronous step
+    // that attaches the delegate via `eng.setCompositor` — which also sizes it
+    // to the current drawing dimensions — so no frame is ever double- or
+    // un-tone-mapped. `cancelled` guards the unmount race: if the component
+    // unmounts before the import resolves, nothing is constructed or attached
+    // (and there is nothing to dispose — construction and attach are one
+    // guarded synchronous block). The scene + camera are created here so the
+    // late compositor's RenderPass and the Engine share them.
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 2000);
-    if (quality.bloom) {
-      compositorRef.current = createBloomCompositor(renderer, scene, camera, quality);
-    }
 
-    const eng = new Engine({
-      renderer,
-      scene,
-      camera,
-      compositor: compositorRef.current ?? undefined,
-    });
+    const eng = new Engine({ renderer, scene, camera });
+    let cancelled = false;
+    if (quality.bloom) {
+      loadCompositor().then(
+        ({ createBloomCompositor }) => {
+          if (cancelled) return;
+          const compositor = createBloomCompositor(renderer, scene, camera, quality);
+          compositorRef.current = compositor;
+          eng.setCompositor(compositor);
+        },
+        (err) => {
+          // A failed chunk load (offline mid-session, CDN hiccup) is not fatal:
+          // the bare path keeps rendering the correctly-graded world, just
+          // without the glow/SMAA/vignette garnish.
+          console.error("post-processing chunk failed to load — continuing without it:", err);
+        },
+      );
+    }
     const built = build(eng, container, quality);
     if (built) setGame(built);
 
@@ -191,13 +226,14 @@ export function GameCanvas({
     setEngine(eng);
 
     return () => {
+      cancelled = true; // an in-flight compositor load must not attach to a dead engine
       observer.disconnect();
       document.removeEventListener("visibilitychange", onVisibility);
       delete window.advanceTime;
       delete window.render_game_to_text;
       delete window.__ENGINE_STATE__;
       delete window.__frameView__;
-      eng.dispose(); // also disposes the injected compositor (frees its GPU targets)
+      eng.dispose(); // also disposes the attached compositor (frees its GPU targets)
       rendererRef.current = null;
       compositorRef.current = null;
       setEngine(null);
@@ -207,7 +243,7 @@ export function GameCanvas({
       setTreasureOpen(false);
       setOnboardingOpen(false);
     };
-  }, [build, deviceTier]);
+  }, [build, loadCompositor, deviceTier]);
 
   // Apply the *cheap* quality knobs live when the player changes the graphics
   // setting in the menu (#47): the pixel-ratio cap and the shadow-map enable
