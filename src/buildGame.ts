@@ -18,11 +18,12 @@ import { createForageStore, type ForageStore } from "./forage/forageStore.ts";
 import { ForageSystem } from "./forage/ForageSystem.ts";
 import { buildTreasure } from "./quest/buildTreasure.ts";
 import { createQuestStore, type QuestStore } from "./quest/questStore.ts";
-import { QuestSystem, type DiscoveredIds } from "./quest/QuestSystem.ts";
+import { QuestSystem, TUNE as QUEST_TUNE, type DiscoveredIds } from "./quest/QuestSystem.ts";
 import { POI_ANCHORS } from "./world/worldConfig.ts";
 import { SPAWN } from "./world/worldConfig.ts";
 import { AudioSystem } from "./audio/AudioSystem.ts";
 import { DiscoveryBurstSystem } from "./fx/DiscoveryBurstSystem.ts";
+import { TreasureBurstSystem } from "./fx/TreasureBurstSystem.ts";
 import { buildWildlife } from "./wildlife/buildWildlife.ts";
 
 export interface Game {
@@ -115,6 +116,9 @@ export function buildGame(
   const treasure = buildTreasure(world.landmarks);
   let discoveredIds: DiscoveredIds = () => [];
   let sitePanelOpen: () => boolean = () => false;
+  // Late-bound (wildlife registers further down): the finale startles every
+  // bird flock at once — the whole jungle answers the dig.
+  let onFinaleStart: () => void = () => {};
   const questSystem = new QuestSystem(
     POI_ANCHORS.map((a) => a.poiId),
     treasure.digPoint,
@@ -128,6 +132,7 @@ export function buildGame(
     session,
     treasure.reveal,
     treasure.dispose,
+    () => onFinaleStart(),
   );
   engine.addSystem(questSystem);
 
@@ -170,14 +175,16 @@ export function buildGame(
   sprintGate = survivalSystem.canSprint;
 
   // Wildlife (pivot slice F, #184): birds, butterflies/fireflies, fish, snakes
-  // — ambient life that reacts to the player. Registered AFTER survival so a
-  // snake strike can call the exact same hurt() seam starvation death uses,
-  // via a plain callback (buildWildlife never sees the SurvivalSystem itself).
-  // Captured (not discarded) so the audio slice can poll `wildlife.snakes` for
-  // the rattle-warning edge.
+  // and the jaguar — ambient life that reacts to (and hunts) the player.
+  // Registered AFTER survival so a snake strike or jaguar pounce can call the
+  // exact same hurt() seam starvation death uses, via a plain callback
+  // (buildWildlife never sees the SurvivalSystem itself). Captured (not
+  // discarded) so the audio slice can poll snakes/jaguar for their warning
+  // edges, and the finale can startle the birds.
   const wildlife = buildWildlife(engine, world, player.explorer, session, (amount) =>
     survivalSystem.hurt(amount),
   );
+  onFinaleStart = () => wildlife.birds.startle();
 
   // HUD telemetry feed — registered after the explorer so it reads fresh state.
   const hud = createHudStore();
@@ -205,6 +212,25 @@ export function buildGame(
     new DiscoveryBurstSystem(engine.scene, discovery.store, world.landmarks.placed, settings),
   );
 
+  // The completion spectacle (owner note 2026-07-10): golden motes spiral up
+  // from the dig point and the idol's emissive pulses through the bloom for
+  // the finale window the quest store publishes. Reduced motion inside the
+  // system swaps the spiral for a static glow.
+  engine.addSystem(
+    new TreasureBurstSystem(
+      engine.scene,
+      questStore,
+      {
+        x: treasure.digPoint.x,
+        y: world.terrain.heightAt(treasure.digPoint.x, treasure.digPoint.z),
+        z: treasure.digPoint.z,
+      },
+      settings,
+      treasure.setIdolEmissive,
+      QUEST_TUNE.finaleSeconds,
+    ),
+  );
+
   // Audio (#51 SFX, #52 ambient bed). Only when a context factory is available
   // (skipped headless). The AudioSystem is a System, so engine.dispose() tears
   // down the AudioEngine (stop oscillators, close the context) on unmount.
@@ -222,6 +248,7 @@ export function buildGame(
         forageStore,
         questStore,
         wildlife.snakes,
+        wildlife.jaguar,
       ),
     );
     // Autoplay fallback: browsers may keep the context suspended until a real

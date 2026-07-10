@@ -10,6 +10,9 @@ export interface Treasure {
   digPoint: { x: number; z: number };
   /** Raise the chest + idol out of the ground (idempotent). */
   reveal(): void;
+  /** Drive the idol's emissive intensity live — the treasure finale pulses it
+   *  (1.1 → 2.5 → 1.4) so the bloom blooms at the win. */
+  setIdolEmissive(intensity: number): void;
   dispose(): void;
 }
 
@@ -83,6 +86,9 @@ export function buildTreasure(landmarks: Landmarks): Treasure {
     digPoint: { x: worldPos.x, z: worldPos.z },
     reveal() {
       group.visible = true;
+    },
+    setIdolEmissive(intensity) {
+      idolMat.emissiveIntensity = intensity;
     },
     dispose() {
       for (const d of disposables) d.dispose();

@@ -64,6 +64,33 @@ describe("TouchActionButton — the one on-screen context action for touch", () 
     expect(screen.getByRole("button", { name: "Read" })).toBeInTheDocument();
   });
 
+  it("dig-locked shows a disabled lock state that never fires onPress", () => {
+    const s = stores();
+    act(() =>
+      s.quest.set({
+        cluesFound: 4,
+        cluesTotal: 6,
+        digOwnsKey: false,
+        missingPages: 2,
+        digProgress: null,
+        finaleActive: false,
+        treasureFound: false,
+        playSeconds: 0,
+        deaths: 0,
+        fruitEaten: 0,
+      }),
+    );
+    const onPress = vi.fn();
+    render(<TouchActionButton {...s} onPress={onPress} />);
+
+    const btn = screen.getByRole("button", { name: /2 pages still missing/ });
+    expect(btn).toBeDisabled();
+    expect(btn).toHaveTextContent("🔒");
+    expect(btn.className).toContain("touch-action-btn--locked");
+    fireEvent.pointerDown(btn);
+    expect(onPress).not.toHaveBeenCalled();
+  });
+
   it("hides while dead", () => {
     const s = stores();
     act(() => s.survival.set(snapshot({ canDrink: true, alive: false, health: 0 })));

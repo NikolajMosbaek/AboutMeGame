@@ -31,7 +31,9 @@ const NO_QUEST: QuestSnapshot = {
   cluesFound: 0,
   cluesTotal: 0,
   digOwnsKey: false,
+  missingPages: 0,
   digProgress: null,
+  finaleActive: false,
   treasureFound: false,
   playSeconds: 0,
   deaths: 0,
@@ -66,6 +68,7 @@ export function ActionHint({ survival, forage, discovery, quest, touchActive }: 
     alive: s.alive,
     digProgress: q.digProgress,
     digOwnsKey: q.digOwnsKey,
+    missingPages: q.missingPages,
     siteInRange: d.nearby?.inRange ?? false,
     forageFruit: f.nearby?.kind ?? null,
     canDrink: s.canDrink,
@@ -73,6 +76,16 @@ export function ActionHint({ survival, forage, discovery, quest, touchActive }: 
   if (!priority) return null;
   if (priority.kind === "read") return null; // the reveal prompt owns the key
 
+  if (priority.kind === "dig-locked") {
+    // Not an action — the one hint that explains itself instead of naming a
+    // key: the place is right, the journal isn't complete yet.
+    const pages = q.missingPages === 1 ? "1 page" : `${q.missingPages} pages`;
+    return (
+      <p className="drink-hint drink-hint--dig-locked" role="status">
+        You're sure this is the place — but sure isn't certain. {pages} still missing.
+      </p>
+    );
+  }
   if (priority.kind === "dig-progress") {
     return (
       <p className="drink-hint drink-hint--dig" role="status">

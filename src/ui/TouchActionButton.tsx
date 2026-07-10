@@ -21,7 +21,9 @@ const NO_QUEST: QuestSnapshot = {
   cluesFound: 0,
   cluesTotal: 0,
   digOwnsKey: false,
+  missingPages: 0,
   digProgress: null,
+  finaleActive: false,
   treasureFound: false,
   playSeconds: 0,
   deaths: 0,
@@ -52,18 +54,24 @@ export function TouchActionButton({ survival, forage, discovery, quest, onPress 
     alive: s.alive,
     digProgress: q.digProgress,
     digOwnsKey: q.digOwnsKey,
+    missingPages: q.missingPages,
     siteInRange: d.nearby?.inRange ?? false,
     forageFruit: f.nearby?.kind ?? null,
     canDrink: s.canDrink,
   });
   if (!priority) return null;
 
+  // "dig-locked" is information, not an action: the button renders disabled
+  // (lock icon, count in the label) so a tap can't fire the interact edge.
+  const locked = priority.disabled === true;
   return (
     <button
       type="button"
-      className="touch-action-btn"
+      className={locked ? "touch-action-btn touch-action-btn--locked" : "touch-action-btn"}
       aria-label={priority.label}
+      disabled={locked}
       onPointerDown={(e) => {
+        if (locked) return;
         e.preventDefault();
         onPress();
       }}

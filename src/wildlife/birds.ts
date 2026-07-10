@@ -261,6 +261,14 @@ export class BirdsSystem implements System {
     this.wingMesh.instanceMatrix.needsUpdate = true;
   }
 
+  /** Startle every flock into a fresh scatter at once — the treasure finale's
+   *  "the whole jungle answers" beat (owner note, 2026-07-10). Reuses the
+   *  exact scatter state a close player triggers, so the committed-startle
+   *  minimum and regroup glide apply unchanged. */
+  startle(): void {
+    for (const flock of this.flocks) flock.state = { mode: "scatter", timer: 0 };
+  }
+
   describe(): Record<string, unknown> {
     return { flocks: this.flocks.map((f) => f.state.mode) };
   }

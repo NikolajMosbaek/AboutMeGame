@@ -464,6 +464,27 @@ body {
   background: rgba(40, 28, 8, 0.8);
 }
 
+/* The locked dig: right place, pages missing — the dig style, dimmed, so it
+   reads as information (why the dig is locked), never as a pressable action. */
+.drink-hint--dig-locked {
+  color: rgba(255, 233, 168, 0.75);
+  background: rgba(40, 28, 8, 0.6);
+  font-weight: 500;
+}
+
+/* Locked touch state: visible but inert — muted, no press affordance. */
+.touch-action-btn--locked {
+  background: rgba(70, 60, 34, 0.72);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: rgba(255, 240, 200, 0.85);
+  pointer-events: none;
+}
+
+.touch-action-btn--locked:active {
+  transform: none;
+  filter: none;
+}
+
 .treasure-panel {
   position: fixed;
   inset: 0;
