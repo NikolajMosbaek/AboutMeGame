@@ -168,7 +168,11 @@ export function buildGame(
   // — ambient life that reacts to the player. Registered AFTER survival so a
   // snake strike can call the exact same hurt() seam starvation death uses,
   // via a plain callback (buildWildlife never sees the SurvivalSystem itself).
-  buildWildlife(engine, world, player.explorer, session, (amount) => survivalSystem.hurt(amount));
+  // Captured (not discarded) so the audio slice can poll `wildlife.snakes` for
+  // the rattle-warning edge.
+  const wildlife = buildWildlife(engine, world, player.explorer, session, (amount) =>
+    survivalSystem.hurt(amount),
+  );
 
   // HUD telemetry feed — registered after the explorer so it reads fresh state.
   const hud = createHudStore();
@@ -202,7 +206,18 @@ export function buildGame(
   if (ctxFactory) {
     const audio = new AudioEngine(ctxFactory);
     engine.addSystem(
-      new AudioSystem(audio, discovery.store, player.input, settings),
+      new AudioSystem(
+        audio,
+        discovery.store,
+        player.explorer,
+        settings,
+        world.dayCycle,
+        world.waterDepthAt,
+        survivalStore,
+        forageStore,
+        questStore,
+        wildlife.snakes,
+      ),
     );
     // Autoplay fallback: browsers may keep the context suspended until a real
     // user gesture even though GameCanvas mounts post-click. Resume on the first
