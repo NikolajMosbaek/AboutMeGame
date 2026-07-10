@@ -49,4 +49,48 @@ merge.
 
 | Slice | PR | Result |
 |---|---|---|
-| A — pivot docs | (this PR) | — |
+| A — pivot docs | #185 | merged |
+| B — first-person explorer | #186 | merged (review: mirrored look/strafe caught & fixed pre-merge) |
+| C — jungle world + sites + clue chain | #187 | merged (review: stale-save leak, palm mirror, clue bearing, bloom no-op — fixed) |
+| D — survival core | #188 | merged (review: sprint-gate duplication, death-key handling — fixed) |
+| E — foraging | #189 | merged (review: InstancedMesh GPU leak, biased fbm sampling — fixed) |
+| F — wildlife (graphics-3d agent) | #190 | merged (review: fish flee facing, getPhase coverage — fixed) |
+| G — treasure quest | #191→#192 | merged (review: one-frame dig race — fixed) + hotfixes #193/#194 (MOB guards) |
+| H — jungle audio (sound-engineer agent) | #195 | merged |
+| I — identity (frontend agent) | #196 | merged |
+| copy fix — reveal/journal pages | #197 | merged |
+
+## Decisions made during the run
+
+- **Pick-and-eat replaces the 1-slot inventory** (slice E): tighter loop, same
+  survival pressure — the jungle is the larder, planning is routing.
+- **Panels pause ALL decay** (slice D review): reading a clue is thinking
+  time, not a starvation exploit; nothing else progresses while paused either.
+- **Beacons/tower-lamp retired without replacement pillars** (slice C): the
+  clue texts navigate. Their bloom role passed to site accent glints, then
+  fireflies (slice F) and the idol (slice G).
+- **verify-game --completion-panel retired loudly** (slice G): completion
+  became the dig — a journey no smoke run should fake; win-screen behaviour is
+  pinned by jsdom tests.
+- **Old saves invalidated** (slice C review): discovery persistence key bumped
+  to v2 + id filtering in both consumers.
+
+## Process notes (honest ledger)
+
+- Two merges initially went through with red gates because suite exit codes
+  were piped through grep/tail (slices G/#192 and hotfix #193). Caught within
+  minutes by CI + re-run; fixed forward in #193/#194 and the practice changed
+  to unmasked `EXIT=$?` checks for every gate command thereafter.
+- Subagent worktrees under `.claude/worktrees/` trip the 9 runlog-path tests
+  (they assert no `.claude` in the repo path) — a known environment artifact,
+  green on real checkouts and CI.
+
+## Deferred (recorded, not hidden)
+
+- `public/social-preview.png` still shows old-game art (image asset pass).
+- On-device mobile verification (charter standing policy): touch controls,
+  safe-area and iOS audio are covered by jsdom/Playwright-desktop only — not
+  yet proven on a physical phone; flagged per the charter's "never a silent
+  pass" rule.
+- The reveal footer's optional "next landmark" selector naming survives in
+  internal comments only.
