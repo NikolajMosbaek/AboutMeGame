@@ -38,6 +38,19 @@ any touch/coarse-pointer device caps at `medium` no matter how many cores it
 reports. The table is the single source of truth (`QUALITY_TIERS`), asserted in
 `src/perf/quality.test.ts`.
 
+**Software WebGL forces `low`, overriding every other signal.** `readEnv()`
+probes the WebGL renderer string once per session (throwaway canvas/context,
+`WEBGL_debug_renderer_info` → `UNMASKED_RENDERER_WEBGL`, plain `RENDERER`
+fallback; non-throwing — no context ⇒ no signal ⇒ the heuristics above decide).
+A string matching `/swiftshader|llvmpipe|softpipe|software|angle \(software/i`
+means the "GPU" is a CPU rasterizer (VMs, CI runners, old laptops, blocklisted
+GPUs): the medium tier's N8AO passes + ~2s PMREM env rebakes take seconds per
+frame there — no core/RAM count compensates for a missing GPU, so detection
+lands on `low` (no compositor/AO, no shadows, ONE static env bake at load).
+Caught by the render-gate CI job (screenshot timeout on the GPU-less runner,
+visual-overhaul slice 2). An explicit player `"low"`/`"high"` setting still
+wins — only `"auto"` follows detection (`resolveQuality`'s contract).
+
 | Knob | low | medium | high | Why it scales |
 |------|-----|--------|------|---------------|
 | `maxPixelRatio` | **1** | 1.5 | 2 | Fill rate is the dominant mobile cost; capping DPR at 1 is the single biggest lever for the target phone. |
