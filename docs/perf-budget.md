@@ -46,7 +46,7 @@ reports. The table is the single source of truth (`QUALITY_TIERS`), asserted in
 | `propDensity` | **0.4** | 0.7 | 1.0 | Multiplier on the vegetation budgets (450 canopy trees / 60 palms / 900 understory / 120 rocks, `src/world/props.ts`) — fewer instances ⇒ fewer triangles. |
 | `fog` | **off** | on | on | Cheap, but low drops it so the shorter draw distance reads cleanly. |
 | `waterDisplacement` | **off** | on | on | Vertex displacement + grid subdivision on the full-screen water plane; off on low to protect mobile fill rate. Applies on reload. |
-| `bloom` | **off** | on | on | Threshold post-processing pass that makes the emissive site accents (and later fireflies) glow; fill-rate spend, not draw/triangle; off on low to protect mobile fill rate. **Shipped** behind the renderer seam (a tuned `UnrealBloomPass` in `src/engine/createCompositor.ts`); applies on reload. |
+| `bloom` | **off** | on | on | Threshold post-processing pass that makes the emissive site accents (and later fireflies) glow; fill-rate spend, not draw/triangle; off on low to protect mobile fill rate. **Shipped** behind the renderer seam — pmndrs `postprocessing`'s mipmap-blur `BloomEffect`, merged with SMAA/vignette/tone-mapping into ONE `EffectPass` in `src/engine/createCompositor.ts` (visual-overhaul slice 1, replacing the earlier three-examples `UnrealBloomPass` chain); applies on reload. |
 
 **Low tier vs the mobile budget.** Low is tuned to comfortably clear the
 mid-range-phone bar: pixelRatio 1 (no super-sampling), no real-time shadows, and
@@ -63,20 +63,48 @@ path (`maxPixelRatio` + shadows) does not tear down or rebuild the composer.
 
 **Bundle impact.** Epic 6 added the scaler, the text view, the a11y announcer
 and the responsive/reduced-motion CSS without regressing the budget. The bloom
-slice (G2) wires the `EffectComposer` + `UnrealBloomPass` post-pass behind the
-renderer seam and widens `vite.config.ts` `manualChunks` to an id-based matcher
-(`/node_modules\/three\//`) so `three/examples/jsm/postprocessing/*` folds into
-the `three` vendor chunk instead of leaking into the entry chunk. Measured
-branch-vs-`main` `vite build` (gzip), confirmed against the actual dist chunk
-listing (T9): `GameCanvas` reaches `createCompositor`, so the four postprocessing
-passes (`EffectComposer` + `RenderPass` + `UnrealBloomPass` + `OutputPass`) are
-in the import graph and the id-based matcher folds them into the **`three`** vendor
-chunk — which grows **120.7 → 124.9 KB** (**+4.1 KB**, the postprocessing passes)
-and stays a separate, cacheable vendor chunk. The entry chunk grew only
-**73.9 → 74.2 KB** (**+0.3 KB** — the compositor wrapper + landmark emissive
-tweaks + seam glue, **no three internals**, proving the matcher kept the
-postprocessing out of the entry chunk); modules 95 → 106. Total first-load JS
-**~194.6 → ~199.1 KB** (**+4.5 KB**), well inside the 400 KB cap; CSS **3.5 KB**.
+slice (G2) wired the three-examples `EffectComposer` + `UnrealBloomPass` chain
+behind the renderer seam (below is its replacement).
+
+**Visual-overhaul slice 1 (2026-07-10)** upgraded `three` `^0.169` → `^0.185.1`
+and replaced that three-examples chain with pmndrs `postprocessing` `^6.39.2`:
+`RenderPass` → ONE merged `EffectPass` holding a mipmap-blur `BloomEffect`
+(same **0.85** luminance threshold — the load-bearing invariant
+`src/world/landmarks.test.ts`/`src/wildlife/fliers.ts`/`src/wildlife/jaguar.ts`
+all pin their emissive intensities against), `SMAAEffect`, a subtle
+`VignetteEffect`, and an AgX `ToneMappingEffect` that owns the composited
+path's single tone-map + sRGB encode (the bare low-tier path grades with the
+same AgX mode, applied directly on the renderer instead — see
+`src/engine/compositorColor.ts`). Merging into one `EffectPass` costs ONE
+fullscreen fragment pass instead of the old chain's three separate blits — a
+mobile fill-rate win on top of the color-pipeline swap. `vite.config.ts`'s
+`manualChunks` grew a sibling `/node_modules\/postprocessing\//` matcher next
+to the existing `/node_modules\/three\//` one so `postprocessing` folds into
+the same cacheable vendor chunk instead of leaking into the entry chunk.
+
+Measured `vite build` (gzip), branch vs `main` at the same base commit,
+confirmed against the actual dist chunk listing:
+
+- **Entry chunk:** 90.52 → 90.70 KB (**+0.18 KB** — negligible; the compositor
+  wrapper stays thin GPU wiring, all the new logic lives in the vendor chunk).
+- **Vendor chunk** (`three` + now `postprocessing`): 126.17 → 205.46 KB
+  (**+79.29 KB**). This is the `three` 0.169→0.185 version growth PLUS the
+  whole `postprocessing` library — considerably larger than the four
+  single-purpose three-examples classes it replaces (SMAA alone ships its own
+  baked search/area antialiasing lookup data and worker fallback; the
+  attribute-merging `EffectPass` machinery that makes the single-pass merge
+  possible is real code) — but it stays ONE cacheable vendor chunk, unaffected
+  by ordinary game-code changes.
+- **CSS:** unchanged, 4.54 KB.
+- **Total JS gzip:** 216.2 → 295.5 KB (**+79.3 KB**), **104.5 KB** of the
+  400 KB cap still free. **Total initial download:** 257.3 → 336.6 KB,
+  **5.66 MB** of the 6 MB cap still free.
+
+Both caps hold with real headroom, but this swap spent a meaningfully larger
+slice of the JS budget than the chain it replaced (`+79.3 KB` here vs the old
+chain's `+4.1 KB`, T9) — later visual-overhaul slices that add more
+`postprocessing` effects (e.g. slice 2's N8AO) should re-measure against this
+new baseline rather than assume similar headroom remains.
 
 ## How it is enforced
 
