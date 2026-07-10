@@ -1,11 +1,11 @@
-// Content data model & schema (issue #34).
+// Content data model & schema.
 //
-// Reconciles the seed dataset `content/working-with-claude.json` (flagged in its
-// PROVENANCE as an interim draft) into a typed, validated model the game uses.
-// This is the single place the raw JSON is read and shape-checked, so the rest
-// of the code works with `PoiContent`, never `any`.
+// Loads the expedition clue chain (`content/expedition.json` — The Lost Idol,
+// pivot slice C) into a typed, validated model the game uses. This is the
+// single place the raw JSON is read and shape-checked, so the rest of the code
+// works with `PoiContent`, never `any`.
 
-import raw from "../../content/working-with-claude.json";
+import raw from "../../content/expedition.json";
 
 /** Inclusive bounds for a `guess` interaction's option count. Named so the
  *  validation reads as intent, not a magic 2/3. */

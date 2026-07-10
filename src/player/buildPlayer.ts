@@ -5,6 +5,7 @@ import type { GameSession } from "../gameSession.ts";
 import { createPlayerInput, type PlayerInputController } from "./input.ts";
 import { ExplorerSystem } from "./explorer.ts";
 import { FirstPersonCameraSystem } from "./fpCamera.ts";
+import { SPAWN } from "../world/worldConfig.ts";
 
 export interface Player {
   input: PlayerInputController;
@@ -16,8 +17,8 @@ export interface Player {
  * (pivot slice B — replaces buildMovement's vehicle/flight rig). Input polls
  * first so the control state is fresh, the explorer advances next, and the
  * camera reads the updated state last. `overlay` is the DOM element the touch
- * controls mount into and the pointer-lock target. Spawns at the origin facing
- * +Z; the world slice moves the spawn to the expedition camp.
+ * controls mount into and the pointer-lock target. Spawns at the expedition
+ * camp (worldConfig.SPAWN), waking up facing the lagoon.
  */
 export function buildPlayer(
   engine: Engine,
@@ -34,7 +35,7 @@ export function buildPlayer(
     world.terrain,
     world.boundaries,
     world.waterDepthAt,
-    { x: 0, z: 0, yaw: 0 },
+    { x: SPAWN.x, z: SPAWN.z, yaw: SPAWN.yaw },
     session,
   );
   engine.addSystem(explorer);

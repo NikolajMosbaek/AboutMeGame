@@ -37,6 +37,19 @@ const POIS: DiscoverablePoi[] = [
 ];
 
 describe("DiscoverySystem (#37, #39)", () => {
+  it("drops persisted ids that aren't in this world's poi set (stale saves never inflate progress)", () => {
+    const input = fakeInput();
+    const store = createDiscoveryStore(POIS.length);
+    const stale = mem();
+    // A save written by the retired 13-landmark content set…
+    stale.save(new Set(["poi-arrivals-gate", "poi-meta-mirror", "a"]));
+    new DiscoverySystem(input.snap, fakePlayer(new THREE.Vector3(1000, 0, 1000)), POIS, store, stale, createSession());
+    // …contributes only the ids that exist today ("a"); the rest are dropped.
+    expect(store.getSnapshot().discoveredCount).toBe(1);
+    expect(store.getSnapshot().discoveredIds).toEqual(["a"]);
+  });
+
+
   it("surfaces a teaser when near and an interact hint when in range", () => {
     const input = fakeInput();
     const store = createDiscoveryStore(POIS.length);

@@ -13,7 +13,7 @@
 // Steps the simulation to the NOON (frac 0.25), GOLDEN (0.5) and dim EVENING
 // (0.75) keyframes of the ~180s loop, screenshots each, and checks: the engine
 // stays running with positive fps and no WebGL/console errors at every stop; all
-// 13 landmarks stay present (beacons.poiCount and discovery.total both 13); the
+// 6 sites stay present (sites.poiCount and discovery.total both 6); the
 // SKY visibly changes between the three keyframes (the loop is actually
 // animating, not frozen on the construction-time noon); and stepping a FULL
 // period back to the start rejoins the dawn look with no seam jump.
@@ -31,7 +31,7 @@
 // throughout; each frame shows a built STRUCTURE (a body of non-grass, non-sky
 // pixels in the centre, not an empty meadow); each shows the landmark's
 // signature-hued ACCENT GLOW (bright pixels matching the anchor colour, the
-// emissive accent + beacon the G2 bloom catches); and the 8 silhouettes are
+// faint emissive accents); and the 6 site silhouettes are
 // DISTINCT (their structure-coverage / accent-hue signatures are not all alike).
 //
 // F1 completion-panel mode — verify the completion dialog's dismissal paths on
@@ -39,8 +39,8 @@
 //
 //   node scripts/verify-game.mjs [url] [--completion-panel] [--out-dir dir]
 //
-// Seeds 12 of the 13 landmarks as already discovered, drives to the Arrivals
-// Gate and interacts (the 13th find), closes the reveal so the completion panel
+// Seeds 5 of the 6 sites as already discovered, walks to the base camp beside
+// the spawn and interacts (the 6th find), closes the reveal so the completion panel
 // raises, and checks: the dialog shows all three CTAs in the decided order
 // (Replay, Share enabled, Keep exploring) with entry focus on Replay; Escape
 // dismisses the dialog and returns focus to the canvas container; and — after a
@@ -71,7 +71,7 @@ function argVal(flag) {
 // --- G3 day-cycle constants (kept in sync with src/world/dayCycleSystem.ts &
 //     src/world/dayCycle.ts) ------------------------------------------------
 const PERIOD_SECONDS = 180; // one dawn→noon→dusk→evening→dawn loop
-const EXPECTED_LANDMARKS = 13; // the island's 13 discoverable landmarks
+const EXPECTED_LANDMARKS = 6; // the island's 6 expedition sites
 // Minimum per-channel mean-colour delta (0..255) across the largest quarter step
 // for the loop to count as "visibly animating" rather than frozen on one palette.
 const MIN_SKY_DELTA = 6;
@@ -79,29 +79,24 @@ const MIN_SKY_DELTA = 6;
 // after stepping a FULL period — the wrap must rejoin φ closely (no seam jump).
 const MAX_SEAM_DELTA = 8;
 
-// --- G4 landmark-tour constants (kept in sync with src/world/worldConfig.ts:
+// --- Site-tour constants (kept in sync with src/world/worldConfig.ts:
 //     POI_ANCHORS) -----------------------------------------------------------
-// The 13 landmark anchors, kept in sync with src/world/worldConfig.ts
-// (POI_ANCHORS). One representative anchor per archetype is toured — the
-// geometry is identical for repeats of an archetype, so framing one proves the
-// silhouette upgrade for that archetype. x/z place the structure; color is the
-// signature hue its accent + beacon glow in.
+// The 6 expedition-site anchors, kept in sync with src/world/worldConfig.ts.
+// x/z place the structure; color is the signature hue of its nav hint.
 const LANDMARK_ANCHORS = [
-  { archetype: "gate", label: "Arrivals Gate", x: 0, z: 64, color: 0xffcb47 },
-  { archetype: "monolith", label: "One-Sentence Overlook", x: -62, z: 34, color: 0x7ad1ff },
-  { archetype: "foundry", label: "Session Foundry", x: -96, z: -28, color: 0xff8a5c },
-  { archetype: "tower", label: "Calibrated Review Tower", x: 118, z: -18, color: 0xffe066 },
-  { archetype: "dam", label: "Force-Push Dam", x: 102, z: 52, color: 0x5cc8ff },
-  { archetype: "station", label: "Walkthrough Station", x: 56, z: 98, color: 0x8affc1 },
-  { archetype: "ring", label: "History Rail Yard", x: -12, z: 112, color: 0xffa3d1 },
-  { archetype: "mirror", label: "Hall of Mirrors", x: -120, z: -74, color: 0xd9e3ff },
+  { archetype: "camp", label: "Base Camp", x: -28, z: 126, color: 0xffcb47 },
+  { archetype: "canoe", label: "Wrecked Canoe", x: -29, z: 57, color: 0x7ad1ff },
+  { archetype: "overhang", label: "Carved Overhang", x: 34, z: -104, color: 0xc8a2ff },
+  { archetype: "remains", label: "The Last Camp", x: -72, z: -24, color: 0xb0b6c0 },
+  { archetype: "ruin", label: "Fallen Ruin", x: 84, z: 26, color: 0xff8a5c },
+  { archetype: "figtree", label: "The Ancient Fig", x: 108, z: -46, color: 0x8affc1 },
 ];
-const TOUR_ARCHETYPES = LANDMARK_ANCHORS.length; // 8 distinct silhouettes
+const TOUR_ARCHETYPES = LANDMARK_ANCHORS.length; // 6 distinct silhouettes
 // A built structure must cover at least this fraction of the centre band — below
 // it, the frame is an empty meadow (the landmark didn't render / wasn't framed).
 const MIN_STRUCTURE_COVERAGE = 0.02;
 // Each landmark must show at least this fraction of bright pixels whose HUE
-// matches the anchor's signature colour — the emissive accent + beacon the G2
+// matches the anchor's signature colour — the faint emissive accent the G2
 // bloom catches. Below it, the signature-hued wayfinding glow is absent. The
 // measured floor across the 8 is ~1.3% (ring/tower); 0.5% leaves headroom while
 // still catching a genuinely missing glow.
@@ -111,24 +106,17 @@ const MIN_ACCENT_HUED_COVERAGE = 0.005;
 //     persistence.ts KEY, src/world/worldConfig.ts POI_ANCHORS and the
 //     CompletionPanel CTA row) ------------------------------------------------
 const DISCOVERY_STORAGE_KEY = "aboutmegame.discovered.v1";
-// The one landmark left undiscovered by the seed: the Arrivals Gate sits dead
-// ahead of the spawn plaza (the craft spawns at (0,0) facing it), so a straight
-// hold-W run reaches its 16-unit interact radius. Landmarks have no collision.
-const FINAL_POI = { id: "poi-arrivals-gate", x: 0, z: 64 };
-// The other 12 of the 13 poiIds, seeded as already discovered.
+// The one site left undiscovered by the seed: the base camp is right at the
+// spawn (you wake beside it), so the explorer is already inside its 16-unit
+// interact radius — a short walk at most. Sites have no collision.
+const FINAL_POI = { id: "site-base-camp", x: -28, z: 126 };
+// The other 5 of the 6 site ids, seeded as already discovered.
 const SEEDED_POI_IDS = [
-  "poi-end-state-overlook",
-  "poi-ai-first-foundry",
-  "poi-staff-engineer-gate",
-  "poi-root-cause-quarry",
-  "poi-autonomous-debug-lab",
-  "poi-review-tower",
-  "poi-force-push-dam",
-  "poi-pr-walkthrough-station",
-  "poi-history-rail-yard",
-  "poi-architecture-gardens",
-  "poi-skill-workshop",
-  "poi-meta-mirror",
+  "site-wrecked-canoe",
+  "site-carved-overhang",
+  "site-last-camp",
+  "site-fallen-idol-ruin",
+  "site-ancient-fig",
 ];
 // The decided, documented CTA order (F1 slice 3): DOM = visual = tab order.
 const COMPLETION_CTAS = ["Replay", "Share", "Keep exploring"];
@@ -154,9 +142,9 @@ try {
   });
   page.on("pageerror", (e) => consoleErrors.push(String(e)));
 
-  // Completion-panel mode: seed 12 of the 13 landmarks as already discovered
+  // Completion-panel mode: seed 5 of the 6 sites as already discovered
   // BEFORE the app boots (the discovery system loads persistence when the world
-  // builds), so one drive-and-interact at the Arrivals Gate is the 13th find.
+  // builds), so one walk-and-interact at the base camp is the 6th find.
   // An init script re-applies on every navigation, so the reload between the
   // two dismissal passes re-seeds the same 12/13 state.
   if (completionPanel) {
@@ -317,14 +305,14 @@ async function verifyDayCycle(page) {
         problems.push(`${name}: drawCalls ${state.drawCalls} over budget (150)`);
       if (state.triangles > 500_000)
         problems.push(`${name}: triangles ${state.triangles} over budget (500000)`);
-      // All 13 landmarks must stay present/legible at every loop point. The
-      // beacon-pulse system reports the placed landmark count; discovery reports
+      // All 6 sites must stay present/legible at every loop point. The
+      // sites census reports the placed landmark count; discovery reports
       // the total. Both must read 13 — a dropped landmark would show as a lower
       // count, and "present" is the legibility floor a text snapshot can assert.
-      const beaconCount = state.systems?.beacons?.poiCount;
+      const siteCount = state.systems?.sites?.poiCount;
       const discoveryTotal = state.systems?.discovery?.total;
-      if (beaconCount !== EXPECTED_LANDMARKS)
-        problems.push(`${name}: beacons.poiCount ${beaconCount} != ${EXPECTED_LANDMARKS}`);
+      if (siteCount !== EXPECTED_LANDMARKS)
+        problems.push(`${name}: sites.poiCount ${siteCount} != ${EXPECTED_LANDMARKS}`);
       if (discoveryTotal !== EXPECTED_LANDMARKS)
         problems.push(`${name}: discovery.total ${discoveryTotal} != ${EXPECTED_LANDMARKS}`);
     }
@@ -388,7 +376,7 @@ async function verifyDayCycle(page) {
     console.log(
       `  ${s.name}: sky≈[${s.sky.map((v) => v.toFixed(0)).join(",")}] ` +
         `fps=${s.state?.fps} draws=${s.state?.drawCalls} tris=${s.state?.triangles} ` +
-        `landmarks(beacons=${s.state?.systems?.beacons?.poiCount}, discovery=${s.state?.systems?.discovery?.total}) ` +
+        `sites(census=${s.state?.systems?.sites?.poiCount}, discovery=${s.state?.systems?.discovery?.total}) ` +
         `-> ${s.file}`,
     );
   }
@@ -485,7 +473,7 @@ async function verifyLandmarkTour(page) {
             const lum = 0.299 * r + 0.587 * g + 0.114 * b;
             const h = hueOf(r, g, b);
 
-            // Accent glow, two reads over the whole frame (the beacon plume rises
+            // Accent glow, two reads over the whole frame (site accents sit low
             // out of the centre band): `hued` = a bright pixel whose hue matches
             // the anchor's signature colour (the assertable signature glow);
             // `brightCore` = a bloom-blown near-white halo (reported, not gated,
@@ -552,10 +540,10 @@ async function verifyLandmarkTour(page) {
       // fault. The health signals that still hold are a positive fps read-out
       // (an EMA, untouched by the halt) and the full 13-landmark count.
       if (state.fps <= 0) problems.push(`${a.archetype}: fps not positive (${state.fps})`);
-      const beaconCount = state.systems?.beacons?.poiCount;
+      const siteCount = state.systems?.sites?.poiCount;
       const discoveryTotal = state.systems?.discovery?.total;
-      if (beaconCount !== EXPECTED_LANDMARKS)
-        problems.push(`${a.archetype}: beacons.poiCount ${beaconCount} != ${EXPECTED_LANDMARKS}`);
+      if (siteCount !== EXPECTED_LANDMARKS)
+        problems.push(`${a.archetype}: sites.poiCount ${siteCount} != ${EXPECTED_LANDMARKS}`);
       if (discoveryTotal !== EXPECTED_LANDMARKS)
         problems.push(`${a.archetype}: discovery.total ${discoveryTotal} != ${EXPECTED_LANDMARKS}`);
     }
@@ -604,7 +592,7 @@ async function verifyLandmarkTour(page) {
         `structure=${(r.structureCoverage * 100).toFixed(2)}% ` +
         `accent(hued)=${(r.accentHuedCoverage * 100).toFixed(3)}% ` +
         `accent(any)=${(r.accentCoverage * 100).toFixed(3)}% ` +
-        `fps=${r.state?.fps} landmarks=${r.state?.systems?.beacons?.poiCount} -> ${r.file}`,
+        `fps=${r.state?.fps} landmarks=${r.state?.systems?.sites?.poiCount} -> ${r.file}`,
     );
   }
   console.log(
@@ -696,7 +684,7 @@ async function verifyCompletionPanel(page) {
 
 // Raise the completion panel: drive from spawn to the Arrivals Gate (the one
 // unseeded landmark, dead ahead), tap E inside interact range to open its
-// reveal — the 13th find, which arms the completion latch — then tap E again to
+// reveal — the 6th find, which arms the completion latch — then tap E again to
 // close the reveal, which is what raises the panel. `label` names the pass in
 // problem reports. Returns false (with a problem pushed) if the panel never
 // raised, so the caller skips that pass's dismissal checks.

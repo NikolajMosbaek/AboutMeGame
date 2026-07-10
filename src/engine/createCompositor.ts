@@ -16,7 +16,7 @@ import { configureCompositorColor } from "./compositorColor.ts";
  * Engine itself never sees a `three/examples/jsm` type.
  *
  * Built only on the medium/high tiers (where `quality.bloom` is true) so the two
- * genuine emissive sources — the beacons and the tower lamp — visibly glow. On
+ * genuine emissive sources — the site accents (page, carvings, statue eyes) — visibly glow. On
  * low, `GameCanvas` injects nothing and the Engine presents via the bare
  * `renderer.render`, so zero composer bytes are constructed and there is no
  * post-processing fill-rate cost.

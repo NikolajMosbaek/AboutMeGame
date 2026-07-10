@@ -37,7 +37,7 @@ export function toJournalPoi(poi: DiscoverablePoi): JournalPoi {
 
 /**
  * POI placement / binding system (issue #36): join the data-driven world anchors
- * (`POI_ANCHORS`) with the content (`working-with-claude.json`) by id. The world
+ * (`POI_ANCHORS`) with the content (`expedition.json`) by id. The world
  * decides *where*; the content decides *what*; this is the seam. `positionFor`
  * supplies the ground-aware Y (landmarks were placed by `buildLandmarks`, so we
  * pass that map in) — keeping this module free of any THREE/terrain dependency
