@@ -551,6 +551,13 @@ body {
    wins on coarse pointers (where the keyboard line would be a lie). */
 .hint-touch { display: none; }
 
+.hud-stat__value {
+  font-variant-numeric: tabular-nums;
+  display: inline-block;
+  min-width: 1.4ch;
+  text-align: right;
+}
+
 /* ----- Discovery UI (#38) ----- */
 .discovery-progress {
   position: fixed;
@@ -748,6 +755,8 @@ body {
   font: 700 0.8rem var(--font-ui);
   letter-spacing: 0.08em;
   color: var(--color-drive);
+  min-width: 3.6em;
+  text-align: center;
 }
 .hud-mode--sprint {
   color: var(--color-fly);
