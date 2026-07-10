@@ -23,5 +23,5 @@ export function announcementFor(
   if (!prev) return null; // initial snapshot — don't read out saved progress
   if (next.discoveredCount <= prev.discoveredCount) return null; // no new find
   if (!next.open) return null; // a new find always opens its panel; guard anyway
-  return `Discovered ${next.open.title} — ${next.discoveredCount} of ${next.total}`;
+  return `Found ${next.open.title} — page ${next.discoveredCount} of ${next.total}`;
 }

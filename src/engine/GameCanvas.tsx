@@ -16,8 +16,13 @@ import { Onboarding } from "../ui/Onboarding.tsx";
 import { SettingsMenu } from "../ui/SettingsMenu.tsx";
 import { JournalPanel } from "../ui/JournalPanel.tsx";
 import { DiscoveryAnnouncer } from "../ui/DiscoveryAnnouncer.tsx";
-import { CompletionPanel } from "../ui/CompletionPanel.tsx";
-import { SpeedVignette } from "../fx/SpeedVignette.tsx";
+import { TreasurePanel } from "../ui/TreasurePanel.tsx";
+import { SurvivalMeters } from "../ui/SurvivalMeters.tsx";
+import { DeathOverlay } from "../ui/DeathOverlay.tsx";
+import { ActionHint } from "../ui/ActionHint.tsx";
+import type { SurvivalStore } from "../survival/survivalStore.ts";
+import type { ForageStore } from "../forage/forageStore.ts";
+import type { QuestStore } from "../quest/questStore.ts";
 import type { DiscoveryStore } from "../discovery/discoveryStore.ts";
 import type { JournalPoi } from "../content/discoverablePois.ts";
 import type { HudStore } from "../ui/hudStore.ts";
@@ -45,6 +50,13 @@ export interface GameHandle {
   nav: NavStore;
   settings: SettingsStore;
   session: GameSession;
+  /** Survival meters + the death→respawn action (pivot slice D). Optional so a
+   *  minimal preview/test build without survival still mounts. */
+  survival?: { store: SurvivalStore; respawn(): void };
+  /** Foraging (pivot slice E) — the pick hint reads it. */
+  forage?: { store: ForageStore };
+  /** The treasure quest (pivot slice G) — dig prompt + win screen. */
+  quest?: { store: QuestStore };
   /** Toggle shadow casting live when graphics quality changes (#47). */
   setShadowsEnabled?: (enabled: boolean) => void;
 }
@@ -91,7 +103,7 @@ export function GameCanvas({
   const [menuOpen, setMenuOpen] = useState(false);
   const [journalOpen, setJournalOpen] = useState(false);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
-  const [completionOpen, setCompletionOpen] = useState(false);
+  const [treasureOpen, setTreasureOpen] = useState(false);
   const [webglError, setWebglError] = useState(false);
 
   // Resolve the device tier once for this mount — `detectDeviceTier` reads real
@@ -127,7 +139,7 @@ export function GameCanvas({
 
     // Bloom is a bake-at-mount knob (like waterDisplacement): build the
     // post-processing compositor ONCE here, only on the medium/high tiers where
-    // `quality.bloom` is true, so the two emissive sources (beacons + tower lamp)
+    // `quality.bloom` is true, so the emissive site accents (and, later, fireflies)
     // glow. On low (`bloom: false`) we construct nothing and inject no delegate,
     // so the Engine presents via the bare `renderer.render` — zero composer bytes,
     // zero post-processing fill cost. The scene + camera are created here so they
@@ -186,6 +198,8 @@ export function GameCanvas({
       setGame(null);
       setMenuOpen(false);
       setJournalOpen(false);
+      setTreasureOpen(false);
+      setOnboardingOpen(false);
     };
   }, [build, deviceTier]);
 
@@ -261,11 +275,14 @@ export function GameCanvas({
 
   // The single keyboard opener. Escape opens the menu and J opens the journal,
   // each only when no other modal owns the foreground — so two modals never
-  // stack (RevealPanel/SettingsMenu/CompletionPanel/Onboarding/journal each own
+  // stack (RevealPanel/SettingsMenu/TreasurePanel/Onboarding/journal each own
   // their own keys while up). The journal owns Escape while topmost.
   useEffect(() => {
     if (!game) return;
     const onKey = (e: KeyboardEvent) => {
+      // The death overlay owns the whole keyboard: no menu/journal opens over
+      // it (its single button is focused; Enter/Space activate it natively).
+      if (game.survival && !game.survival.store.getSnapshot().alive) return;
       // Escape opens the menu — but only when no other modal owns Escape, and
       // the journal owns it while topmost (it closes itself, below). J opens the
       // journal under the same precedence chain, so two modals never stack.
@@ -273,7 +290,7 @@ export function GameCanvas({
         if (journalOpen) return; // JournalPanel handles closing while topmost.
         if (menuOpen) return; // SettingsMenu handles closing.
         if (onboardingOpen) return; // don't open a hidden menu behind onboarding.
-        if (completionOpen) return; // CompletionPanel owns Escape while it's up.
+        if (treasureOpen) return; // TreasurePanel owns Escape while it's up.
         if (game.discovery.store.getSnapshot().open) return; // RevealPanel owns it.
         setMenuOpen(true);
         return;
@@ -282,27 +299,46 @@ export function GameCanvas({
         if (journalOpen) return; // already open.
         if (menuOpen) return; // a modal is up.
         if (onboardingOpen) return;
-        if (completionOpen) return;
+        if (treasureOpen) return;
         if (game.discovery.store.getSnapshot().open) return; // reveal is up.
         setJournalOpen(true);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [game, menuOpen, journalOpen, onboardingOpen, completionOpen]);
+  }, [game, menuOpen, journalOpen, onboardingOpen, treasureOpen]);
 
   const closeMenu = useCallback(() => setMenuOpen(false), []);
   const closeJournal = useCallback(() => setJournalOpen(false), []);
   const resetProgress = useCallback(() => game?.discovery.reset(), [game]);
+
+  // Replay = a fresh expedition: wipe the saved pages and reload — the world,
+  // survival meters, plants, wildlife and quest all rebuild from zero. A reload
+  // is the one honest full reset now that five systems carry session state.
+  const replayExpedition = useCallback(() => {
+    game?.discovery.reset();
+    window.location.reload();
+  }, [game]);
+
+  // Track the treasure panel's visibility for the Escape/J precedence guards
+  // (its rising edge comes from the quest store; "keep exploring" clears it).
+  useEffect(() => {
+    const store = game?.quest?.store;
+    if (!store) return;
+    const baseline = store.getSnapshot().treasureFound;
+    const onChange = () => {
+      if (!baseline && store.getSnapshot().treasureFound) setTreasureOpen(true);
+    };
+    return store.subscribe(onChange);
+  }, [game]);
 
   if (webglError) {
     return (
       <main className="webgl-fallback">
         <h2>3D couldn’t start here</h2>
         <p>
-          Your browser or device couldn’t start the 3D view. Nothing’s lost — head
-          back and choose <strong>“Read it without playing”</strong> to read every
-          landmark as text.
+          Your browser or device couldn’t start the 3D view. Head back and choose{" "}
+          <strong>“Can’t play? About this game”</strong> to read what The Lost Idol is.
         </p>
         <button type="button" className="cta" onClick={() => onExit?.()}>
           Back to start
@@ -322,23 +358,38 @@ export function GameCanvas({
       {showStats && engine && <StatsOverlay engine={engine} />}
       {game && (
         <>
-          <SpeedVignette hud={game.hud} settings={game.settings} />
           <Hud
             hud={game.hud}
             discovery={game.discovery.store}
             onOpenMenu={() => setMenuOpen(true)}
             onOpenJournal={() => setJournalOpen(true)}
           />
+          {game.survival && (
+            <>
+              <SurvivalMeters survival={game.survival.store} />
+              <DeathOverlay survival={game.survival.store} onRespawn={game.survival.respawn} />
+              <ActionHint
+                survival={game.survival.store}
+                forage={game.forage?.store}
+                discovery={game.discovery.store}
+                quest={game.quest?.store}
+              />
+            </>
+          )}
           <DiscoveryAnnouncer store={game.discovery.store} />
           <NavMarkers nav={game.nav} />
-          <RevealPanel store={game.discovery.store} pois={game.discovery.pois} />
-          <CompletionPanel
-            store={game.discovery.store}
-            pois={game.discovery.pois}
-            onReplay={resetProgress}
-            containerRef={containerRef}
-            onOpenChange={setCompletionOpen}
-          />
+          <RevealPanel store={game.discovery.store} pois={game.discovery.pois} quest={game.quest?.store} />
+          {game.quest && (
+            <TreasurePanel
+              quest={game.quest.store}
+              onKeepExploring={() => {
+                game.session.setPaused("treasure", false);
+                setTreasureOpen(false);
+                containerRef.current?.focus();
+              }}
+              onReplay={replayExpedition}
+            />
+          )}
           <Onboarding onOpenChange={setOnboardingOpen} />
           {journalOpen && (
             <JournalPanel

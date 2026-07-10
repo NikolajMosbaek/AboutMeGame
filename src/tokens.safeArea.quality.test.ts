@@ -17,7 +17,7 @@ import { describe, expect, it } from "vitest";
  * pass while a base-rule-only test stays green.
  *
  * This file is the quality lens on AC2: the .touch-use offset, the reveal/
- * completion panel max-heights, the backdrop home-indicator padding, and the
+ * win-screen max-heights, the backdrop home-indicator padding, and the
  * in-media offset migration (D2e) — i.e. that NO raw bottom-vh or static-vh
  * max-height survives in any in-scope rule, portrait OR landscape.
  */
@@ -81,12 +81,12 @@ describe("tokens.css — AC2 quality: USE->reveal path consumes safe-area/dvh to
     }
   });
 
-  it("the landscape .touch-fly, .touch-use bottom also adds var(--safe-bottom) (D2e, in-media)", () => {
+  it("the landscape .touch-sprint, .touch-use bottom also adds var(--safe-bottom) (D2e, in-media)", () => {
     // @media (max-height: 480px) re-declares the offsets; the migration must
     // reach INSIDE the media query or a notch clips the button in landscape.
     const body = mediaBody("max-height: 480px");
-    const grouped = blocksFor(body, ".touch-fly, .touch-use");
-    expect(grouped.length, "landscape .touch-fly, .touch-use rule must exist").toBeGreaterThan(0);
+    const grouped = blocksFor(body, ".touch-sprint, .touch-use");
+    expect(grouped.length, "landscape .touch-sprint, .touch-use rule must exist").toBeGreaterThan(0);
     const joined = grouped.join("\n");
     expect(joined).toMatch(/bottom:\s*calc\(\s*4vh\s*\+\s*var\(--safe-bottom\)\s*\)/);
     for (const v of bottomValues(joined)) {
@@ -112,12 +112,12 @@ describe("tokens.css — AC2 quality: USE->reveal path consumes safe-area/dvh to
     expect(prompt).not.toMatch(/bottom:\s*\d+vh\b/);
   });
 
-  // ---- Reveal + completion panels: max-height through the dvh token, in every
+  // ---- Reveal + treasure panels: max-height through the dvh token, in every
   //      in-scope rule INCLUDING the split-out media rules (the D2d gap) ----
 
-  it("the .completion-panel (the reveal-flow end panel) max-height reads var(--vh-dynamic)", () => {
-    const base = blocksFor(css, ".completion-panel")[0];
-    expect(base, ".completion-panel base rule must exist").toBeTruthy();
+  it("the .treasure-panel__card (the win screen) max-height reads var(--vh-dynamic)", () => {
+    const base = blocksFor(css, ".treasure-panel__card")[0];
+    expect(base, ".treasure-panel__card base rule must exist").toBeTruthy();
     expect(base).toMatch(/max-height:\s*calc\(var\(--vh-dynamic\)\s*\*\s*0\.86\)/);
     expect(base).not.toMatch(/max-height:\s*\d+vh\b/);
   });
@@ -157,8 +157,8 @@ describe("tokens.css — AC2 quality: USE->reveal path consumes safe-area/dvh to
 
   // ---- Backdrops: a centred panel's footer must clear the home indicator ----
 
-  it("the reveal + completion backdrops pad the bottom by var(--safe-bottom) (D2f)", () => {
-    for (const sel of [".reveal-panel-backdrop", ".completion-panel-backdrop"]) {
+  it("the reveal backdrop + treasure panel pad the bottom by var(--safe-bottom) (D2f)", () => {
+    for (const sel of [".reveal-panel-backdrop", ".treasure-panel"]) {
       const block = blocksFor(css, sel)[0];
       expect(block, `${sel} rule must exist`).toBeTruthy();
       expect(block, `${sel} must add the bottom inset`).toMatch(
@@ -176,7 +176,7 @@ describe("tokens.css — AC2 quality: USE->reveal path consumes safe-area/dvh to
     // The exhaustive D2 invariant across base + both media blocks. Every place a
     // .touch-* / .reveal-prompt declares `bottom`, it must be a calc() carrying
     // var(--safe-bottom), never a bare vh that a notch could clip under.
-    const inScope = [".touch-joystick", ".touch-thrust", ".touch-fly", ".touch-use", ".reveal-prompt"];
+    const inScope = [".touch-joystick", ".touch-sprint", ".touch-use", ".reveal-prompt"];
     const sources = [
       css,
       mediaBody("max-width: 480px"),

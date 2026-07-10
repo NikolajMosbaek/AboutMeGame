@@ -5,16 +5,16 @@ import { POI_ANCHORS } from "../world/worldConfig.ts";
 import { readControlChannel, type ControlChannel } from "./controlScheme.ts";
 
 export interface TitleProgress {
-  /** How many landmarks have been revealed in a previous session. */
+  /** How many pages have been found in a previous session. */
   discovered: number;
-  /** The total number of landmarks. */
+  /** The total number of pages (the clue chain + the dig site). */
   total: number;
 }
 
 export interface TitleScreenProps {
   /** Enter the world. Wired by `App` to dispatch `{ type: "start" }`. */
   onStart: () => void;
-  /** Open the no-WebGL text view (#50). Wired by `App` to dispatch
+  /** Open the static "can't play" notice (#50). Wired by `App` to dispatch
    *  `{ type: "openTextView" }`. Optional so existing callers/tests need not
    *  pass it; the link is hidden when absent. */
   onReadText?: () => void;
@@ -27,25 +27,32 @@ export interface TitleScreenProps {
   channel?: ControlChannel;
 }
 
-// Title-local presentational copy for the one controls hint. Keyboard is the
-// existing line verbatim (U+00B7 middot); touch names the on-screen FLY/USE
-// buttons built by createTouchControls (src/movement/input.ts). Held here as the
+// Title-local presentational copy for the one controls hint — first-person
+// explorer controls (pivot slice B), not the old drive/fly rig. Keyboard is
+// held here verbatim (U+00B7 middot); touch names the on-screen joystick/USE
+// buttons built by createTouchControls (src/player/input.ts). Held here as the
 // screen's own prose — not a re-derivation of controlScheme's resolver entries.
-const KEYBOARD_HINT = "WASD to drive · F to fly · E to reveal a landmark";
-const TOUCH_HINT = "Drag to drive · tap FLY to fly · tap USE to reveal";
+const KEYBOARD_HINT = "WASD to walk · Shift to sprint · E to use";
+const TOUCH_HINT = "Joystick to walk · drag to look · tap USE to use";
 
 /** Read persisted progress without spinning up the engine — the title screen
- *  needs only the count and the landmark total to decide Continue vs Drive in. */
+ *  needs only the count and the page total (the clue chain + the dig site,
+ *  `POI_ANCHORS.length`) to decide Continue vs Begin the expedition. */
 function readProgress(): TitleProgress {
-  return { discovered: createPersistence().load().size, total: POI_ANCHORS.length };
+  // Count only ids that exist in the current site set — a save from an older
+  // content set must not read as progress (same rule as DiscoverySystem).
+  const known = new Set(POI_ANCHORS.map((a) => a.poiId));
+  const discovered = [...createPersistence().load()].filter((id) => known.has(id)).length;
+  return { discovered, total: POI_ANCHORS.length };
 }
 
 /**
  * The landing screen (#40): the wordmark, the one-line pitch, a short controls
- * hint, and a single CTA. With saved progress it shows "N / total discovered"
- * and the CTA reads "Continue"; otherwise "Drive in". A secondary link opens the
- * no-WebGL text view (#50) for anyone who can't or won't play. Kept
- * presentational — it owns no game state, only the focus-on-mount affordance.
+ * hint, and a single CTA. With saved progress it shows "N of total pages found"
+ * and the CTA reads "Continue"; otherwise "Begin the expedition". A secondary
+ * link opens the static "can't play" notice (#50) for anyone who can't or
+ * won't play. Kept presentational — it owns no game state, only the
+ * focus-on-mount affordance.
  */
 export function TitleScreen({
   onStart,
@@ -64,30 +71,24 @@ export function TitleScreen({
 
   return (
     <main className="title-screen">
-      {/* Wordmark (#54): a tokenised treatment that reads as intentional — "Me"
-          carries the amber accent so the brand's personal note lands, with a
-          short accent rule beneath. Split into spans for the visual emphasis;
-          aria-label keeps the accessible name a single clean "AboutMeGame". */}
-      <h1 ref={headingRef} tabIndex={-1} className="wordmark" aria-label="AboutMeGame">
-        <span className="wordmark__about">About</span>
-        <span className="wordmark__me">Me</span>
-        <span className="wordmark__game">Game</span>
+      <h1 ref={headingRef} tabIndex={-1} className="wordmark">
+        THE LOST IDOL
       </h1>
       <p className="tagline">{VISION}</p>
 
       {hasProgress && (
         <p className="title-progress" role="status">
-          {progress.discovered} / {progress.total} discovered
+          {progress.discovered} of {progress.total} pages found
         </p>
       )}
 
       <button type="button" className="cta" onClick={onStart}>
-        {hasProgress ? "Continue" : "Drive in"}
+        {hasProgress ? "Continue" : "Begin the expedition"}
       </button>
 
       {onReadText && (
         <button type="button" className="title-textlink" onClick={onReadText}>
-          Read it without playing
+          Can't play? About this game
         </button>
       )}
 

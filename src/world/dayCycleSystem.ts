@@ -116,4 +116,18 @@ export class DayCycleSystem implements System {
   // would make the render_game_to_text snapshot non-deterministic (mirroring
   // WaterSystem / BeaconPulseSystem). The visible state (that the sky cycles) is
   // implied by this System's presence.
+
+  /**
+   * The current loop fraction, `t ∈ [0,1)` (0 = dawn, 0.25 = noon, `GOLDEN_T` =
+   * 0.5 = dusk, 0.75 = evening) — read by anything downstream of the sky that
+   * needs day/night phase without importing `./dayCycle` itself (the wildlife
+   * slice's butterfly/firefly crossfade; see `World.dayCycle`). Mirrors what is
+   * actually PAINTED: pinned to `GOLDEN_T` under reduced motion, exactly like
+   * the sky/dome/fog writes above, so a consumer never reads a phase the player
+   * can't see.
+   */
+  getPhase(): number {
+    if (this.reducedMotion?.getSnapshot().reducedMotion) return GOLDEN_T;
+    return this.t / PERIOD_SECONDS;
+  }
 }

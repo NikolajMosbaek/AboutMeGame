@@ -241,35 +241,6 @@ body {
   height: 100%;
 }
 
-/* ----- Speed vignette (#53 movement feedback) ----- */
-/* A purely decorative edge-darkening overlay whose opacity is driven inline from
-   the hud speed (fx/SpeedVignette.tsx). Pointer-events off so it never eats the
-   world's input; a radial gradient so only the corners darken and the centre
-   stays clear. Non-essential motion: hidden under the OS reduced-motion query
-   (the in-game setting zeroes its opacity in JS), so both gates apply. */
-.speed-vignette {
-  position: fixed;
-  inset: 0;
-  z-index: 11; /* above the canvas, below the HUD/markers */
-  pointer-events: none;
-  background: radial-gradient(
-    ellipse at center,
-    transparent 52%,
-    rgba(10, 9, 16, 0.9) 100%
-  );
-  transition: opacity 200ms ease;
-  will-change: opacity;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .speed-vignette {
-    display: none;
-  }
-}
-:root[data-reduced-motion="true"] .speed-vignette {
-  display: none;
-}
-
 /* ----- Runtime stats overlay (#14) ----- */
 .stats-overlay {
   position: fixed;
@@ -296,7 +267,7 @@ body {
   color: #ff5c5c;
 }
 
-/* ----- Touch controls (#32) — created lazily by movement/input.ts ----- */
+/* ----- Touch controls — created by player/input.ts (eager on touch devices) ----- */
 .touch-joystick {
   position: fixed;
   left: calc(5vw + var(--safe-left));
@@ -335,12 +306,7 @@ body {
   user-select: none;
 }
 
-.touch-thrust {
-  right: calc(6vw + var(--safe-right));
-  bottom: calc(18vh + var(--safe-bottom));
-  font-size: 1.4rem;
-}
-.touch-fly {
+.touch-sprint {
   right: calc(22vw + var(--safe-right));
   bottom: calc(7vh + var(--safe-bottom));
 }
@@ -349,6 +315,201 @@ body {
   bottom: calc(7vh + var(--safe-bottom));
   background: rgba(255, 203, 71, 0.85);
   color: var(--color-accent-fg);
+}
+
+
+/* ----- Survival meters (pivot slice D) ----- */
+.survival {
+  position: fixed;
+  left: max(var(--space-2), var(--safe-left));
+  bottom: calc(3.2rem + var(--safe-bottom));
+  display: grid;
+  gap: 0.35rem;
+  z-index: 12;
+  pointer-events: none;
+}
+
+.meter {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.meter__icon {
+  width: 1.2rem;
+  text-align: center;
+  font-size: 0.85rem;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.7));
+}
+
+.meter__track {
+  width: 130px;
+  height: 7px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  overflow: hidden;
+  display: block;
+}
+
+.meter__fill {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  transition: width 300ms ease;
+}
+
+.meter--health .meter__fill { background: #e05656; }
+.meter--stamina .meter__fill { background: #e8c94e; }
+.meter--hunger .meter__fill { background: #c78b4e; }
+.meter--thirst .meter__fill { background: #58a6d6; }
+
+/* Low-meter attention flash — non-essential motion, so both reduced-motion
+   gates suppress it (the colour + width still carry the state). */
+.meter--low .meter__fill {
+  animation: meter-flash 1s ease-in-out infinite;
+}
+@keyframes meter-flash {
+  50% { opacity: 0.35; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .meter--low .meter__fill { animation: none; }
+}
+:root[data-reduced-motion="true"] .meter--low .meter__fill { animation: none; }
+
+/* The drink hint mirrors the reveal prompt's placement language. */
+.drink-hint {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(4.6rem + var(--safe-bottom));
+  margin: 0;
+  padding: 0.35rem 0.9rem;
+  border-radius: 999px;
+  background: rgba(10, 20, 30, 0.72);
+  color: #bfe3ff;
+  font: 600 0.85rem var(--font-ui);
+  z-index: 12;
+  pointer-events: none;
+}
+
+/* ----- Death overlay (pivot slice D) ----- */
+.death-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  background: rgba(5, 8, 6, 0.82);
+}
+
+.death-overlay__card {
+  max-width: 26rem;
+  margin: 1rem;
+  padding: 1.6rem 1.8rem;
+  border-radius: 12px;
+  background: #141a14;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  text-align: center;
+}
+
+.death-overlay__card h2 {
+  margin: 0 0 0.6rem;
+  font: 700 1.25rem var(--font-ui);
+}
+
+.death-overlay__card p {
+  margin: 0 0 1.2rem;
+  opacity: 0.85;
+}
+
+
+/* ----- Treasure quest (pivot slice G) ----- */
+.drink-hint--dig {
+  color: #ffe9a8;
+  background: rgba(40, 28, 8, 0.8);
+}
+
+.treasure-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  background: rgba(4, 10, 6, 0.78);
+  /* Safe-area clearance (D2f): the card clears the notch and gesture bar. */
+  padding-top: calc(var(--space-2) + var(--safe-top));
+  padding-bottom: calc(var(--space-2) + var(--safe-bottom));
+}
+
+.treasure-panel__card {
+  max-width: 30rem;
+  /* MOB2 reachability: the win card must fit the DYNAMIC viewport (URL bar
+     collapsed or not) with its CTAs reachable — same cap the reveal panel
+     carries. */
+  max-height: calc(var(--vh-dynamic) * 0.86);
+  overflow-y: auto;
+  margin: 1rem;
+  padding: 1.8rem 2rem;
+  border-radius: 14px;
+  background: #10190f;
+  border: 1px solid rgba(230, 200, 120, 0.35);
+  text-align: center;
+}
+
+.treasure-panel__eyebrow {
+  margin: 0 0 0.4rem;
+  font: 600 0.8rem var(--font-ui);
+  letter-spacing: 0.04em;
+  opacity: 0.7;
+}
+
+.treasure-panel__card h2 {
+  margin: 0 0 0.6rem;
+  font: 700 1.5rem var(--font-ui);
+  color: #b8e6c2;
+}
+
+.treasure-panel__flavor {
+  margin: 0 0 1.2rem;
+  opacity: 0.85;
+}
+
+.treasure-panel__stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.7rem 1.2rem;
+  margin: 0 0 1.4rem;
+  text-align: left;
+}
+
+.treasure-panel__stats dt {
+  font: 600 0.75rem var(--font-ui);
+  opacity: 0.65;
+}
+
+.treasure-panel__stats dd {
+  margin: 0;
+  font: 700 1.1rem var(--font-ui);
+}
+
+.treasure-panel__ctas {
+  display: flex;
+  gap: 0.6rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.cta--quiet {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.treasure-panel__announce {
+  min-height: 1.2em;
+  margin: 0.8rem 0 0;
+  font: 500 0.85rem var(--font-ui);
+  opacity: 0.8;
 }
 
 /* ----- Discovery UI (#38) ----- */
@@ -527,66 +688,6 @@ body {
   line-height: 1.55;
 }
 
-/* ----- Completion panel (the "you found everything" moment) ----- */
-.completion-panel-backdrop {
-  position: fixed;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  /* Same safe-area padding as the reveal backdrop (D2f). */
-  padding: var(--space-2);
-  padding-top: calc(var(--space-2) + var(--safe-top));
-  padding-bottom: calc(var(--space-2) + var(--safe-bottom));
-  background: rgba(10, 9, 16, 0.55);
-  z-index: 30;
-}
-.completion-panel {
-  max-width: min(40rem, 92vw);
-  max-height: calc(var(--vh-dynamic) * 0.86);
-  overflow-y: auto;
-  background: var(--color-bg);
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: 1rem;
-  padding: var(--space-4) var(--space-3);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
-}
-.completion-panel__title {
-  margin: 0 0 var(--space-3);
-  font-size: clamp(1.4rem, 4vw, 2rem);
-}
-.completion-panel__list {
-  list-style: none;
-  margin: 0 0 var(--space-3);
-  padding: 0;
-  display: grid;
-  gap: var(--space-1);
-}
-.completion-panel__item {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-1);
-}
-.completion-panel__check {
-  flex: none;
-  color: var(--color-accent);
-}
-.completion-panel__item-title {
-  flex: 1;
-}
-.completion-panel__item-status {
-  font-size: 0.8rem;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  opacity: 0.6;
-}
-/* One-line visible mirror of the share announcement (aria-hidden — the
-   sr-only live region is the voiced surface). */
-.completion-panel__share-status {
-  margin: var(--space-1) 0 0;
-  font-size: 0.85rem;
-  opacity: 0.75;
-}
-
 /* ----- In-game HUD (#42) + progress (#45) ----- */
 .hud-telemetry {
   position: fixed;
@@ -609,7 +710,7 @@ body {
   letter-spacing: 0.08em;
   color: var(--color-drive);
 }
-.hud-mode--fly {
+.hud-mode--sprint {
   color: var(--color-fly);
 }
 
@@ -1182,10 +1283,7 @@ body {
     height: 96px;
     bottom: calc(4vh + var(--safe-bottom));
   }
-  .touch-thrust {
-    bottom: calc(14vh + var(--safe-bottom));
-  }
-  .touch-fly,
+  .touch-sprint,
   .touch-use {
     bottom: calc(4vh + var(--safe-bottom));
   }
@@ -1206,8 +1304,8 @@ body {
     min-height: var(--tap-min);
     min-width: var(--tap-min);
   }
-  /* The on-screen joystick + buttons are already large (≥72px); the USE/FLY/
-     thrust buttons sit at the screen edges, clear of the centred prompt and the
+  /* The on-screen joystick + buttons are already large (≥72px); the USE and
+     SPRINT buttons sit at the screen edges, clear of the centred prompt and the
      top HUD, so they never overlap the markers or telemetry. */
   .touch-btn {
     min-width: var(--tap-min);

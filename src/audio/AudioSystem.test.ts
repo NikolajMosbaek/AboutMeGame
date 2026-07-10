@@ -1,50 +1,146 @@
 import { describe, expect, it, vi } from "vitest";
-import { AudioSystem } from "./AudioSystem.ts";
+import { AudioSystem, nearestWaterDistance } from "./AudioSystem.ts";
 import type { AudioEngine } from "./AudioEngine.ts";
 import { createDiscoveryStore } from "../discovery/discoveryStore.ts";
 import type { FrameContext } from "../engine/types.ts";
-import type { DriveMode } from "../movement/vehicle.ts";
 
 // A fake AudioEngine: every public method is a spy, so the system's wiring can
 // be asserted without real Web Audio.
 function fakeEngine() {
   return {
     chime: vi.fn(),
-    whoosh: vi.fn(),
-    boost: vi.fn(),
+    breathe: vi.fn(),
+    footstep: vi.fn(),
+    gulp: vi.fn(),
+    bite: vi.fn(),
+    hurtThud: vi.fn(),
+    digThud: vi.fn(),
+    snakeAlert: vi.fn(),
+    fanfare: vi.fn(),
+    deathSting: vi.fn(),
+    birdChirp: vi.fn(),
+    owlHoot: vi.fn(),
     startMusic: vi.fn(),
     stopMusic: vi.fn(),
+    setAmbientPhase: vi.fn(),
+    setRiverProximity: vi.fn(),
     setMuted: vi.fn(),
     resume: vi.fn(),
     dispose: vi.fn(),
-  } as unknown as AudioEngine & {
-    chime: ReturnType<typeof vi.fn>;
-    whoosh: ReturnType<typeof vi.fn>;
-    boost: ReturnType<typeof vi.fn>;
-    startMusic: ReturnType<typeof vi.fn>;
-    setMuted: ReturnType<typeof vi.fn>;
-    dispose: ReturnType<typeof vi.fn>;
+  } as unknown as AudioEngine & Record<string, ReturnType<typeof vi.fn>>;
+}
+
+const CTX = (dt = 0.016): FrameContext => ({ scene: {} as never, camera: {} as never, dt, elapsed: 0 });
+
+function explorerSource(state: {
+  x?: number;
+  z?: number;
+  speed?: number;
+  sprinting?: boolean;
+  wading?: boolean;
+}) {
+  const s = {
+    position: { x: state.x ?? 0, z: state.z ?? 0 },
+    speed: state.speed ?? 0,
+    sprinting: state.sprinting ?? false,
+    wading: state.wading ?? false,
   };
+  return { state: s };
 }
 
-const CTX: FrameContext = { scene: {} as never, camera: {} as never, dt: 0.016, elapsed: 0 };
-
-function modeSource(mode: DriveMode) {
-  return { state: { mode } };
-}
-function boostSource(boost: boolean) {
-  return { state: { boost } };
-}
 function mutedSource(muted: boolean) {
   return { getSnapshot: () => ({ muted }) };
 }
 
+function dayPhaseSource(phase: number) {
+  return { getPhase: () => phase, set(p: number) {
+    phase = p;
+  } };
+}
+
+const NO_WATER = () => -1;
+
+function survivalSource(snap: { thirst: number; health: number; alive: boolean }) {
+  return { getSnapshot: () => snap };
+}
+function forageSource(snap: { eaten: number }) {
+  return { getSnapshot: () => snap };
+}
+function questSource(snap: { digProgress: number | null; treasureFound: boolean }) {
+  return { getSnapshot: () => snap };
+}
+function snakeSource(alert: boolean) {
+  return { anyAlert: () => alert };
+}
+
+// A fully-neutral rig — nothing rises, nothing moves — for tests that only
+// care about one seam.
+function neutralArgs() {
+  return {
+    explorer: explorerSource({}),
+    muted: mutedSource(false),
+    dayPhase: dayPhaseSource(0.25),
+    waterDepthAt: NO_WATER,
+    survival: survivalSource({ thirst: 50, health: 100, alive: true }),
+    forage: forageSource({ eaten: 0 }),
+    quest: questSource({ digProgress: null, treasureFound: false }),
+    snakes: snakeSource(false),
+  };
+}
+
+function makeSystem(overrides: Partial<ReturnType<typeof neutralArgs>> = {}) {
+  const engine = fakeEngine();
+  const store = createDiscoveryStore(3);
+  const args = { ...neutralArgs(), ...overrides };
+  const sys = new AudioSystem(
+    engine,
+    store,
+    args.explorer,
+    args.muted,
+    args.dayPhase,
+    args.waterDepthAt,
+    args.survival,
+    args.forage,
+    args.quest,
+    args.snakes,
+  );
+  return { engine, store, sys, args };
+}
+
+describe("nearestWaterDistance", () => {
+  it("is 0 when the point itself is wet", () => {
+    expect(nearestWaterDistance((x, z) => (x === 0 && z === 0 ? 1 : -1), 0, 0)).toBe(0);
+  });
+
+  it("finds the ring radius of the nearest wet point", () => {
+    // Wet everywhere at distance 10 from the origin, dry elsewhere.
+    const waterDepthAt = (x: number, z: number) => (Math.abs(Math.hypot(x, z) - 10) < 0.5 ? 1 : -1);
+    expect(nearestWaterDistance(waterDepthAt, 0, 0)).toBe(10);
+  });
+
+  it("is Infinity when nothing within the outermost ring is wet", () => {
+    expect(nearestWaterDistance(NO_WATER, 0, 0)).toBe(Infinity);
+  });
+});
+
 describe("AudioSystem", () => {
   it("chimes once per new discovery, not for restored progress", () => {
-    const engine = fakeEngine();
     const store = createDiscoveryStore(3);
     store.setDiscovered(["a"]); // pre-existing saved progress before the system mounts
-    const sys = new AudioSystem(engine, store, modeSource("drive"), boostSource(false), mutedSource(false));
+    const engine = fakeEngine();
+    const args = neutralArgs();
+    const sys = new AudioSystem(
+      engine,
+      store,
+      args.explorer,
+      args.muted,
+      args.dayPhase,
+      args.waterDepthAt,
+      args.survival,
+      args.forage,
+      args.quest,
+      args.snakes,
+    );
 
     expect(engine.chime).not.toHaveBeenCalled(); // mount didn't re-chime saved progress
     store.setDiscovered(["a", "b"]); // a new find
@@ -57,70 +153,196 @@ describe("AudioSystem", () => {
     sys.dispose();
   });
 
-  it("whooshes on a mode change but not on the first frame", () => {
-    const engine = fakeEngine();
-    const store = createDiscoveryStore(3);
-    const mode = modeSource("drive");
-    const sys = new AudioSystem(engine, store, mode, boostSource(false), mutedSource(false));
+  it("fires a footstep immediately on the first moving frame, then paces by interval", () => {
+    const explorer = explorerSource({ speed: 4 });
+    const { engine, sys } = makeSystem({ explorer });
 
-    sys.update(CTX); // first observation — no whoosh
-    expect(engine.whoosh).not.toHaveBeenCalled();
-    mode.state.mode = "fly";
-    sys.update(CTX);
-    expect(engine.whoosh).toHaveBeenCalledTimes(1);
-    sys.update(CTX); // unchanged
-    expect(engine.whoosh).toHaveBeenCalledTimes(1);
-    mode.state.mode = "drive";
-    sys.update(CTX);
-    expect(engine.whoosh).toHaveBeenCalledTimes(2);
+    sys.update(CTX(0.001)); // timer starts at 0 ⇒ the very first step lands now
+    expect(engine.footstep).toHaveBeenCalledTimes(1);
+    sys.update(CTX(0.2)); // well short of the walk interval
+    expect(engine.footstep).toHaveBeenCalledTimes(1);
+    sys.update(CTX(0.3)); // crosses it
+    expect(engine.footstep).toHaveBeenCalledTimes(2);
   });
 
-  it("fires the boost cue on the rising edge only", () => {
-    const engine = fakeEngine();
-    const store = createDiscoveryStore(3);
-    const boost = boostSource(false);
-    const sys = new AudioSystem(engine, store, modeSource("drive"), boost, mutedSource(false));
+  it("paces sprinting footsteps faster than walking", () => {
+    const runFor = (sprinting: boolean) => {
+      const explorer = explorerSource({ speed: sprinting ? 7 : 4, sprinting });
+      const { engine, sys } = makeSystem({ explorer });
+      for (let i = 0; i < 18; i++) sys.update(CTX(0.05)); // 0.9s total, in small steps
+      return (engine.footstep as ReturnType<typeof vi.fn>).mock.calls.length;
+    };
+    expect(runFor(true)).toBeGreaterThan(runFor(false));
+  });
 
-    sys.update(CTX);
-    expect(engine.boost).not.toHaveBeenCalled();
-    boost.state.boost = true;
-    sys.update(CTX);
-    expect(engine.boost).toHaveBeenCalledTimes(1);
-    sys.update(CTX); // held — no re-fire
-    expect(engine.boost).toHaveBeenCalledTimes(1);
-    boost.state.boost = false;
-    sys.update(CTX);
-    boost.state.boost = true;
-    sys.update(CTX);
-    expect(engine.boost).toHaveBeenCalledTimes(2);
+  it("passes the wading flag through to the footstep tone", () => {
+    const dry = explorerSource({ speed: 4, wading: false });
+    const wet = explorerSource({ speed: 4, wading: true });
+    const dryRig = makeSystem({ explorer: dry });
+    const wetRig = makeSystem({ explorer: wet });
+
+    dryRig.sys.update(CTX(0.001));
+    expect(dryRig.engine.footstep).toHaveBeenLastCalledWith(false);
+    wetRig.sys.update(CTX(0.001));
+    expect(wetRig.engine.footstep).toHaveBeenLastCalledWith(true);
+  });
+
+  it("plays no footsteps while stopped", () => {
+    const explorer = explorerSource({ speed: 0 });
+    const { engine, sys } = makeSystem({ explorer });
+    for (let i = 0; i < 50; i++) sys.update(CTX(0.1));
+    expect(engine.footstep).not.toHaveBeenCalled();
+  });
+
+  it("fires the breathing cue on the sprint rising edge only", () => {
+    const explorer = explorerSource({ sprinting: false });
+    const { engine, sys } = makeSystem({ explorer });
+
+    sys.update(CTX());
+    expect(engine.breathe).not.toHaveBeenCalled();
+    explorer.state.sprinting = true;
+    sys.update(CTX());
+    expect(engine.breathe).toHaveBeenCalledTimes(1);
+    sys.update(CTX()); // held — no re-fire
+    expect(engine.breathe).toHaveBeenCalledTimes(1);
+    explorer.state.sprinting = false;
+    sys.update(CTX());
+    explorer.state.sprinting = true;
+    sys.update(CTX());
+    expect(engine.breathe).toHaveBeenCalledTimes(2);
   });
 
   it("starts the ambient bed once on the first frame", () => {
-    const engine = fakeEngine();
-    const store = createDiscoveryStore(3);
-    const sys = new AudioSystem(engine, store, modeSource("drive"), boostSource(false), mutedSource(false));
-    sys.update(CTX);
-    sys.update(CTX);
+    const { engine, sys } = makeSystem();
+    sys.update(CTX());
+    sys.update(CTX());
     expect(engine.startMusic).toHaveBeenCalledTimes(1);
   });
 
+  it("drives the day/night bed crossfade from the world's day phase every frame", () => {
+    const dayPhase = dayPhaseSource(0.25);
+    const { engine, sys } = makeSystem({ dayPhase });
+    sys.update(CTX());
+    expect(engine.setAmbientPhase).toHaveBeenLastCalledWith(0.25);
+    dayPhase.set(0.75);
+    sys.update(CTX());
+    expect(engine.setAmbientPhase).toHaveBeenLastCalledWith(0.75);
+  });
+
+  it("drives the river layer from distance to the nearest wet point", () => {
+    // Wet right at the player's feet ⇒ full proximity (1).
+    const explorer = explorerSource({ x: 0, z: 0 });
+    const wet = () => 1;
+    const { engine, sys } = makeSystem({ explorer, waterDepthAt: wet });
+    sys.update(CTX());
+    expect(engine.setRiverProximity).toHaveBeenLastCalledWith(1);
+  });
+
+  it("silences the river layer beyond the silence distance", () => {
+    const explorer = explorerSource({ x: 0, z: 0 });
+    const { engine, sys } = makeSystem({ explorer, waterDepthAt: NO_WATER });
+    sys.update(CTX());
+    expect(engine.setRiverProximity).toHaveBeenLastCalledWith(0);
+  });
+
   it("keeps the engine mute synced to the live setting each frame", () => {
-    const engine = fakeEngine();
-    const store = createDiscoveryStore(3);
     let muted = false;
     const muteSrc = { getSnapshot: () => ({ muted }) };
-    const sys = new AudioSystem(engine, store, modeSource("drive"), boostSource(false), muteSrc);
+    const { engine, sys } = makeSystem({ muted: muteSrc });
 
     expect(engine.setMuted).toHaveBeenLastCalledWith(false); // applied at construction
     muted = true;
-    sys.update(CTX);
+    sys.update(CTX());
     expect(engine.setMuted).toHaveBeenLastCalledWith(true);
   });
 
+  it("fires drink/eat/hurt/death exactly once per edge", () => {
+    const survival = survivalSource({ thirst: 50, health: 100, alive: true });
+    const forage = forageSource({ eaten: 0 });
+    const { engine, sys } = makeSystem({ survival, forage });
+
+    sys.update(CTX());
+    expect(engine.gulp).not.toHaveBeenCalled();
+    survival.getSnapshot().thirst = 60; // drink
+    sys.update(CTX());
+    expect(engine.gulp).toHaveBeenCalledTimes(1);
+    sys.update(CTX()); // no further rise ⇒ no re-fire
+    expect(engine.gulp).toHaveBeenCalledTimes(1);
+
+    forage.getSnapshot().eaten = 1; // eat
+    sys.update(CTX());
+    expect(engine.bite).toHaveBeenCalledTimes(1);
+
+    survival.getSnapshot().health = 90; // sharp drop (>5)
+    sys.update(CTX());
+    expect(engine.hurtThud).toHaveBeenCalledTimes(1);
+
+    survival.getSnapshot().health = 88; // small further drain ⇒ no thud
+    sys.update(CTX());
+    expect(engine.hurtThud).toHaveBeenCalledTimes(1);
+
+    survival.getSnapshot().alive = false; // death
+    sys.update(CTX());
+    expect(engine.deathSting).toHaveBeenCalledTimes(1);
+    sys.update(CTX()); // still dead ⇒ no re-fire
+    expect(engine.deathSting).toHaveBeenCalledTimes(1);
+  });
+
+  it("thuds each dig third exactly once and fanfares once on treasure found", () => {
+    const quest = questSource({ digProgress: null, treasureFound: false });
+    const { engine, sys } = makeSystem({ quest });
+
+    sys.update(CTX());
+    expect(engine.digThud).not.toHaveBeenCalled();
+
+    quest.getSnapshot().digProgress = 0.1;
+    sys.update(CTX());
+    expect(engine.digThud).not.toHaveBeenCalled(); // still in the first third
+
+    quest.getSnapshot().digProgress = 0.35;
+    sys.update(CTX());
+    expect(engine.digThud).toHaveBeenCalledTimes(1);
+    sys.update(CTX()); // held in the same third ⇒ no re-fire
+    expect(engine.digThud).toHaveBeenCalledTimes(1);
+
+    quest.getSnapshot().digProgress = 0.7;
+    sys.update(CTX());
+    expect(engine.digThud).toHaveBeenCalledTimes(2);
+
+    quest.getSnapshot().digProgress = null; // cancelled — resets the baseline
+    sys.update(CTX());
+    quest.getSnapshot().digProgress = 0.4;
+    sys.update(CTX());
+    expect(engine.digThud).toHaveBeenCalledTimes(3);
+
+    quest.getSnapshot().treasureFound = true;
+    sys.update(CTX());
+    expect(engine.fanfare).toHaveBeenCalledTimes(1);
+    sys.update(CTX());
+    expect(engine.fanfare).toHaveBeenCalledTimes(1);
+  });
+
+  it("rattles once on the snake-alert rising edge", () => {
+    let alert = false;
+    const snakes = { anyAlert: () => alert };
+    const { engine, sys } = makeSystem({ snakes });
+
+    sys.update(CTX());
+    expect(engine.snakeAlert).not.toHaveBeenCalled();
+    alert = true;
+    sys.update(CTX());
+    expect(engine.snakeAlert).toHaveBeenCalledTimes(1);
+    sys.update(CTX()); // held — no re-fire
+    expect(engine.snakeAlert).toHaveBeenCalledTimes(1);
+    alert = false;
+    sys.update(CTX());
+    alert = true;
+    sys.update(CTX());
+    expect(engine.snakeAlert).toHaveBeenCalledTimes(2);
+  });
+
   it("disposes the engine and unsubscribes from the store", () => {
-    const engine = fakeEngine();
-    const store = createDiscoveryStore(3);
-    const sys = new AudioSystem(engine, store, modeSource("drive"), boostSource(false), mutedSource(false));
+    const { engine, store, sys } = makeSystem();
     sys.dispose();
     expect(engine.dispose).toHaveBeenCalled();
     // After dispose, a discovery change must not chime.

@@ -2,7 +2,10 @@
 // revealed, across reloads, in localStorage. Wrapped so a blocked/absent storage
 // (private mode, SSR, tests) degrades to in-memory rather than throwing.
 
-const KEY = "aboutmegame.discovered.v1";
+// v2: The Lost Idol's site ids. The v1 key belonged to the retired 13-landmark
+// about-me world — a returning player's old save must not leak into the new
+// game (raw counts fed the HUD/completion, so stale ids read as progress).
+const KEY = "aboutmegame.discovered.v2";
 
 export interface DiscoveryPersistence {
   load(): Set<string>;

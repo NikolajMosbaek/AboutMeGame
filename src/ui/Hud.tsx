@@ -14,7 +14,7 @@ export interface HudProps {
 /**
  * In-game HUD (#42) + discovery progress (#45). A thin, non-intrusive overlay:
  *  • top-left telemetry — mode (DRIVE/FLY), speed, and altitude (fly only),
- *  • top-right the single "Discovered N / total" progress badge (moved here from
+ *  • top-right the single "Pages N / total" progress badge (moved here from
  *    RevealPanel so there's exactly one) plus a menu button,
  *  • a small controls reminder along the bottom.
  * Reads the throttled hud store and the discovery store via useSyncExternalStore;
@@ -25,31 +25,24 @@ export interface HudProps {
 export function Hud({ hud, discovery, onOpenMenu, onOpenJournal }: HudProps) {
   const h = useSyncExternalStore(hud.subscribe, hud.getSnapshot);
   const d = useSyncExternalStore(discovery.subscribe, discovery.getSnapshot);
-  const flying = h.mode === "fly";
   const remaining = d.total - d.discoveredCount;
 
   return (
     <>
-      <div className="hud-telemetry" role="status" aria-label="vehicle telemetry">
-        <span className={`hud-mode${flying ? " hud-mode--fly" : ""}`}>
-          {flying ? "FLY" : "DRIVE"}
+      <div className="hud-telemetry" role="status" aria-label="explorer status">
+        <span className={`hud-mode${h.sprinting ? " hud-mode--sprint" : ""}`}>
+          {h.sprinting ? "SPRINT" : compassPoint(h.heading)}
         </span>
         <span className="hud-stat">
           <span className="hud-stat__value">{h.speed}</span>
           <span className="hud-stat__unit">m/s</span>
         </span>
-        {flying && (
-          <span className="hud-stat">
-            <span className="hud-stat__value">{h.altitude}</span>
-            <span className="hud-stat__unit">m alt</span>
-          </span>
-        )}
       </div>
 
       <div className="hud-top-right">
         {/* Static visual progress. The spoken update lives in DiscoveryAnnouncer
-            (a single polite live region that names the landmark), so this badge
-            is not a live region — that avoids a bare "N / 13" double-announce.
+            (a single polite live region that names the page), so this badge
+            is not a live region — that avoids a bare "N / 6" double-announce.
             The remaining-count momentum line is a subordinate, aria-hidden cue;
             its meaning folds into this one aria-label so there's no second
             announcer and no double-announce. The completed branch is driven off
@@ -59,13 +52,13 @@ export function Hud({ hud, discovery, onOpenMenu, onOpenJournal }: HudProps) {
           className="discovery-progress"
           aria-label={
             d.completed
-              ? `All ${d.total} landmarks discovered`
-              : `Discovered ${d.discoveredCount} of ${d.total} landmarks, ${remaining} to go`
+              ? `All ${d.total} pages found`
+              : `${d.discoveredCount} of ${d.total} pages found, ${remaining} to go`
           }
         >
-          Discovered {d.discoveredCount} / {d.total}
+          Pages {d.discoveredCount} / {d.total}
           <span className="discovery-remaining" aria-hidden="true">
-            {d.completed ? "All discovered" : `${remaining} to go`}
+            {d.completed ? "All found" : `${remaining} to go`}
           </span>
         </div>
         <button
@@ -89,8 +82,16 @@ export function Hud({ hud, discovery, onOpenMenu, onOpenJournal }: HudProps) {
       </div>
 
       <p className="hud-controls" aria-hidden="true">
-        WASD move · F fly · E reveal · J journal · Esc menu
+        WASD move · Mouse look · Shift sprint · E use · J journal · Esc menu
       </p>
     </>
   );
+}
+
+/** Compass point for a heading in degrees (0 = N), 8-wind resolution — the HUD
+ *  shows where you're facing, which is how the clue texts give directions. */
+function compassPoint(heading: number): string {
+  const POINTS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"] as const;
+  const idx = Math.round((((heading % 360) + 360) % 360) / 45) % 8;
+  return POINTS[idx];
 }

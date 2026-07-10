@@ -13,7 +13,7 @@
 // Steps the simulation to the NOON (frac 0.25), GOLDEN (0.5) and dim EVENING
 // (0.75) keyframes of the ~180s loop, screenshots each, and checks: the engine
 // stays running with positive fps and no WebGL/console errors at every stop; all
-// 13 landmarks stay present (beacons.poiCount and discovery.total both 13); the
+// 6 sites stay present (sites.poiCount and discovery.total both 6); the
 // SKY visibly changes between the three keyframes (the loop is actually
 // animating, not frozen on the construction-time noon); and stepping a FULL
 // period back to the start rejoins the dawn look with no seam jump.
@@ -31,25 +31,17 @@
 // throughout; each frame shows a built STRUCTURE (a body of non-grass, non-sky
 // pixels in the centre, not an empty meadow); each shows the landmark's
 // signature-hued ACCENT GLOW (bright pixels matching the anchor colour, the
-// emissive accent + beacon the G2 bloom catches); and the 8 silhouettes are
+// faint emissive accents); and the 6 site silhouettes are
 // DISTINCT (their structure-coverage / accent-hue signatures are not all alike).
 //
-// F1 completion-panel mode — verify the completion dialog's dismissal paths on
-// the running build:
-//
-//   node scripts/verify-game.mjs [url] [--completion-panel] [--out-dir dir]
-//
-// Seeds 12 of the 13 landmarks as already discovered, drives to the Arrivals
-// Gate and interacts (the 13th find), closes the reveal so the completion panel
-// raises, and checks: the dialog shows all three CTAs in the decided order
-// (Replay, Share enabled, Keep exploring) with entry focus on Replay; Escape
-// dismisses the dialog and returns focus to the canvas container; and — after a
-// reload + re-raise, since the completion edge is single-shot — a backdrop
-// click dismisses and returns focus to the canvas container likewise.
+// --completion-panel is RETIRED (pivot slice G): completion became the
+// treasure dig, a full player journey no smoke run should fake. Passing the
+// flag refuses loudly; the win screen is pinned by src/ui/TreasurePanel.test.tsx
+// and src/engine/GameCanvas.test.tsx.
 //
 // Exits non-zero if the page errors, WebGL is unavailable, the engine never
-// reports a running state, or any day-cycle / landmark-tour / completion-panel
-// check fails — so it works as a verification gate, not just a screenshot tool.
+// reports a running state, or any day-cycle / landmark-tour check fails — so it
+// works as a verification gate, not just a screenshot tool.
 import { chromium } from "playwright";
 import { assessVerify } from "./verify/assess.mjs";
 
@@ -71,7 +63,7 @@ function argVal(flag) {
 // --- G3 day-cycle constants (kept in sync with src/world/dayCycleSystem.ts &
 //     src/world/dayCycle.ts) ------------------------------------------------
 const PERIOD_SECONDS = 180; // one dawn→noon→dusk→evening→dawn loop
-const EXPECTED_LANDMARKS = 13; // the island's 13 discoverable landmarks
+const EXPECTED_LANDMARKS = 6; // the island's 6 expedition sites
 // Minimum per-channel mean-colour delta (0..255) across the largest quarter step
 // for the loop to count as "visibly animating" rather than frozen on one palette.
 const MIN_SKY_DELTA = 6;
@@ -79,62 +71,29 @@ const MIN_SKY_DELTA = 6;
 // after stepping a FULL period — the wrap must rejoin φ closely (no seam jump).
 const MAX_SEAM_DELTA = 8;
 
-// --- G4 landmark-tour constants (kept in sync with src/world/worldConfig.ts:
+// --- Site-tour constants (kept in sync with src/world/worldConfig.ts:
 //     POI_ANCHORS) -----------------------------------------------------------
-// The 13 landmark anchors, kept in sync with src/world/worldConfig.ts
-// (POI_ANCHORS). One representative anchor per archetype is toured — the
-// geometry is identical for repeats of an archetype, so framing one proves the
-// silhouette upgrade for that archetype. x/z place the structure; color is the
-// signature hue its accent + beacon glow in.
+// The 6 expedition-site anchors, kept in sync with src/world/worldConfig.ts.
+// x/z place the structure; color is the signature hue of its nav hint.
 const LANDMARK_ANCHORS = [
-  { archetype: "gate", label: "Arrivals Gate", x: 0, z: 64, color: 0xffcb47 },
-  { archetype: "monolith", label: "One-Sentence Overlook", x: -62, z: 34, color: 0x7ad1ff },
-  { archetype: "foundry", label: "Session Foundry", x: -96, z: -28, color: 0xff8a5c },
-  { archetype: "tower", label: "Calibrated Review Tower", x: 118, z: -18, color: 0xffe066 },
-  { archetype: "dam", label: "Force-Push Dam", x: 102, z: 52, color: 0x5cc8ff },
-  { archetype: "station", label: "Walkthrough Station", x: 56, z: 98, color: 0x8affc1 },
-  { archetype: "ring", label: "History Rail Yard", x: -12, z: 112, color: 0xffa3d1 },
-  { archetype: "mirror", label: "Hall of Mirrors", x: -120, z: -74, color: 0xd9e3ff },
+  { archetype: "camp", label: "Base Camp", x: -28, z: 126, color: 0xffcb47 },
+  { archetype: "canoe", label: "Wrecked Canoe", x: -29, z: 57, color: 0x7ad1ff },
+  { archetype: "overhang", label: "Carved Overhang", x: 34, z: -104, color: 0xc8a2ff },
+  { archetype: "remains", label: "The Last Camp", x: -72, z: -24, color: 0xb0b6c0 },
+  { archetype: "ruin", label: "Fallen Ruin", x: 84, z: 26, color: 0xff8a5c },
+  { archetype: "figtree", label: "The Ancient Fig", x: 108, z: -46, color: 0x8affc1 },
 ];
-const TOUR_ARCHETYPES = LANDMARK_ANCHORS.length; // 8 distinct silhouettes
+const TOUR_ARCHETYPES = LANDMARK_ANCHORS.length; // 6 distinct silhouettes
 // A built structure must cover at least this fraction of the centre band — below
 // it, the frame is an empty meadow (the landmark didn't render / wasn't framed).
 const MIN_STRUCTURE_COVERAGE = 0.02;
 // Each landmark must show at least this fraction of bright pixels whose HUE
-// matches the anchor's signature colour — the emissive accent + beacon the G2
+// matches the anchor's signature colour — the faint emissive accent the G2
 // bloom catches. Below it, the signature-hued wayfinding glow is absent. The
 // measured floor across the 8 is ~1.3% (ring/tower); 0.5% leaves headroom while
 // still catching a genuinely missing glow.
 const MIN_ACCENT_HUED_COVERAGE = 0.005;
 
-// --- F1 completion-panel constants (kept in sync with src/discovery/
-//     persistence.ts KEY, src/world/worldConfig.ts POI_ANCHORS and the
-//     CompletionPanel CTA row) ------------------------------------------------
-const DISCOVERY_STORAGE_KEY = "aboutmegame.discovered.v1";
-// The one landmark left undiscovered by the seed: the Arrivals Gate sits dead
-// ahead of the spawn plaza (the craft spawns at (0,0) facing it), so a straight
-// hold-W run reaches its 16-unit interact radius. Landmarks have no collision.
-const FINAL_POI = { id: "poi-arrivals-gate", x: 0, z: 64 };
-// The other 12 of the 13 poiIds, seeded as already discovered.
-const SEEDED_POI_IDS = [
-  "poi-end-state-overlook",
-  "poi-ai-first-foundry",
-  "poi-staff-engineer-gate",
-  "poi-root-cause-quarry",
-  "poi-autonomous-debug-lab",
-  "poi-review-tower",
-  "poi-force-push-dam",
-  "poi-pr-walkthrough-station",
-  "poi-history-rail-yard",
-  "poi-architecture-gardens",
-  "poi-skill-workshop",
-  "poi-meta-mirror",
-];
-// The decided, documented CTA order (F1 slice 3): DOM = visual = tab order.
-const COMPLETION_CTAS = ["Replay", "Share", "Keep exploring"];
-// Tap E a little inside DiscoverySystem's INTERACT_RADIUS (16) so the tap still
-// lands in range despite the craft's momentum between poll steps.
-const INTERACT_TAP_DIST = 14;
 
 
 const consoleErrors = [];
@@ -154,16 +113,23 @@ try {
   });
   page.on("pageerror", (e) => consoleErrors.push(String(e)));
 
-  // Completion-panel mode: seed 12 of the 13 landmarks as already discovered
+  // Completion-panel mode: seed 5 of the 6 sites as already discovered
   // BEFORE the app boots (the discovery system loads persistence when the world
-  // builds), so one drive-and-interact at the Arrivals Gate is the 13th find.
+  // builds), so one walk-and-interact at the base camp is the 6th find.
   // An init script re-applies on every navigation, so the reload between the
   // two dismissal passes re-seeds the same 12/13 state.
   if (completionPanel) {
-    await page.addInitScript(
-      ([key, ids]) => localStorage.setItem(key, JSON.stringify(ids)),
-      [DISCOVERY_STORAGE_KEY, SEEDED_POI_IDS],
+    // Retired by pivot slice G: completion is no longer "all sites discovered"
+    // but the treasure dig at the fig — a full player journey no smoke run
+    // should fake. The win screen's behaviour (rising edge, reload guard,
+    // Escape/CTA paths) is pinned by src/ui/TreasurePanel.test.tsx and
+    // src/engine/GameCanvas.test.tsx instead. Refuse loudly rather than
+    // pretend to verify a flow that no longer exists.
+    console.error(
+      "verify-game: --completion-panel was retired by the treasure-quest slice (#184); " +
+        "see TreasurePanel tests for the win-screen coverage.",
     );
+    process.exit(1);
   }
 
   await page.goto(url, { waitUntil: "networkidle", timeout: 30_000 });
@@ -173,8 +139,6 @@ try {
     await verifyDayCycle(page);
   } else if (landmarkTour) {
     await verifyLandmarkTour(page);
-  } else if (completionPanel) {
-    await verifyCompletionPanel(page);
   } else {
     await smokeShot(page);
   }
@@ -317,14 +281,14 @@ async function verifyDayCycle(page) {
         problems.push(`${name}: drawCalls ${state.drawCalls} over budget (150)`);
       if (state.triangles > 500_000)
         problems.push(`${name}: triangles ${state.triangles} over budget (500000)`);
-      // All 13 landmarks must stay present/legible at every loop point. The
-      // beacon-pulse system reports the placed landmark count; discovery reports
+      // All 6 sites must stay present/legible at every loop point. The
+      // sites census reports the placed landmark count; discovery reports
       // the total. Both must read 13 — a dropped landmark would show as a lower
       // count, and "present" is the legibility floor a text snapshot can assert.
-      const beaconCount = state.systems?.beacons?.poiCount;
+      const siteCount = state.systems?.sites?.poiCount;
       const discoveryTotal = state.systems?.discovery?.total;
-      if (beaconCount !== EXPECTED_LANDMARKS)
-        problems.push(`${name}: beacons.poiCount ${beaconCount} != ${EXPECTED_LANDMARKS}`);
+      if (siteCount !== EXPECTED_LANDMARKS)
+        problems.push(`${name}: sites.poiCount ${siteCount} != ${EXPECTED_LANDMARKS}`);
       if (discoveryTotal !== EXPECTED_LANDMARKS)
         problems.push(`${name}: discovery.total ${discoveryTotal} != ${EXPECTED_LANDMARKS}`);
     }
@@ -388,7 +352,7 @@ async function verifyDayCycle(page) {
     console.log(
       `  ${s.name}: sky≈[${s.sky.map((v) => v.toFixed(0)).join(",")}] ` +
         `fps=${s.state?.fps} draws=${s.state?.drawCalls} tris=${s.state?.triangles} ` +
-        `landmarks(beacons=${s.state?.systems?.beacons?.poiCount}, discovery=${s.state?.systems?.discovery?.total}) ` +
+        `sites(census=${s.state?.systems?.sites?.poiCount}, discovery=${s.state?.systems?.discovery?.total}) ` +
         `-> ${s.file}`,
     );
   }
@@ -485,7 +449,7 @@ async function verifyLandmarkTour(page) {
             const lum = 0.299 * r + 0.587 * g + 0.114 * b;
             const h = hueOf(r, g, b);
 
-            // Accent glow, two reads over the whole frame (the beacon plume rises
+            // Accent glow, two reads over the whole frame (site accents sit low
             // out of the centre band): `hued` = a bright pixel whose hue matches
             // the anchor's signature colour (the assertable signature glow);
             // `brightCore` = a bloom-blown near-white halo (reported, not gated,
@@ -552,10 +516,10 @@ async function verifyLandmarkTour(page) {
       // fault. The health signals that still hold are a positive fps read-out
       // (an EMA, untouched by the halt) and the full 13-landmark count.
       if (state.fps <= 0) problems.push(`${a.archetype}: fps not positive (${state.fps})`);
-      const beaconCount = state.systems?.beacons?.poiCount;
+      const siteCount = state.systems?.sites?.poiCount;
       const discoveryTotal = state.systems?.discovery?.total;
-      if (beaconCount !== EXPECTED_LANDMARKS)
-        problems.push(`${a.archetype}: beacons.poiCount ${beaconCount} != ${EXPECTED_LANDMARKS}`);
+      if (siteCount !== EXPECTED_LANDMARKS)
+        problems.push(`${a.archetype}: sites.poiCount ${siteCount} != ${EXPECTED_LANDMARKS}`);
       if (discoveryTotal !== EXPECTED_LANDMARKS)
         problems.push(`${a.archetype}: discovery.total ${discoveryTotal} != ${EXPECTED_LANDMARKS}`);
     }
@@ -604,7 +568,7 @@ async function verifyLandmarkTour(page) {
         `structure=${(r.structureCoverage * 100).toFixed(2)}% ` +
         `accent(hued)=${(r.accentHuedCoverage * 100).toFixed(3)}% ` +
         `accent(any)=${(r.accentCoverage * 100).toFixed(3)}% ` +
-        `fps=${r.state?.fps} landmarks=${r.state?.systems?.beacons?.poiCount} -> ${r.file}`,
+        `fps=${r.state?.fps} landmarks=${r.state?.systems?.sites?.poiCount} -> ${r.file}`,
     );
   }
   console.log(
@@ -626,9 +590,10 @@ async function verifyLandmarkTour(page) {
 // mode's mid-run reload.
 async function enterWorld(page, start = true) {
   if (start) {
-    // The landing CTA reads "Drive in" on a fresh state and "Continue" when
-    // saved progress exists (the completion-panel mode seeds 12/13).
-    const cta = page.getByRole("button", { name: /^(drive in|continue)$/i });
+    // The landing CTA reads "Begin the expedition" on a fresh state and
+    // "Continue" when saved progress exists (the completion-panel mode seeds
+    // 12/13).
+    const cta = page.getByRole("button", { name: /^(begin the expedition|continue)$/i });
     if (await cta.count()) {
       await cta.first().click();
     }
@@ -636,191 +601,16 @@ async function enterWorld(page, start = true) {
   await page.waitForFunction(() => typeof window.advanceTime === "function", {
     timeout: 15_000,
   });
-  const gotIt = page.getByRole("button", { name: /got it, drive in/i });
+  const gotIt = page.getByRole("button", { name: /got it, let's go/i });
   if (await gotIt.count()) {
     await gotIt.first().click();
     await page.waitForTimeout(100);
   }
 }
 
-// --- F1 completion-panel verification ------------------------------------------
-async function verifyCompletionPanel(page) {
-  const problems = [];
 
-  // PASS 1 — raise the panel, check the CTA row, dismiss with Escape.
-  if (await raiseCompletionPanel(page, problems, "escape pass")) {
-    await page.screenshot({ path: `${outDir}/completion-panel.png` });
-    console.log(`SCREENSHOT: ${outDir}/completion-panel.png`);
-    await checkCtaRow(page, problems);
-    await page.keyboard.press("Escape");
-    await checkDismissed(page, problems, "Escape");
-  }
 
-  // PASS 2 — the raise is single-shot (the completion edge is consumed), so
-  // reload (the init script re-seeds 12/13), raise again, and dismiss with a
-  // click on the backdrop outside the panel.
-  await page.reload({ waitUntil: "networkidle", timeout: 30_000 });
-  await enterWorld(page);
-  if (await raiseCompletionPanel(page, problems, "backdrop pass")) {
-    await page
-      .locator(".completion-panel-backdrop")
-      .click({ position: { x: 12, y: 12 } });
-    await checkDismissed(page, problems, "backdrop click");
-  }
 
-  // Engine health after both passes: positive fps, the full 13 discovered, no
-  // WebGL/console errors.
-  const state = JSON.parse(
-    await page.evaluate(() =>
-      window.render_game_to_text ? window.render_game_to_text() : "null",
-    ),
-  );
-  if (!state) problems.push("render_game_to_text returned null");
-  else {
-    if (state.fps <= 0) problems.push(`fps not positive (${state.fps})`);
-    const discovered = state.systems?.discovery?.discovered;
-    if (discovered !== EXPECTED_LANDMARKS)
-      problems.push(
-        `discovered ${discovered} != ${EXPECTED_LANDMARKS} after the final find`,
-      );
-  }
-  // Inline copy pinned to WEBGL_ERROR_RE in scripts/verify/assess.mjs (G3/G4/F1 modes stay mode-local by contract).
-  const webglErr = consoleErrors.find((e) => /webgl|context|THREE/i.test(e));
-  if (webglErr) problems.push(`WebGL/three error: ${webglErr}`);
-  if (consoleErrors.length) {
-    console.log("CONSOLE ERRORS:\n" + consoleErrors.join("\n"));
-  }
-
-  report(problems);
-}
-
-// Raise the completion panel: drive from spawn to the Arrivals Gate (the one
-// unseeded landmark, dead ahead), tap E inside interact range to open its
-// reveal — the 13th find, which arms the completion latch — then tap E again to
-// close the reveal, which is what raises the panel. `label` names the pass in
-// problem reports. Returns false (with a problem pushed) if the panel never
-// raised, so the caller skips that pass's dismissal checks.
-async function raiseCompletionPanel(page, problems, label) {
-  const readState = async () =>
-    JSON.parse(
-      await page.evaluate(() =>
-        window.render_game_to_text ? window.render_game_to_text() : "null",
-      ),
-    );
-  const tapInteract = async () => {
-    await page.keyboard.down("e");
-    await page.evaluate(() => window.advanceTime(60));
-    await page.keyboard.up("e");
-    await page.evaluate(() => window.advanceTime(250));
-  };
-
-  // Approach with W held, stepping the sim in small slices and polling the
-  // vehicle position, so the E tap lands inside the 16-unit interact radius
-  // despite the craft's speed (driveMax 54 u/s). Once the reveal opens the sim
-  // pauses, so the still-held W stops mattering.
-  await page.keyboard.down("w");
-  let opened = false;
-  for (let i = 0; i < 80 && !opened; i++) {
-    await page.evaluate(() => window.advanceTime(150));
-    const state = await readState();
-    if (state?.systems?.discovery?.open === FINAL_POI.id) {
-      opened = true;
-      break;
-    }
-    const pos = state?.systems?.vehicle?.pos;
-    const dist = Array.isArray(pos)
-      ? Math.hypot(pos[0] - FINAL_POI.x, pos[1] - FINAL_POI.z)
-      : Infinity;
-    if (dist <= INTERACT_TAP_DIST) {
-      await tapInteract();
-      const after = await readState();
-      opened = after?.systems?.discovery?.open === FINAL_POI.id;
-    }
-  }
-  await page.keyboard.up("w");
-
-  if (!opened) {
-    problems.push(`${label}: could not open the final reveal at ${FINAL_POI.id}`);
-    return false;
-  }
-  const discovered = (await readState())?.systems?.discovery?.discovered;
-  if (discovered !== EXPECTED_LANDMARKS)
-    problems.push(
-      `${label}: final reveal open but discovered ${discovered} != ${EXPECTED_LANDMARKS} (seed failed?)`,
-    );
-
-  // Close the reveal with a second interact — the panel raises only once the
-  // final reveal has closed (the armed completion latch).
-  await tapInteract();
-  try {
-    await page.waitForSelector(".completion-panel", { timeout: 5_000 });
-  } catch {
-    problems.push(
-      `${label}: completion panel did not raise after the final reveal closed`,
-    );
-    return false;
-  }
-  console.log(`COMPLETION PANEL raised (${label})`);
-  return true;
-}
-
-// The completion dialog's CTA row: the decided, documented order (DOM = visual
-// = tab order), the Share CTA present and enabled at rest, entry focus on the
-// Replay CTA.
-async function checkCtaRow(page, problems) {
-  const ctas = await page.$$eval(".completion-panel button", (btns) =>
-    btns.map((b) => ({ label: b.textContent?.trim(), disabled: b.disabled })),
-  );
-  const labels = ctas.map((c) => c.label);
-  if (JSON.stringify(labels) !== JSON.stringify(COMPLETION_CTAS))
-    problems.push(
-      `CTA row [${labels.join(", ")}] != [${COMPLETION_CTAS.join(", ")}]`,
-    );
-  const share = ctas.find((c) => c.label === "Share");
-  if (!share) problems.push("Share CTA missing from the completion panel");
-  else if (share.disabled)
-    problems.push("Share CTA disabled at rest (pending latch stuck?)");
-  const focused = await page.evaluate(
-    () => document.activeElement?.textContent?.trim() ?? null,
-  );
-  if (focused !== "Replay")
-    problems.push(`entry focus on ${JSON.stringify(focused)} — expected the Replay CTA`);
-  console.log(
-    `  CTA row: [${labels.join(", ")}]; Share disabled=${share?.disabled}; ` +
-      `entry focus=${JSON.stringify(focused)}`,
-  );
-}
-
-// A dismissal path must detach the dialog and land focus on the canvas
-// container (the panel has no opener element to restore focus to).
-async function checkDismissed(page, problems, label) {
-  try {
-    await page.waitForSelector(".completion-panel", {
-      state: "detached",
-      timeout: 5_000,
-    });
-  } catch {
-    problems.push(`${label}: completion panel still up after dismissal`);
-    return;
-  }
-  const focus = await page.evaluate(() => {
-    const el = document.activeElement;
-    return el
-      ? { tag: el.tagName.toLowerCase(), className: String(el.className) }
-      : null;
-  });
-  const onContainer =
-    !!focus && focus.className.split(" ").includes("game-canvas-container");
-  if (!onContainer)
-    problems.push(
-      `${label}: focus did not return to the canvas container — active element ` +
-        `is <${focus?.tag ?? "none"} class="${focus?.className ?? ""}">`,
-    );
-  console.log(
-    `  ${label}: dialog detached; focus -> ` +
-      `<${focus?.tag ?? "none"} class="${focus?.className ?? ""}">`,
-  );
-}
 
 function report(problems) {
   if (problems.length) {

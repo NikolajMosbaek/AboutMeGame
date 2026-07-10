@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { AudioEngine } from "./AudioEngine.ts";
+import { AudioEngine, nightAmount } from "./AudioEngine.ts";
 import type {
   AudioContextLike,
   BiquadFilterNodeLike,
@@ -110,13 +110,37 @@ describe("AudioEngine", () => {
     }
   });
 
-  it("plays whoosh and boost as one-shot voices", () => {
+  it.each([
+    ["breathe", 1],
+    ["footstep", 1],
+    ["gulp", 2],
+    ["bite", 2],
+    ["hurtThud", 1],
+    ["digThud", 1],
+    ["snakeAlert", 5],
+    ["fanfare", 4],
+    ["deathSting", 3],
+    ["birdChirp", 1],
+    ["owlHoot", 2],
+  ] as const)("plays %s as one-shot voice(s)", (method, voiceCount) => {
     const { ctx, oscillators } = fakeContext();
     const engine = new AudioEngine(() => ctx);
-    engine.whoosh();
-    engine.boost();
-    expect(oscillators.length).toBe(2);
-    for (const o of oscillators) expect(o.start).toHaveBeenCalled();
+    (engine[method] as (arg?: boolean) => void)(false);
+    expect(oscillators.length).toBe(voiceCount);
+    for (const o of oscillators) {
+      expect(o.start).toHaveBeenCalled();
+      expect(o.stop).toHaveBeenCalled();
+    }
+  });
+
+  it("footstep uses a duller, longer-tailed tone while wading", () => {
+    const { ctx, filters } = fakeContext();
+    const engine = new AudioEngine(() => ctx);
+    engine.footstep(false);
+    const dryFreq = filters[0].frequency.value;
+    engine.footstep(true);
+    const wetFreq = filters[1].frequency.value;
+    expect(wetFreq).toBeLessThan(dryFreq);
   });
 
   it("does not synthesise SFX while muted", () => {
@@ -124,8 +148,8 @@ describe("AudioEngine", () => {
     const engine = new AudioEngine(() => ctx);
     engine.setMuted(true);
     engine.chime();
-    engine.whoosh();
-    engine.boost();
+    engine.breathe();
+    engine.footstep(false);
     expect(oscillators.length).toBe(0);
   });
 
@@ -151,12 +175,12 @@ describe("AudioEngine", () => {
     expect(ctx.resume).toHaveBeenCalled();
   });
 
-  it("starts a seamless ambient bed and is idempotent", () => {
+  it("starts a seamless two-layer ambient bed and is idempotent", () => {
     const { ctx, oscillators } = fakeContext();
     const engine = new AudioEngine(() => ctx);
     engine.startMusic();
     const afterFirst = oscillators.length;
-    expect(afterFirst).toBeGreaterThanOrEqual(3); // root + fifth + LFO
+    expect(afterFirst).toBe(3); // insect A + insect B + river
     for (const o of oscillators) expect(o.start).toHaveBeenCalled();
     engine.startMusic(); // no-op while playing
     expect(oscillators.length).toBe(afterFirst);
@@ -168,6 +192,57 @@ describe("AudioEngine", () => {
     engine.startMusic();
     engine.stopMusic();
     for (const o of oscillators) expect(o.stop).toHaveBeenCalled();
+  });
+
+  it("crossfades the insect bed's filter frequency and level with the day phase", () => {
+    const { ctx, filters, gains } = fakeContext();
+    const engine = new AudioEngine(() => ctx);
+    engine.startMusic();
+    const insectFilter = filters[0]; // insect filter created first, ahead of the river's
+    const bedGain = gains[1]; // master is gains[0]
+    engine.setAmbientPhase(0.25); // noon: full day
+    engine.setAmbientPhase(0.75); // evening: full "night"
+    const freqRamps = (insectFilter.frequency.linearRampToValueAtTime as ReturnType<typeof vi.fn>)
+      .mock.calls;
+    const gainRamps = (bedGain.gain.linearRampToValueAtTime as ReturnType<typeof vi.fn>).mock
+      .calls;
+    // Night ramps to a lower frequency and a lower level than day.
+    expect(freqRamps.at(-1)?.[0]).toBeLessThan(freqRamps[0][0]);
+    expect(gainRamps.at(-1)?.[0]).toBeLessThan(gainRamps[0][0]);
+  });
+
+  it("does nothing on setAmbientPhase/setRiverProximity before the bed starts", () => {
+    const { ctx } = fakeContext();
+    const engine = new AudioEngine(() => ctx);
+    expect(() => engine.setAmbientPhase(0.5)).not.toThrow();
+    expect(() => engine.setRiverProximity(1)).not.toThrow();
+  });
+
+  it("ramps the river layer's gain toward full at the bank, silent when far", () => {
+    const { ctx, gains } = fakeContext();
+    const engine = new AudioEngine(() => ctx);
+    engine.startMusic();
+    const riverGain = gains[2]; // master, bed gain, then river gain
+    engine.setRiverProximity(1);
+    const ramps = (riverGain.gain.linearRampToValueAtTime as ReturnType<typeof vi.fn>).mock.calls;
+    expect(ramps.at(-1)?.[0]).toBeGreaterThan(0);
+    engine.setRiverProximity(0);
+    const after = (riverGain.gain.linearRampToValueAtTime as ReturnType<typeof vi.fn>).mock.calls;
+    expect(after.at(-1)?.[0]).toBe(0);
+  });
+
+  it("skips redundant scheduling for a near-identical repeated call", () => {
+    const { ctx, gains } = fakeContext();
+    const engine = new AudioEngine(() => ctx);
+    engine.startMusic();
+    const riverGain = gains[2];
+    engine.setRiverProximity(0.5);
+    const before = (riverGain.gain.linearRampToValueAtTime as ReturnType<typeof vi.fn>).mock.calls
+      .length;
+    engine.setRiverProximity(0.501); // negligible change
+    expect(
+      (riverGain.gain.linearRampToValueAtTime as ReturnType<typeof vi.fn>).mock.calls.length,
+    ).toBe(before);
   });
 
   it("tears down on dispose: stops music, disconnects master, closes the context", () => {
@@ -188,5 +263,17 @@ describe("AudioEngine", () => {
     const before = oscillators.length;
     engine.chime();
     expect(oscillators.length).toBe(before);
+  });
+});
+
+describe("nightAmount", () => {
+  it("is 0 at noon (full day) and 1 at evening (full night)", () => {
+    expect(nightAmount(0.25)).toBeCloseTo(0, 5);
+    expect(nightAmount(0.75)).toBeCloseTo(1, 5);
+  });
+
+  it("is continuous and periodic across the loop seam", () => {
+    expect(nightAmount(0)).toBeCloseTo(nightAmount(1), 5);
+    expect(nightAmount(-0.25)).toBeCloseTo(nightAmount(0.75), 5);
   });
 });

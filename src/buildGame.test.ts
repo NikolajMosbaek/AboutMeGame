@@ -100,15 +100,15 @@ describe("buildGame audio/fx wiring", () => {
 });
 
 describe("buildGame discovery.journalPois seam", () => {
-  it("exposes a position-free journalPois projection of all 13 landmarks, while pois keeps position", () => {
+  it("exposes a position-free journalPois projection of all 6 sites, while pois keeps position", () => {
     const { engine, overlay } = makeEngineAndOverlay();
     const game = buildGame(engine, overlay, undefined, undefined);
 
     const { journalPois, pois } = game.discovery;
 
-    // All 13 landmarks, in the same order as the position-bearing array.
-    expect(journalPois).toHaveLength(13);
-    expect(pois).toHaveLength(13);
+    // All 6 sites, in the same order as the position-bearing array.
+    expect(journalPois).toHaveLength(6);
+    expect(pois).toHaveLength(6);
     expect(journalPois.map((p) => p.id)).toEqual(pois.map((p) => p.id));
 
     for (const entry of journalPois) {

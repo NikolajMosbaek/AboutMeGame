@@ -108,12 +108,12 @@ describe("tokens.css — MOB2 #154 reachability gaps (slice guard, token consump
   });
 
   it("Regression — the four MOB1 max-height caps still read calc(var(--vh-dynamic) * N) (byte-unchanged)", () => {
-    // .reveal-panel base, .completion-panel base, and the two split-out
+    // .reveal-panel base, .treasure-panel__card base, and the two split-out
     // .reveal-panel media caps are out of this slice's scope and must not shift.
     expect(blocksFor(css, ".reveal-panel")[0]).toMatch(
       /max-height:\s*calc\(var\(--vh-dynamic\)\s*\*\s*0\.86\)/,
     );
-    expect(blocksFor(css, ".completion-panel")[0]).toMatch(
+    expect(blocksFor(css, ".treasure-panel__card")[0]).toMatch(
       /max-height:\s*calc\(var\(--vh-dynamic\)\s*\*\s*0\.86\)/,
     );
     const wide = blocksFor(mediaBody("max-width: 480px"), ".reveal-panel").join("\n");

@@ -1,10 +1,19 @@
+import type * as THREE from "three";
 import type { System, FrameContext } from "../engine/types.ts";
 import type { DiscoverablePoi } from "../content/discoverablePois.ts";
 import type { DiscoveryStore } from "./discoveryStore.ts";
 import type { DiscoveryPersistence } from "./persistence.ts";
-import type { InputSnapshot } from "../movement/input.ts";
-import type { VehicleSystem } from "../movement/vehicle.ts";
 import type { GameSession } from "../gameSession.ts";
+
+/** The interact edge the system consumes — the player input satisfies it. */
+export interface InteractSource {
+  consumeInteract(): boolean;
+}
+
+/** Where the player is — the explorer satisfies it via `state.position`. */
+export interface PositionSource {
+  readonly state: { position: THREE.Vector3 };
+}
 
 /** Show the teaser + nav prompt within this horizontal distance of a landmark. */
 const TEASER_RADIUS = 32;
@@ -18,7 +27,7 @@ const INTERACT_RADIUS = 16;
  * player is in teaser range (show the line + a nav prompt) or interact range
  * (an interact reveals the full body). Revealing marks the POI discovered,
  * persists it, and pauses the sim (`session.paused`) so the craft holds while
- * reading; a second interact closes the panel and resumes. Reads the vehicle's
+ * reading; a second interact closes the panel and resumes. Reads the player's
  * position and the shared input — both injected, so it's unit-tested with fakes.
  */
 export class DiscoverySystem implements System {
@@ -26,35 +35,39 @@ export class DiscoverySystem implements System {
   private readonly discovered: Set<string>;
 
   constructor(
-    private readonly input: InputSnapshot,
-    private readonly vehicle: VehicleSystem,
+    private readonly input: InteractSource,
+    private readonly player: PositionSource,
     private readonly pois: DiscoverablePoi[],
     private readonly store: DiscoveryStore,
     private readonly persist: DiscoveryPersistence,
     private readonly session: GameSession,
   ) {
-    this.discovered = persist.load();
+    // Keep only ids that exist in THIS world's poi set: a save written by an
+    // older content set must never inflate discoveredCount (the HUD shows
+    // count/total and completion compares them — see the slice-C review).
+    const known = new Set(pois.map((p) => p.id));
+    this.discovered = new Set([...persist.load()].filter((id) => known.has(id)));
     this.store.setDiscovered([...this.discovered]);
   }
 
   update(_ctx: FrameContext): void {
-    const interact = this.input.consumeInteract();
-
     // The sim is paused while a reveal panel is open — derived here, so closing
     // the panel from any path (button, Escape, click-out, interact) resumes.
     this.session.setPaused("reveal", this.store.getSnapshot().open !== null);
 
     // Panel open: an interact closes it; otherwise stay paused.
     if (this.store.getSnapshot().open) {
-      if (interact) this.store.closePoi();
+      if (this.input.consumeInteract()) this.store.closePoi();
       return;
     }
 
-    // Paused by something else (e.g. the menu): the interact edge is already
-    // drained above, so we just bail — no reveal opens behind the menu.
+    // Paused by something else (e.g. the menu): bail WITHOUT consuming — the
+    // survival system (registered after) drains the edge every frame, so a
+    // press behind the menu still can't leak, and this system only ever eats
+    // presses it actually uses (slice D: E is shared with drinking).
     if (this.session.paused) return;
 
-    const p = this.vehicle.state.position;
+    const p = this.player.state.position;
     let nearest: DiscoverablePoi | null = null;
     let nearestDist = Infinity;
     for (const poi of this.pois) {
@@ -72,7 +85,10 @@ export class DiscoverySystem implements System {
         : null,
     );
 
-    if (nearest && inRange && interact) {
+    // Consume the edge ONLY when a site is in range to use it — otherwise the
+    // press flows on to the survival system (drink). Clues outrank a drink
+    // because this system runs first.
+    if (nearest && inRange && this.input.consumeInteract()) {
       this.store.openPoi({ id: nearest.id, order: nearest.order, title: nearest.title, body: nearest.body, interaction: nearest.interaction });
       if (!this.discovered.has(nearest.id)) {
         this.discovered.add(nearest.id);

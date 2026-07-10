@@ -7,36 +7,34 @@ import { createHudStore } from "./hudStore.ts";
 import { createDiscoveryStore } from "../discovery/discoveryStore.ts";
 
 describe("Hud", () => {
-  it("shows DRIVE mode and speed but hides altitude on the ground", () => {
+  it("shows the compass point and speed while walking", () => {
     const hud = createHudStore();
-    hud.set({ mode: "drive", speed: 42, altitude: 0 });
+    hud.set({ speed: 4, sprinting: false, heading: 90 });
     render(<Hud hud={hud} discovery={createDiscoveryStore(13)} onOpenMenu={() => {}} onOpenJournal={() => {}} />);
-    expect(screen.getByText("DRIVE")).toBeInTheDocument();
-    expect(screen.getByText("42")).toBeInTheDocument();
-    expect(screen.queryByText(/alt/i)).not.toBeInTheDocument();
+    expect(screen.getByText("E")).toBeInTheDocument();
+    expect(screen.getByText("4")).toBeInTheDocument();
   });
 
-  it("shows FLY mode and altitude in flight", () => {
+  it("shows SPRINT while sprinting", () => {
     const hud = createHudStore();
-    hud.set({ mode: "fly", speed: 30, altitude: 88 });
+    hud.set({ speed: 7, sprinting: true, heading: 0 });
     render(<Hud hud={hud} discovery={createDiscoveryStore(13)} onOpenMenu={() => {}} onOpenJournal={() => {}} />);
-    expect(screen.getByText("FLY")).toBeInTheDocument();
-    expect(screen.getByText("88")).toBeInTheDocument();
-    expect(screen.getByText(/alt/i)).toBeInTheDocument();
+    expect(screen.getByText("SPRINT")).toBeInTheDocument();
+    expect(screen.getByText("7")).toBeInTheDocument();
   });
 
   it("renders the single discovery-progress badge from the discovery store", () => {
     const discovery = createDiscoveryStore(13);
     discovery.setDiscovered(["a", "b", "c"]);
     render(<Hud hud={createHudStore()} discovery={discovery} onOpenMenu={() => {}} onOpenJournal={() => {}} />);
-    expect(screen.getByText("Discovered 3 / 13")).toBeInTheDocument();
+    expect(screen.getByText("Pages 3 / 13")).toBeInTheDocument();
   });
 
   it('shows remaining "N to go" mid-journey and updates on re-render', () => {
     const discovery = createDiscoveryStore(13);
     discovery.setDiscovered(["a", "b", "c"]);
     render(<Hud hud={createHudStore()} discovery={discovery} onOpenMenu={() => {}} onOpenJournal={() => {}} />);
-    expect(screen.getByText("Discovered 3 / 13")).toBeInTheDocument();
+    expect(screen.getByText("Pages 3 / 13")).toBeInTheDocument();
     expect(screen.getByText("10 to go")).toBeInTheDocument();
 
     act(() => discovery.setDiscovered(["a", "b", "c", "d", "e"]));
@@ -56,14 +54,14 @@ describe("Hud", () => {
     const discovery = createDiscoveryStore(13);
     render(<Hud hud={createHudStore()} discovery={discovery} onOpenMenu={() => {}} onOpenJournal={() => {}} />);
     expect(screen.getByText("13 to go")).toBeInTheDocument();
-    expect(screen.queryByText("All discovered")).not.toBeInTheDocument();
+    expect(screen.queryByText("All found")).not.toBeInTheDocument();
   });
 
-  it('shows "All discovered" at the completed boundary and never "0 to go"', () => {
+  it('shows "All found" at the completed boundary and never "0 to go"', () => {
     const discovery = createDiscoveryStore(13);
     discovery.setDiscovered(Array.from({ length: 13 }, (_, i) => `p${i}`));
     render(<Hud hud={createHudStore()} discovery={discovery} onOpenMenu={() => {}} onOpenJournal={() => {}} />);
-    expect(screen.getByText("All discovered")).toBeInTheDocument();
+    expect(screen.getByText("All found")).toBeInTheDocument();
     expect(screen.queryByText(/0 to go/)).not.toBeInTheDocument();
   });
 
@@ -98,7 +96,7 @@ describe("Hud", () => {
     const progress = container.querySelector(".discovery-progress");
     expect(progress).toHaveAttribute(
       "aria-label",
-      "Discovered 3 of 13 landmarks, 10 to go",
+      "3 of 13 pages found, 10 to go",
     );
   });
 
@@ -110,7 +108,7 @@ describe("Hud", () => {
     );
     expect(container.querySelector(".discovery-progress")).toHaveAttribute(
       "aria-label",
-      "All 13 landmarks discovered",
+      "All 13 pages found",
     );
     expect(container.querySelector(".discovery-remaining")).toHaveAttribute(
       "aria-hidden",

@@ -4,9 +4,9 @@ import { createDiscoveryStore } from "./discoveryStore.ts";
 import { createPersistence } from "./persistence.ts";
 import { DiscoverySystem } from "./DiscoverySystem.ts";
 import { createSession } from "../gameSession.ts";
-import { createInput } from "../movement/input.ts";
+import { createPlayerInput } from "../player/input.ts";
 import type { DiscoverablePoi } from "../content/discoverablePois.ts";
-import type { VehicleSystem } from "../movement/vehicle.ts";
+import type { PositionSource } from "./DiscoverySystem.ts";
 import type { FrameContext } from "../engine/types.ts";
 
 /**
@@ -36,11 +36,11 @@ const ctx: FrameContext = {
   elapsed: 0,
 };
 
-// A vehicle parked FAR from every landmark, so the only way a reveal exists is
+// A player standing FAR from every landmark, so the only way a reveal exists is
 // the journal open action — never the proximity path. Keeps this test about the
 // journal seam and nothing else.
-function farVehicle(): VehicleSystem {
-  return { state: { position: new THREE.Vector3(10_000, 0, 10_000) } } as unknown as VehicleSystem;
+function farPlayer(): PositionSource {
+  return { state: { position: new THREE.Vector3(10_000, 0, 10_000) } };
 }
 
 const POIS: DiscoverablePoi[] = [
@@ -71,10 +71,10 @@ function pressInteract() {
 
 describe("journal open survives the next DiscoverySystem.update (T9, flaw one)", () => {
   it("drains the queued interact edge so one update does NOT close the just-opened reveal", () => {
-    const input = createInput(document.createElement("div"));
+    const input = createPlayerInput(document.createElement("div"), false);
     const store = createDiscoveryStore(POIS.length);
     const session = createSession();
-    const sys = new DiscoverySystem(input, farVehicle(), POIS, store, mem(), session);
+    const sys = new DiscoverySystem(input, farPlayer(), POIS, store, mem(), session);
 
     // The journal open action, modelled exactly as `JournalPanel.open`: it
     // drains the SAME interact edge `DiscoverySystem.update` reads, strictly
@@ -104,9 +104,9 @@ describe("journal open survives the next DiscoverySystem.update (T9, flaw one)",
   it("WITHOUT the drain the same stale edge closes the reveal on the next update (the bug the drain prevents)", () => {
     // The negative control: skip the drain in the open action and the leak
     // reappears — proving the assertion above is load-bearing, not vacuous.
-    const input = createInput(document.createElement("div"));
+    const input = createPlayerInput(document.createElement("div"), false);
     const store = createDiscoveryStore(POIS.length);
-    const sys = new DiscoverySystem(input, farVehicle(), POIS, store, mem(), createSession());
+    const sys = new DiscoverySystem(input, farPlayer(), POIS, store, mem(), createSession());
 
     const openWithoutDrain = (poi: DiscoverablePoi) =>
       store.openPoi({ id: poi.id, order: poi.order, title: poi.title, body: poi.body, interaction: poi.interaction });
@@ -127,9 +127,9 @@ describe("journal open survives the next DiscoverySystem.update (T9, flaw one)",
     // A held Enter fires `e.repeat` keydowns; `input.ts` only arms the edge on
     // the initial (non-repeat) press, so after the journal drain a subsequent
     // OS auto-repeat does NOT re-queue an edge that the next update would eat.
-    const input = createInput(document.createElement("div"));
+    const input = createPlayerInput(document.createElement("div"), false);
     const store = createDiscoveryStore(POIS.length);
-    const sys = new DiscoverySystem(input, farVehicle(), POIS, store, mem(), createSession());
+    const sys = new DiscoverySystem(input, farPlayer(), POIS, store, mem(), createSession());
 
     const journalOpen = (poi: DiscoverablePoi) => {
       input.consumeInteract();

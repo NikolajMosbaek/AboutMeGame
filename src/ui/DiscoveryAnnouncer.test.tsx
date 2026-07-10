@@ -23,7 +23,7 @@ describe("DiscoveryAnnouncer", () => {
     });
 
     const live = screen.getByRole("status");
-    expect(live).toHaveTextContent("Discovered Root-Cause Quarry — 1 of 13");
+    expect(live).toHaveTextContent("Found Root-Cause Quarry — page 1 of 13");
     expect(live).toHaveAttribute("aria-live", "polite");
   });
 
@@ -37,6 +37,6 @@ describe("DiscoveryAnnouncer", () => {
     act(() => store.closePoi());
     act(() => store.openPoi({ id: "c", order: 5, title: "Root-Cause Quarry", body: "…" }));
     // Still the first announcement — no second find.
-    expect(screen.getByRole("status")).toHaveTextContent("Discovered Root-Cause Quarry — 1 of 13");
+    expect(screen.getByRole("status")).toHaveTextContent("Found Root-Cause Quarry — page 1 of 13");
   });
 });

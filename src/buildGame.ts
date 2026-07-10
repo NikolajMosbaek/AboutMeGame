@@ -1,7 +1,7 @@
 import type { Engine } from "./engine/Engine.ts";
 import type { System } from "./engine/types.ts";
 import { buildWorld, type World } from "./world/buildWorld.ts";
-import { buildMovement, type Movement } from "./movement/buildMovement.ts";
+import { buildPlayer, type Player } from "./player/buildPlayer.ts";
 import { buildDiscovery, type Discovery } from "./discovery/buildDiscovery.ts";
 import { createSession, type GameSession } from "./gameSession.ts";
 import { createHudStore, type HudStore } from "./ui/hudStore.ts";
@@ -11,20 +11,42 @@ import { NavSystem } from "./ui/NavSystem.ts";
 import { createSettingsStore, type SettingsStore } from "./settings/settingsStore.ts";
 import { QUALITY_TIERS, type QualityConfig } from "./perf/quality.ts";
 import { AudioEngine, type AudioContextFactory } from "./audio/AudioEngine.ts";
+import { createSurvivalStore, type SurvivalStore } from "./survival/survivalStore.ts";
+import { SurvivalSystem } from "./survival/SurvivalSystem.ts";
+import { buildForage } from "./forage/buildForage.ts";
+import { createForageStore, type ForageStore } from "./forage/forageStore.ts";
+import { ForageSystem } from "./forage/ForageSystem.ts";
+import { buildTreasure } from "./quest/buildTreasure.ts";
+import { createQuestStore, type QuestStore } from "./quest/questStore.ts";
+import { QuestSystem, type DiscoveredIds } from "./quest/QuestSystem.ts";
+import { POI_ANCHORS } from "./world/worldConfig.ts";
+import { SPAWN } from "./world/worldConfig.ts";
 import { AudioSystem } from "./audio/AudioSystem.ts";
 import { DiscoveryBurstSystem } from "./fx/DiscoveryBurstSystem.ts";
+import { buildWildlife } from "./wildlife/buildWildlife.ts";
 
 export interface Game {
   world: World;
-  movement: Movement;
+  player: Player;
   discovery: Discovery;
   session: GameSession;
-  /** Throttled vehicle telemetry for the HUD (#42). */
+  /** Throttled explorer telemetry for the HUD (#42). */
   hud: HudStore;
   /** Projected nav hints to undiscovered landmarks (#44). */
   nav: NavStore;
   /** Persisted player settings (#41), read/written by the pause menu. */
   settings: SettingsStore;
+  /** Survival meters + death/respawn (pivot slice D). */
+  survival: {
+    store: SurvivalStore;
+    respawn(): void;
+    eat(amount: number): void;
+    hurt(amount: number): void;
+  };
+  /** Foraging (pivot slice E): pick-and-eat plants. */
+  forage: { store: ForageStore };
+  /** The treasure quest (pivot slice G): the win condition. */
+  quest: { store: QuestStore };
   /** Toggle the sun's shadow casting live (#47), so a quality change in the menu
    *  re-applies shadows in BOTH directions — the renderer's shadowMap.enabled
    *  flag alone can't turn shadows back on once the caster was built without it. */
@@ -32,14 +54,14 @@ export interface Game {
 }
 
 /**
- * Compose the whole playable game into an engine: the world (Epic 2), the
- * vehicle/input/camera (Epic 3), discovery (Epic 4) and the shell overlays —
- * HUD, nav hints, settings (Epic 5). This is the default `GameCanvas` builder.
- * `overlay` is the canvas container touch controls mount into.
+ * Compose the whole playable game into an engine: the world, the first-person
+ * explorer (input/controller/camera), discovery and the shell overlays — HUD,
+ * nav hints, settings. This is the default `GameCanvas` builder. `overlay` is
+ * the canvas container touch controls mount into (and the pointer-lock target).
  *
  * System update order is registration order, so the shell systems go in *after*
- * the systems they read: the HUD feed after the vehicle, and the nav projector
- * after the camera (both established by `buildMovement`). The returned stores are
+ * the systems they read: the HUD feed after the explorer, and the nav projector
+ * after the camera (both established by `buildPlayer`). The returned stores are
  * what the React overlays subscribe to; `session` is the shared pause flag (set
  * while a reveal panel or the menu is open).
  *
@@ -60,23 +82,108 @@ export function buildGame(
   ctxFactory: AudioContextFactory | undefined = defaultAudioContextFactory(),
 ): Game {
   const session = createSession();
+  // Stores exist before the systems that write them: the explorer's sprint
+  // gate reads stamina, the quest mirrors deaths/eaten — all without circular
+  // seams (systems register later, in interact-key priority order).
+  const survivalStore = createSurvivalStore();
+  const forageStoreEarly = createForageStore();
+  const questStore = createQuestStore(POI_ANCHORS.length);
   // Settings come first now: the world's beacon pulse reads `reducedMotion` from
   // it live (#49), so non-essential motion is gated by the in-game toggle too.
   const settings = createSettingsStore();
   const world = buildWorld(engine, quality, settings);
-  const movement = buildMovement(engine, world, overlay, session);
-  const discovery = buildDiscovery(engine, world, movement, session);
+  // The sprint gate is SurvivalSystem.canSprint — the one rule, exact-valued
+  // (the display store rounds). The system is constructed after the player
+  // needs the gate, so the composition root carries this one late-bound ref.
+  let sprintGate: () => boolean = () => true;
+  const player = buildPlayer(
+    engine,
+    world,
+    overlay,
+    session,
+    settings,
+    () => sprintGate(),
+  );
+  // The treasure quest registers BEFORE discovery: once every page is read,
+  // the dig press outranks re-opening the fig's clue text. Its view of the
+  // read pages is late-bound to the discovery store built just after.
+  const treasure = buildTreasure(world.landmarks);
+  let discoveredIds: DiscoveredIds = () => [];
+  let sitePanelOpen: () => boolean = () => false;
+  const questSystem = new QuestSystem(
+    POI_ANCHORS.map((a) => a.poiId),
+    treasure.digPoint,
+    player.explorer,
+    player.input,
+    () => discoveredIds(),
+    () => sitePanelOpen(),
+    survivalStore,
+    forageStoreEarly,
+    questStore,
+    session,
+    treasure.reveal,
+    treasure.dispose,
+  );
+  engine.addSystem(questSystem);
 
-  // HUD telemetry feed — registered after the vehicle so it reads fresh state.
+  const discovery = buildDiscovery(engine, world, player, session);
+  discoveredIds = () => discovery.store.getSnapshot().discoveredIds;
+  sitePanelOpen = () => discovery.store.getSnapshot().open !== null;
+
+  // Survival rules — AFTER discovery in the update order, so an interact press
+  // near a clue site opens the clue and only a free press reaches food/drink.
+  const survivalSystem = new SurvivalSystem(
+    player.explorer,
+    player.input,
+    world.waterDepthAt,
+    survivalStore,
+    discovery.store,
+    session,
+    SPAWN,
+  );
+
+  // Foraging sits BETWEEN discovery and survival on the shared interact key:
+  // sites first, then a pick, and survival's unconditional drain stays the
+  // terminal sink (so no press ever banks). Registration order = priority.
+  const forage = buildForage(world.terrain, quality.propDensity);
+  engine.scene.add(forage.group);
+  const forageStore = forageStoreEarly;
+  engine.addSystem(
+    new ForageSystem(
+      forage.plants,
+      player.explorer,
+      player.input,
+      discovery.store,
+      (amount) => survivalSystem.eat(amount),
+      forageStore,
+      session,
+      forage.setRipe,
+      () => forage.dispose(),
+    ),
+  );
+  engine.addSystem(survivalSystem);
+  sprintGate = survivalSystem.canSprint;
+
+  // Wildlife (pivot slice F, #184): birds, butterflies/fireflies, fish, snakes
+  // — ambient life that reacts to the player. Registered AFTER survival so a
+  // snake strike can call the exact same hurt() seam starvation death uses,
+  // via a plain callback (buildWildlife never sees the SurvivalSystem itself).
+  // Captured (not discarded) so the audio slice can poll `wildlife.snakes` for
+  // the rattle-warning edge.
+  const wildlife = buildWildlife(engine, world, player.explorer, session, (amount) =>
+    survivalSystem.hurt(amount),
+  );
+
+  // HUD telemetry feed — registered after the explorer so it reads fresh state.
   const hud = createHudStore();
-  engine.addSystem(new HudSystem(movement.vehicle, hud));
+  engine.addSystem(new HudSystem(player.explorer, hud));
 
   // Nav hints — registered after the camera so it reads the updated view matrix.
   const nav = createNavStore();
   engine.addSystem(
     new NavSystem(
       engine,
-      movement.vehicle,
+      player.explorer,
       discovery.pois,
       nav,
       discovery.store,
@@ -87,8 +194,8 @@ export function buildGame(
   // Visual juice (#53): a particle pop at a landmark the instant it's revealed.
   // It listens to the same discovery-store event the chime does, and is gated by
   // reduced motion inside the system. Registered after discovery so the store is
-  // populated. The speed-cue half of #53 is a DOM overlay (SpeedVignette) mounted
-  // by GameCanvas, so it isn't a system here.
+  // populated. (The drive-era speed vignette was retired with the vehicle in the
+  // first-person pivot — slice B.)
   engine.addSystem(
     new DiscoveryBurstSystem(engine.scene, discovery.store, world.landmarks.placed, settings),
   );
@@ -99,7 +206,18 @@ export function buildGame(
   if (ctxFactory) {
     const audio = new AudioEngine(ctxFactory);
     engine.addSystem(
-      new AudioSystem(audio, discovery.store, movement.vehicle, movement.input, settings),
+      new AudioSystem(
+        audio,
+        discovery.store,
+        player.explorer,
+        settings,
+        world.dayCycle,
+        world.waterDepthAt,
+        survivalStore,
+        forageStore,
+        questStore,
+        wildlife.snakes,
+      ),
     );
     // Autoplay fallback: browsers may keep the context suspended until a real
     // user gesture even though GameCanvas mounts post-click. Resume on the first
@@ -110,12 +228,25 @@ export function buildGame(
 
   return {
     world,
-    movement,
+    player,
     discovery,
     session,
     hud,
     nav,
     settings,
+    survival: {
+      store: survivalStore,
+      // Death can strike mid-read (a snake while a clue is open): close any
+      // stale reveal on wake so its pause reason can't outlive the overlay.
+      respawn: () => {
+        discovery.store.closePoi();
+        survivalSystem.respawn();
+      },
+      eat: (amount: number) => survivalSystem.eat(amount),
+      hurt: (amount: number) => survivalSystem.hurt(amount),
+    },
+    forage: { store: forageStore },
+    quest: { store: questStore },
     setShadowsEnabled(enabled) {
       world.sky.sun.castShadow = enabled;
     },

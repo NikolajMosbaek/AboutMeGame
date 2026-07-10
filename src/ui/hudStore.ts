@@ -3,21 +3,21 @@
 // pattern as discoveryStore: framework-agnostic, no singleton, created per game
 // and injected, with a cached snapshot so React doesn't loop.
 
-import type { DriveMode } from "../movement/vehicle.ts";
-
 export interface HudSnapshot {
-  mode: DriveMode;
   /** Whole metres-per-second; rounded so per-frame jitter doesn't churn React. */
   speed: number;
-  /** Whole metres above the ground; only meaningful (shown) in fly mode. */
-  altitude: number;
+  /** Sprinting right now (the HUD shows the exertion state). */
+  sprinting: boolean;
+  /** Compass heading in whole degrees, 0..359 (0 = north = -Z… the world's +Z
+   *  spawn axis; what matters is that it's stable and the ring reads true). */
+  heading: number;
 }
 
 export interface HudStore {
   getSnapshot(): HudSnapshot;
   subscribe(listener: () => void): () => void;
-  /** Write the latest vehicle read. Speed/altitude are rounded and the store
-   *  only allocates + emits when a rounded value actually changed (throttle). */
+  /** Write the latest explorer read. Values are rounded and the store only
+   *  allocates + emits when a rounded value actually changed (throttle). */
   set(next: HudSnapshot): void;
 }
 
@@ -25,7 +25,7 @@ export function createHudStore(): HudStore {
   const listeners = new Set<() => void>();
   // Cached snapshot — a new object only on a real change, so
   // useSyncExternalStore (which compares by reference) doesn't loop.
-  let snapshot: HudSnapshot = { mode: "drive", speed: 0, altitude: 0 };
+  let snapshot: HudSnapshot = { speed: 0, sprinting: false, heading: 0 };
 
   return {
     getSnapshot: () => snapshot,
@@ -34,14 +34,14 @@ export function createHudStore(): HudStore {
       return () => listeners.delete(listener);
     },
     set(next) {
-      const mode = next.mode;
       const speed = Math.round(next.speed);
-      const altitude = Math.round(next.altitude);
+      const sprinting = next.sprinting;
+      const heading = ((Math.round(next.heading) % 360) + 360) % 360;
       // Skip the allocation + notify when nothing the HUD shows changed.
-      if (mode === snapshot.mode && speed === snapshot.speed && altitude === snapshot.altitude) {
+      if (speed === snapshot.speed && sprinting === snapshot.sprinting && heading === snapshot.heading) {
         return;
       }
-      snapshot = { mode, speed, altitude };
+      snapshot = { speed, sprinting, heading };
       for (const l of listeners) l();
     },
   };

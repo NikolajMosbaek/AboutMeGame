@@ -43,10 +43,10 @@ reports. The table is the single source of truth (`QUALITY_TIERS`), asserted in
 | `maxPixelRatio` | **1** | 1.5 | 2 | Fill rate is the dominant mobile cost; capping DPR at 1 is the single biggest lever for the target phone. |
 | `shadows` | **off** | on | on | The shadow map is the costliest single feature; off on low. |
 | `shadowMapSize` | 1024 | 1024 | 2048 | Smaller map ⇒ cheaper shadow pass on medium. |
-| `propDensity` | **0.4** | 0.7 | 1.0 | Multiplier on the 540 trees / 150 rocks — fewer instances ⇒ fewer triangles. |
+| `propDensity` | **0.4** | 0.7 | 1.0 | Multiplier on the vegetation budgets (450 canopy trees / 60 palms / 900 understory / 120 rocks, `src/world/props.ts`) — fewer instances ⇒ fewer triangles. |
 | `fog` | **off** | on | on | Cheap, but low drops it so the shorter draw distance reads cleanly. |
 | `waterDisplacement` | **off** | on | on | Vertex displacement + grid subdivision on the full-screen water plane; off on low to protect mobile fill rate. Applies on reload. |
-| `bloom` | **off** | on | on | Threshold post-processing pass that makes emissive landmarks (beacons, tower lamp) glow; fill-rate spend, not draw/triangle; off on low to protect mobile fill rate. **Shipped** behind the renderer seam (a tuned `UnrealBloomPass` in `src/engine/createCompositor.ts`); applies on reload. |
+| `bloom` | **off** | on | on | Threshold post-processing pass that makes the emissive site accents (and later fireflies) glow; fill-rate spend, not draw/triangle; off on low to protect mobile fill rate. **Shipped** behind the renderer seam (a tuned `UnrealBloomPass` in `src/engine/createCompositor.ts`); applies on reload. |
 
 **Low tier vs the mobile budget.** Low is tuned to comfortably clear the
 mid-range-phone bar: pixelRatio 1 (no super-sampling), no real-time shadows, and

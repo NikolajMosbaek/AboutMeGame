@@ -36,26 +36,22 @@ export interface ControlScheme {
   entries: ReadonlyArray<ControlEntry>;
 }
 
-// Keyboard hints, lifted verbatim from Onboarding.tsx CONTROLS (the rendered
-// first-run list). `label` carries what that file calls `keys`.
+// Keyboard hints for the first-person explorer (pivot slice B).
 const KEYBOARD_ENTRIES: ReadonlyArray<ControlEntry> = Object.freeze([
-  Object.freeze({ label: "W A S D", action: "Drive / steer" }),
-  Object.freeze({ label: "F", action: "Toggle flight" }),
-  Object.freeze({ label: "Shift", action: "Boost" }),
-  Object.freeze({ label: "Space", action: "Climb (in flight)" }),
-  Object.freeze({ label: "E", action: "Reveal a landmark" }),
+  Object.freeze({ label: "W A S D", action: "Walk" }),
+  Object.freeze({ label: "Mouse", action: "Look (click to grab)" }),
+  Object.freeze({ label: "Shift", action: "Sprint" }),
+  Object.freeze({ label: "E", action: "Use / examine" }),
   Object.freeze({ label: "Esc", action: "Menu" }),
 ]);
 
-// Touch hints, mirroring the on-screen buttons built by `createTouchControls`
-// in src/movement/input.ts (~lines 234-239: the joystick, "▲", "FLY", "USE").
-// Those literal labels are duplicated here by hand; extracting a shared label
-// constant is a #141/#142 follow-up once both screens consume this module.
+// Touch hints, mirroring the on-screen controls built by `createTouchControls`
+// in src/player/input.ts (the joystick, look drag, "SPRINT", "USE").
 const TOUCH_ENTRIES: ReadonlyArray<ControlEntry> = Object.freeze([
-  Object.freeze({ label: "Joystick", action: "Drive / steer" }),
-  Object.freeze({ label: "▲", action: "Climb (in flight)" }),
-  Object.freeze({ label: "FLY", action: "Toggle flight" }),
-  Object.freeze({ label: "USE", action: "Reveal a landmark" }),
+  Object.freeze({ label: "Joystick", action: "Walk" }),
+  Object.freeze({ label: "Drag right side", action: "Look" }),
+  Object.freeze({ label: "SPRINT", action: "Sprint (hold)" }),
+  Object.freeze({ label: "USE", action: "Use / examine" }),
 ]);
 
 const SCHEMES: Readonly<Record<ControlChannel, ControlScheme>> = Object.freeze({

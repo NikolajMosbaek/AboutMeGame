@@ -1,4 +1,3 @@
-import * as THREE from "three";
 import type { Engine } from "../engine/Engine.ts";
 import type { FrameContext, System } from "../engine/types.ts";
 import { buildTerrain, type Terrain } from "./terrain.ts";
@@ -18,13 +17,23 @@ export interface ReducedMotionSource {
   getSnapshot(): { reducedMotion: boolean };
 }
 
-/** The assembled world. Epic 3 (movement) reads `terrain`/`boundaries`; Epic 4
- *  (discovery) reads `landmarks.placed`. Shared by reference — the DI seam. */
+/** The assembled world. The player reads `terrain`/`boundaries`/`waterDepthAt`;
+ *  discovery reads `landmarks.placed`. Shared by reference — the DI seam. */
 export interface World {
   terrain: Terrain;
   sky: Sky;
   boundaries: Boundaries;
   landmarks: Landmarks;
+  /** Still water depth at a ground point, metres (`<= 0` = dry land). The ONE
+   *  definition of "where water is": today the sea plane at `WORLD.seaLevel`
+   *  over anything the terrain dips below it — the same `seaLevel - height`
+   *  the foam bake uses. Movement (wading/blocking), and later drinking,
+   *  audio and FX all ask here, so a reshaped river changes one function. */
+  waterDepthAt(x: number, z: number): number;
+  /** The living-sky loop's current phase (pivot slice F wildlife seam) — see
+   *  `DayCycleSystem.getPhase()`. Exposed as the narrow accessor, never the
+   *  System itself, so a consumer can't reach into the sky/dome/fog handles. */
+  dayCycle: { getPhase(): number };
   dispose(): void;
 }
 
@@ -66,11 +75,19 @@ export function buildWorld(
   const props = buildProps(terrain, quality.propDensity);
   scene.add(props.group);
 
+  // Constructed here (not inline in the `addSystem` call below) so `World.dayCycle`
+  // can close over the live instance — the single production importer of
+  // `./dayCycle` (the chain that wires the pure palette into the bundle) stays
+  // unchanged; only WHERE the reference is held moves.
+  const dayCycleSystem = new DayCycleSystem(sky.sun, sky.dome, sky.fog, reducedMotion);
+
   const world: World = {
     terrain,
     sky,
     boundaries,
     landmarks,
+    waterDepthAt: (x, z) => WORLD.seaLevel - terrain.heightAt(x, z),
+    dayCycle: { getPhase: () => dayCycleSystem.getPhase() },
     dispose() {
       terrain.dispose();
       sky.dispose();
@@ -82,7 +99,10 @@ export function buildWorld(
 
   engine.camera.far = WORLD.size * 2;
   engine.camera.updateProjectionMatrix();
-  engine.addSystem(new BeaconPulseSystem(world, reducedMotion));
+  // The sites census — a zero-cost system whose describe() feeds
+  // render_game_to_text (`systems.sites.poiCount`), replacing the retired
+  // beacon pulse's census now that sites carry no sky-beacons.
+  engine.addSystem(new SitesCensusSystem(world));
 
   // The water swell clock — installed ONLY on medium/high, where
   // `quality.waterDisplacement` compiled the vertex swell and `buildBoundaries`
@@ -94,51 +114,28 @@ export function buildWorld(
     );
   }
 
-  // The living-sky day cycle (G3) — registered UNCONDITIONALLY (like the beacon
-  // pulse), since the sun and dome exist on every tier and the fog handle is
+  // The living-sky day cycle (G3) — registered UNCONDITIONALLY, since the sun
+  // and dome exist on every tier and the fog handle is
   // null-guarded for the low tier. Injected the three live sky handles
   // individually (never the whole World/Sky), and the reduced-motion gate so it
-  // pins to golden hour and holds when the player asks for less motion. This is
-  // the single production importer of `./dayCycle` — the chain that wires the
-  // pure palette into the bundle.
-  engine.addSystem(new DayCycleSystem(sky.sun, sky.dome, sky.fog, reducedMotion));
+  // pins to golden hour and holds when the player asks for less motion.
+  engine.addSystem(dayCycleSystem);
 
   return world;
 }
 
-/** Static beacon opacity used when motion is reduced — the mid-point of the
- *  pulse, so the beacons read identically but hold still. */
-const BEACON_REST_OPACITY = 0.22;
-
 /**
- * Gently pulses every landmark beacon's opacity so the navigation targets feel
- * alive. Owns no camera or player state — Epic 3 installs the follow camera and
- * the vehicle, Epic 4 the discovery tracking, all against the same world.
- *
- * The pulse is non-essential motion, so it's gated by the reduced-motion source
- * (#49): when set, the beacons hold at a steady opacity. Read live each frame so
- * the pause-menu toggle takes effect immediately, without a rebuild.
+ * The sites census: no per-frame work, but its describe() keeps the site count
+ * visible in the render_game_to_text state the smoke tooling reads (the beacon
+ * pulse that used to carry this census retired with the sky-beacons — jungle
+ * sites are found by reading clues, not by glowing pillars).
  */
-class BeaconPulseSystem implements System {
-  readonly id = "beacons";
-  private beacons: THREE.MeshBasicMaterial[] = [];
+class SitesCensusSystem implements System {
+  readonly id = "sites";
 
-  constructor(
-    private readonly world: World,
-    private readonly reducedMotion?: ReducedMotionSource,
-  ) {
-    world.landmarks.group.traverse((o) => {
-      if (o instanceof THREE.Mesh && o.name === "beacon") {
-        this.beacons.push(o.material as THREE.MeshBasicMaterial);
-      }
-    });
-  }
+  constructor(private readonly world: World) {}
 
-  update(ctx: FrameContext): void {
-    const still = this.reducedMotion?.getSnapshot().reducedMotion ?? false;
-    const pulse = still ? BEACON_REST_OPACITY : 0.22 + Math.sin(ctx.elapsed * 1.5) * 0.1;
-    for (const m of this.beacons) m.opacity = pulse;
-  }
+  update(_ctx: FrameContext): void {}
 
   describe(): Record<string, unknown> {
     return { poiCount: this.world.landmarks.placed.length };
