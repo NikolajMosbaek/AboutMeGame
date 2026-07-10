@@ -176,6 +176,21 @@ describe("SurvivalSystem (pivot slice D)", () => {
     expect(r.explorer.state.position.z).toBeCloseTo(SPAWN.z, 5);
   });
 
+  it("hurt() takes damage (the wildlife seam) and can kill through the same death path", () => {
+    const r = rig();
+    r.sys.hurt(25);
+    expect(r.store.getSnapshot().health).toBe(75);
+    r.sys.hurt(500);
+    const s = r.store.getSnapshot();
+    expect(s.health).toBe(0);
+    expect(s.alive).toBe(false);
+    expect(s.deaths).toBe(1);
+    expect(r.session.isPaused("death")).toBe(true);
+    // Dead: further damage is a no-op (no double-counted deaths).
+    r.sys.hurt(10);
+    expect(r.store.getSnapshot().deaths).toBe(1);
+  });
+
   it("eat() restores hunger (the foraging seam), clamped at full", () => {
     const r = rig();
     run(r, 60 * FPS);

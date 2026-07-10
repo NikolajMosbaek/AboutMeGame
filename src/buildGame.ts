@@ -29,7 +29,12 @@ export interface Game {
   /** Persisted player settings (#41), read/written by the pause menu. */
   settings: SettingsStore;
   /** Survival meters + death/respawn (pivot slice D). */
-  survival: { store: SurvivalStore; respawn(): void; eat(amount: number): void };
+  survival: {
+    store: SurvivalStore;
+    respawn(): void;
+    eat(amount: number): void;
+    hurt(amount: number): void;
+  };
   /** Toggle the sun's shadow casting live (#47), so a quality change in the menu
    *  re-applies shadows in BOTH directions — the renderer's shadowMap.enabled
    *  flag alone can't turn shadows back on once the caster was built without it. */
@@ -149,6 +154,7 @@ export function buildGame(
       store: survivalStore,
       respawn: () => survivalSystem.respawn(),
       eat: (amount: number) => survivalSystem.eat(amount),
+      hurt: (amount: number) => survivalSystem.hurt(amount),
     },
     setShadowsEnabled(enabled) {
       world.sky.sun.castShadow = enabled;

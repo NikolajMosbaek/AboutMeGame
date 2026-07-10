@@ -94,6 +94,19 @@ export class SurvivalSystem implements System {
     this.push();
   }
 
+  /** Take damage (the wildlife slice feeds this — snake strikes). Death via
+   *  hurt() follows the same pause/overlay path as starving. */
+  hurt(amount: number): void {
+    if (!this.alive) return;
+    this.health = Math.max(0, this.health - amount);
+    if (this.health <= 0) {
+      this.alive = false;
+      this.deaths += 1;
+      this.session.setPaused("death", true);
+    }
+    this.push();
+  }
+
   /** Wake back at camp: meters to respawnLevel, position reset, quest kept.
    *  The React death overlay calls this; it's idempotent while alive. */
   respawn(): void {
