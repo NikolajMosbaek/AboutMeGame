@@ -23,7 +23,7 @@ export interface OnboardingProps {
 
 /**
  * First-run onboarding (#43): a one-time overlay listing the controls, dismissed
- * with "Got it, drive in". It does NOT pause the sim — the world keeps running
+ * with "Got it, let's go". It does NOT pause the sim — the world keeps running
  * behind it, and dismiss simply removes the overlay (and persists a seen flag so
  * it never returns). Degrades gracefully if storage is blocked (it may re-show,
  * which is harmless). Respects reduced motion via the tokens.css animation rule.
@@ -62,11 +62,12 @@ export function Onboarding({ persistence, onOpenChange, channel }: OnboardingPro
     <div className="onboarding-backdrop">
       <div className="onboarding" role="dialog" aria-modal="true" aria-labelledby="onboarding-title">
         <h2 id="onboarding-title" className="onboarding__title">
-          Drive, fly, discover
+          Read the pages, survive the jungle
         </h2>
         <p className="onboarding__lede">
-          Roam the island and approach a landmark to reveal a piece of how I build software
-          with Claude. Here are the controls:
+          Five pages lead from your camp to the Emerald Idol. Follow them, drink at the
+          river and forage fruit to stay alive, keep clear of snakes, and dig once you've
+          found them all. Here are the controls:
         </p>
         <dl className="onboarding__controls">
           {scheme.entries.map((entry) => (
@@ -83,7 +84,7 @@ export function Onboarding({ persistence, onOpenChange, channel }: OnboardingPro
           ))}
         </dl>
         <button ref={dismissRef} type="button" className="cta" onClick={dismiss}>
-          Got it, drive in
+          Got it, let's go
         </button>
       </div>
     </div>

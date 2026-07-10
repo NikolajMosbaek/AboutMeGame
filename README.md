@@ -1,8 +1,8 @@
-# AboutMeGame
+# The Lost Idol
 
-**A browser-based 3D world you drive and fly around to discover how I build software with Claude.** A small, hand-crafted island holds 13 landmarks; approach one for a teaser, interact to reveal a piece of how I actually work — planning, verification, guardrails, git hygiene, reusable tooling. No installs, just a link.
+**A browser-based first-person jungle survival treasure hunt.** You wake at a riverside camp on an uncharted island, the last of a vanished expedition. Drink and forage to stay alive, follow five pages that lead deeper into the jungle, mind the wildlife, and dig up the Emerald Idol. No installs, just a link.
 
-Prefer to read? There's a [text-only view](#text-view) of every landmark — no game required.
+**[Play it here](https://nikolajmosbaek.github.io/AboutMeGame/)**
 
 > The medium is the message: this game is itself built **AI-first** by a simulated product team of role agents (PO, tech lead, senior engineers, junior, UX lead) that takes each feature from `evaluate → agree → implement → verify → ship`. See [`.claude/CLAUDE.md`](.claude/CLAUDE.md) and the run logs in [`docs/team/runs/`](docs/team/runs/).
 
@@ -10,22 +10,21 @@ Prefer to read? There's a [text-only view](#text-view) of every landmark — no 
 
 | Action | Keyboard | Touch | Gamepad |
 |--------|----------|-------|---------|
-| Drive / steer | `W A S D` / arrows | left joystick | left stick |
-| Toggle flight | `F` | **FLY** button | Y |
-| Boost | `Shift` | — | LT |
-| Climb (in flight) | `Space` | **▲** pad | RT |
-| Reveal a landmark | `E` / `Enter` | **USE** button | A |
+| Walk | `W A S D` / arrows | left joystick | left stick |
+| Look | mouse (click to grab) | drag right side | right stick |
+| Sprint | `Shift` | **SPRINT** button | LT |
+| Use / examine (drink, eat, dig, read a page) | `E` / `Enter` | **USE** button | A |
 | Menu | `Esc` | ☰ button | — |
 
-Drive or fly to a glowing beacon, get close, and reveal what's there. Find all 13. Progress is saved in your browser.
+Read the pages, drink from the river, forage fruit, and keep clear of snakes on your way to the ancient fig tree. Progress (pages found) is saved in your browser.
 
-<a name="text-view"></a>**Text view:** the title screen's "Read it without playing" link opens an accessible, no-WebGL page with all 13 landmarks as text.
+**Can't run WebGL?** The title screen's "Can't play? About this game" link opens a short static notice explaining what the game is.
 
 ## Stack
 
-TypeScript · React 18 (DOM shell) · **Three.js** (the 3D world) · Vite 5 · Vitest + React Testing Library · Node 20+. The 3D world runs on one `<canvas>`; React renders the title, HUD, menus, reveal panel and text view; a clean injected seam (`src/engine/Engine.ts`, `System`) connects them — no singletons, so every system is unit-tested headless (no WebGL needed) and verified in a real browser with Playwright.
+TypeScript · React 18 (DOM shell) · **Three.js** (the 3D world) · Vite 5 · Vitest + React Testing Library · Node 20+. The 3D world runs on one `<canvas>`; React renders the title, HUD, menus, journal and panels; a clean injected seam (`src/engine/Engine.ts`, `System`) connects them — no singletons, so every system is unit-tested headless (no WebGL needed) and verified in a real browser with Playwright.
 
-See [`docs/adr/0001-rendering-engine.md`](docs/adr/0001-rendering-engine.md) for why Three.js, and [`docs/team/charter.md`](docs/team/charter.md) for the vision and architecture map.
+See [`docs/adr/0001-rendering-engine.md`](docs/adr/0001-rendering-engine.md) for why Three.js, and [`docs/design/2026-07-08-the-lost-idol-design.md`](docs/design/2026-07-08-the-lost-idol-design.md) for the game design, and [`docs/team/charter.md`](docs/team/charter.md) for the team's conventions.
 
 ## Develop
 
@@ -50,21 +49,25 @@ node scripts/verify-game.mjs http://localhost:5173/ --out shot.png --keys w --ad
 ```
 src/
   engine/     Engine (scene/camera/renderer + loop), GameCanvas, asset pipeline
-  world/      terrain, sky, landmarks, props, boundaries, world config
-  movement/   vehicle (drive + fly), follow camera, input (keyboard/touch/gamepad)
+  world/      terrain, river/lagoon, sky, sites, props, boundaries, world config
+  player/     first-person controller, look, input (keyboard/touch/gamepad)
+  survival/   hunger/thirst/stamina/health, drink, death/respawn
+  forage/     fruit plants, pick/eat, regrowth
+  wildlife/   birds, butterflies/fireflies, fish, snakes
+  quest/      the clue chain, journal, dig site, completion
   content/    typed content model + POI↔world binding
   discovery/  reveal triggers, discovery store, persistence
-  ui/         React shell: title, HUD, nav hints, reveal panel, settings, text view
+  ui/         React shell: title, HUD, journal, panels, settings
   audio/      procedural Web Audio (SFX + ambient)
-  fx/         discovery burst + speed vignette
+  fx/         discovery burst FX
   perf/       performance budget, stats overlay, device capability + quality tiers
-content/      the "how I work with Claude" payload (+ provenance)
-docs/         ADRs, design docs, team charter/backlog/run logs
+content/      the clue-chain payload (+ provenance)
+docs/         ADRs, design docs, team charter/run logs
 ```
 
 ## Performance
 
-Built for a mid-range phone: a typed [performance budget](docs/perf-budget.md) (≥30 fps mobile, ≤150 draw calls, ≤400 KB gz JS — currently ~190 KB gz) is shown live by the in-dev stats overlay, and a device-capability detector scales quality (pixel ratio, shadows, prop density) across low/medium/high tiers.
+Built for a mid-range phone: a typed [performance budget](docs/perf-budget.md) (≥30 fps mobile, ≤150 draw calls, ≤400 KB gz JS) is shown live by the in-dev stats overlay, and a device-capability detector scales quality (pixel ratio, shadows, prop density) across low/medium/high tiers.
 
 ## Deploy
 
@@ -74,4 +77,4 @@ Static site → **GitHub Pages**. On merge to `main`, [`.github/workflows/deploy
 
 ## License
 
-The code is licensed under the [MIT License](LICENSE). The content under `content/` is a separate carve-out: it is about a real person and is grounded in verifiable evidence (see [`content/PROVENANCE.md`](content/PROVENANCE.md)).
+The code is licensed under the [MIT License](LICENSE). The content under `content/` is a separate carve-out (see [`content/PROVENANCE.md`](content/PROVENANCE.md)).

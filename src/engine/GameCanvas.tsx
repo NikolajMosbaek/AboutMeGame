@@ -337,9 +337,8 @@ export function GameCanvas({
       <main className="webgl-fallback">
         <h2>3D couldn’t start here</h2>
         <p>
-          Your browser or device couldn’t start the 3D view. Nothing’s lost — head
-          back and choose <strong>“Read it without playing”</strong> to read every
-          landmark as text.
+          Your browser or device couldn’t start the 3D view. Head back and choose{" "}
+          <strong>“Can’t play? About this game”</strong> to read what The Lost Idol is.
         </p>
         <button type="button" className="cta" onClick={() => onExit?.()}>
           Back to start

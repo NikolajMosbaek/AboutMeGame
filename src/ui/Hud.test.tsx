@@ -27,14 +27,14 @@ describe("Hud", () => {
     const discovery = createDiscoveryStore(13);
     discovery.setDiscovered(["a", "b", "c"]);
     render(<Hud hud={createHudStore()} discovery={discovery} onOpenMenu={() => {}} onOpenJournal={() => {}} />);
-    expect(screen.getByText("Discovered 3 / 13")).toBeInTheDocument();
+    expect(screen.getByText("Pages 3 / 13")).toBeInTheDocument();
   });
 
   it('shows remaining "N to go" mid-journey and updates on re-render', () => {
     const discovery = createDiscoveryStore(13);
     discovery.setDiscovered(["a", "b", "c"]);
     render(<Hud hud={createHudStore()} discovery={discovery} onOpenMenu={() => {}} onOpenJournal={() => {}} />);
-    expect(screen.getByText("Discovered 3 / 13")).toBeInTheDocument();
+    expect(screen.getByText("Pages 3 / 13")).toBeInTheDocument();
     expect(screen.getByText("10 to go")).toBeInTheDocument();
 
     act(() => discovery.setDiscovered(["a", "b", "c", "d", "e"]));
@@ -54,14 +54,14 @@ describe("Hud", () => {
     const discovery = createDiscoveryStore(13);
     render(<Hud hud={createHudStore()} discovery={discovery} onOpenMenu={() => {}} onOpenJournal={() => {}} />);
     expect(screen.getByText("13 to go")).toBeInTheDocument();
-    expect(screen.queryByText("All discovered")).not.toBeInTheDocument();
+    expect(screen.queryByText("All found")).not.toBeInTheDocument();
   });
 
-  it('shows "All discovered" at the completed boundary and never "0 to go"', () => {
+  it('shows "All found" at the completed boundary and never "0 to go"', () => {
     const discovery = createDiscoveryStore(13);
     discovery.setDiscovered(Array.from({ length: 13 }, (_, i) => `p${i}`));
     render(<Hud hud={createHudStore()} discovery={discovery} onOpenMenu={() => {}} onOpenJournal={() => {}} />);
-    expect(screen.getByText("All discovered")).toBeInTheDocument();
+    expect(screen.getByText("All found")).toBeInTheDocument();
     expect(screen.queryByText(/0 to go/)).not.toBeInTheDocument();
   });
 
@@ -96,7 +96,7 @@ describe("Hud", () => {
     const progress = container.querySelector(".discovery-progress");
     expect(progress).toHaveAttribute(
       "aria-label",
-      "Discovered 3 of 13 landmarks, 10 to go",
+      "3 of 13 pages found, 10 to go",
     );
   });
 
@@ -108,7 +108,7 @@ describe("Hud", () => {
     );
     expect(container.querySelector(".discovery-progress")).toHaveAttribute(
       "aria-label",
-      "All 13 landmarks discovered",
+      "All 13 pages found",
     );
     expect(container.querySelector(".discovery-remaining")).toHaveAttribute(
       "aria-hidden",

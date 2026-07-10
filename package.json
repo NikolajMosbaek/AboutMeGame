@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "A browser-based 3D world you drive and fly around to discover how I build software with Claude — every landmark reveals a piece of how I work. No installs, just a link.",
+  "description": "The Lost Idol — a browser-based first-person jungle survival treasure hunt. Drink, forage, follow the pages, and find the Emerald Idol. No installs, just a link.",
   "engines": {
     "node": ">=20"
   },
