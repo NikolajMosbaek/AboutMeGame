@@ -283,6 +283,17 @@ export class SnakesSystem implements System {
     this.headMesh.instanceMatrix.needsUpdate = true;
   }
 
+  /** True while ANY snake is alert or mid-strike — the audio slice's rattle-
+   *  warning edge trigger. Polled rather than a callback, so this module stays
+   *  decoupled from audio's shape (same "plain callback/poll, no coupling"
+   *  posture as {@link HurtFn}). */
+  anyAlert(): boolean {
+    for (const s of this.states) {
+      if (s.mode === "alert" || s.mode === "strike") return true;
+    }
+    return false;
+  }
+
   describe(): Record<string, unknown> {
     return { snakes: this.states.map((s) => s.mode) };
   }
