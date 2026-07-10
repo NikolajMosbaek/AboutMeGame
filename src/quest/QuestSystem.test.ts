@@ -14,6 +14,7 @@ function rig(opts: { found?: string[]; at?: { x: number; z: number } } = {}) {
   const session = createSession();
   const reveal = vi.fn();
   let found = opts.found ?? [];
+  let panelOpen = false;
   let interact = false;
   const player = { state: { position: opts.at ?? { x: 0, z: 0 } } };
   const sys = new QuestSystem(
@@ -28,6 +29,7 @@ function rig(opts: { found?: string[]; at?: { x: number; z: number } } = {}) {
       },
     },
     () => found,
+    () => panelOpen,
     { getSnapshot: () => ({ deaths: 2 }) },
     { getSnapshot: () => ({ eaten: 7 }) },
     store,
@@ -42,6 +44,7 @@ function rig(opts: { found?: string[]; at?: { x: number; z: number } } = {}) {
     player,
     press: () => (interact = true),
     setFound: (ids: string[]) => (found = ids),
+    setPanelOpen: (v: boolean) => (panelOpen = v),
   };
 }
 
@@ -122,6 +125,22 @@ describe("QuestSystem (pivot slice G)", () => {
     r.session.setPaused("menu", true);
     run(r, 30 * FPS);
     expect(r.store.getSnapshot().playSeconds).toBe(played); // frozen while paused
+  });
+
+  it("never starts a dig while a reveal panel is open (the one-frame race)", () => {
+    const r = rig({ found: CLUES, at: DIG });
+    r.setPanelOpen(true); // the fig page was JUST opened; session pause lags a frame
+    r.press(); // the press meant to close the panel
+    run(r, 1);
+    expect(r.store.getSnapshot().digProgress).toBeNull();
+    expect(r.store.getSnapshot().digOwnsKey).toBe(false);
+    // The press was left for DiscoverySystem to close the panel with.
+    expect(r.sys["input"].consumeInteract()).toBe(true);
+
+    r.setPanelOpen(false);
+    r.press();
+    run(r, 1);
+    expect(r.store.getSnapshot().digProgress).not.toBeNull(); // now it digs
   });
 
   it("digs exactly once: after the treasure, presses at the patch flow on", () => {

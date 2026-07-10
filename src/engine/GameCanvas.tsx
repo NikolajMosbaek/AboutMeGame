@@ -198,6 +198,8 @@ export function GameCanvas({
       setGame(null);
       setMenuOpen(false);
       setJournalOpen(false);
+      setTreasureOpen(false);
+      setOnboardingOpen(false);
     };
   }, [build, deviceTier]);
 

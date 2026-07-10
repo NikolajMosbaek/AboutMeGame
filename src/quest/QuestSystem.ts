@@ -26,6 +26,12 @@ export interface InteractSource {
  *  system registers, because registration order is key priority). */
 export type DiscoveredIds = () => readonly string[];
 
+/** Whether a reveal panel is open RIGHT NOW (the store flag, which flips
+ *  synchronously on open — unlike the session's "reveal" pause reason, which
+ *  DiscoverySystem derives a frame later). Guards the one-frame window where
+ *  a press meant to close the just-opened fig page could start a phantom dig. */
+export type SitePanelOpen = () => boolean;
+
 /** Session-stat sources mirrored into the completion stats. */
 export interface DeathsSource {
   getSnapshot(): { deaths: number };
@@ -51,6 +57,7 @@ export class QuestSystem implements System {
   private playSeconds = 0;
   private digProgress: number | null = null;
   private treasureFound = false;
+  private lastCluesFound = 0;
 
   constructor(
     private readonly clueIds: readonly string[],
@@ -58,6 +65,7 @@ export class QuestSystem implements System {
     private readonly player: PositionSource,
     private readonly input: InteractSource,
     private readonly discovered: DiscoveredIds,
+    private readonly sitePanelOpen: SitePanelOpen,
     private readonly deaths: DeathsSource,
     private readonly eaten: EatenSource,
     private readonly store: QuestStore,
@@ -72,8 +80,12 @@ export class QuestSystem implements System {
   }
 
   update(ctx: FrameContext): void {
-    if (this.session.paused) {
-      this.push();
+    // Hold while paused, AND while a reveal panel is open per the store —
+    // the store flag flips synchronously on open, the session's "reveal"
+    // reason a frame later; without the store check, the press meant to
+    // close the just-opened fig page could start a phantom dig (review).
+    if (this.session.paused || this.sitePanelOpen()) {
+      this.push(this.lastCluesFound, false);
       return;
     }
 
@@ -81,6 +93,7 @@ export class QuestSystem implements System {
 
     const found = this.discovered();
     const cluesFound = this.clueIds.filter((id) => found.includes(id)).length;
+    this.lastCluesFound = cluesFound;
     const allRead = cluesFound === this.clueIds.length;
 
     const p = this.player.state.position;
@@ -113,7 +126,9 @@ export class QuestSystem implements System {
   }
 
   private push(cluesFound?: number, digOwnsKey?: boolean): void {
-    const found = cluesFound ?? this.clueIds.filter((id) => this.discovered().includes(id)).length;
+    const found =
+      cluesFound ?? this.clueIds.filter((id) => this.discovered().includes(id)).length;
+    this.lastCluesFound = found;
     this.store.set({
       cluesFound: found,
       cluesTotal: this.clueIds.length,

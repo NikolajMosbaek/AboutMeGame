@@ -109,12 +109,14 @@ export function buildGame(
   // read pages is late-bound to the discovery store built just after.
   const treasure = buildTreasure(world.landmarks);
   let discoveredIds: DiscoveredIds = () => [];
+  let sitePanelOpen: () => boolean = () => false;
   const questSystem = new QuestSystem(
     POI_ANCHORS.map((a) => a.poiId),
     treasure.digPoint,
     player.explorer,
     player.input,
     () => discoveredIds(),
+    () => sitePanelOpen(),
     survivalStore,
     forageStoreEarly,
     questStore,
@@ -126,6 +128,7 @@ export function buildGame(
 
   const discovery = buildDiscovery(engine, world, player, session);
   discoveredIds = () => discovery.store.getSnapshot().discoveredIds;
+  sitePanelOpen = () => discovery.store.getSnapshot().open !== null;
 
   // Survival rules — AFTER discovery in the update order, so an interact press
   // near a clue site opens the clue and only a free press reaches food/drink.

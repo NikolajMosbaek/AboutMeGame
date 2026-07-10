@@ -34,22 +34,14 @@
 // faint emissive accents); and the 6 site silhouettes are
 // DISTINCT (their structure-coverage / accent-hue signatures are not all alike).
 //
-// F1 completion-panel mode — verify the completion dialog's dismissal paths on
-// the running build:
-//
-//   node scripts/verify-game.mjs [url] [--completion-panel] [--out-dir dir]
-//
-// Seeds 5 of the 6 sites as already discovered, walks to the base camp beside
-// the spawn and interacts (the 6th find), closes the reveal so the completion panel
-// raises, and checks: the dialog shows all three CTAs in the decided order
-// (Replay, Share enabled, Keep exploring) with entry focus on Replay; Escape
-// dismisses the dialog and returns focus to the canvas container; and — after a
-// reload + re-raise, since the completion edge is single-shot — a backdrop
-// click dismisses and returns focus to the canvas container likewise.
+// --completion-panel is RETIRED (pivot slice G): completion became the
+// treasure dig, a full player journey no smoke run should fake. Passing the
+// flag refuses loudly; the win screen is pinned by src/ui/TreasurePanel.test.tsx
+// and src/engine/GameCanvas.test.tsx.
 //
 // Exits non-zero if the page errors, WebGL is unavailable, the engine never
-// reports a running state, or any day-cycle / landmark-tour / completion-panel
-// check fails — so it works as a verification gate, not just a screenshot tool.
+// reports a running state, or any day-cycle / landmark-tour check fails — so it
+// works as a verification gate, not just a screenshot tool.
 import { chromium } from "playwright";
 import { assessVerify } from "./verify/assess.mjs";
 
@@ -147,7 +139,6 @@ try {
     await verifyDayCycle(page);
   } else if (landmarkTour) {
     await verifyLandmarkTour(page);
-  } else if (completionPanel) {
   } else {
     await smokeShot(page);
   }
