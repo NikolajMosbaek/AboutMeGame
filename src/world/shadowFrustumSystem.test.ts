@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { describe, expect, it } from "vitest";
 import type { FrameContext } from "../engine/types.ts";
 import { lightBasis, type Vec3 } from "./shadowFrustum.ts";
-import { ShadowFrustumSystem, type ShadowFrustumConfig } from "./shadowFrustumSystem.ts";
+import { ShadowFrustumSystem, type ShadowFrustumConfig, type SunDirectionSource } from "./shadowFrustumSystem.ts";
 
 /** A minimal frame context carrying just what this System reads: the active
  *  camera's world position. */
@@ -14,19 +14,35 @@ function ctxAt(x: number, y: number, z: number): FrameContext {
 
 const CONFIG: ShadowFrustumConfig = { halfExtent: 75, mapSize: 1024 };
 
-/** A real DirectionalLight configured like `sky.ts`'s shipped noon sun — same
- *  position/target the day cycle writes every frame. */
-function noonSun(): THREE.DirectionalLight {
-  const sun = new THREE.DirectionalLight(0xfff1d6, 1.6);
-  sun.position.set(0.6, 1, 0.4).multiplyScalar(200);
-  sun.target.position.set(0, 0, 0);
-  return sun;
+/** A bare `THREE.DirectionalLight` — this System now owns writing its
+ *  position/target from the injected {@link SunDirectionSource} every frame,
+ *  so the fixture no longer needs to pre-seed a position/target itself
+ *  (unlike the old `noonSun()`, which mimicked what `DayCycleSystem` would
+ *  have written — that responsibility moved to the fake direction source). */
+function bareSun(): THREE.DirectionalLight {
+  return new THREE.DirectionalLight(0xfff1d6, 1.6);
+}
+
+const NOON_DIRECTION: Vec3 = [0.6, 1, 0.4];
+
+/** A `SunDirectionSource` fake whose answer can be swapped between updates
+ *  (`set`) — the seam this System reads instead of ever re-deriving direction
+ *  from `sun.position - sun.target.position`. Returns a UNIT vector, matching
+ *  the real `DayCycleSystem.getSunDirection()` contract. */
+function fakeSunDirection(initial: Vec3 = NOON_DIRECTION): SunDirectionSource & { set(dir: Vec3): void } {
+  const v = new THREE.Vector3(...initial).normalize();
+  return {
+    getSunDirection: () => v,
+    set(dir: Vec3) {
+      v.set(dir[0], dir[1], dir[2]).normalize();
+    },
+  };
 }
 
 describe("ShadowFrustumSystem construction", () => {
   it("sizes the ortho shadow camera to ±halfExtent", () => {
-    const sun = noonSun();
-    new ShadowFrustumSystem(sun, CONFIG);
+    const sun = bareSun();
+    new ShadowFrustumSystem(sun, fakeSunDirection(), CONFIG);
     const cam = sun.shadow.camera;
     expect(cam.left).toBe(-75);
     expect(cam.right).toBe(75);
@@ -35,17 +51,17 @@ describe("ShadowFrustumSystem construction", () => {
   });
 
   it("does NOT touch near/far (sky.ts's whole-island depth range stays a safe default)", () => {
-    const sun = noonSun();
+    const sun = bareSun();
     sun.shadow.camera.near = 1;
     sun.shadow.camera.far = 600;
-    new ShadowFrustumSystem(sun, CONFIG);
+    new ShadowFrustumSystem(sun, fakeSunDirection(), CONFIG);
     expect(sun.shadow.camera.near).toBe(1);
     expect(sun.shadow.camera.far).toBe(600);
   });
 
   it("tunes bias/normalBias for the tighter frustum", () => {
-    const sun = noonSun();
-    new ShadowFrustumSystem(sun, CONFIG);
+    const sun = bareSun();
+    new ShadowFrustumSystem(sun, fakeSunDirection(), CONFIG);
     expect(sun.shadow.bias).toBeLessThan(0); // still a small negative bias
     expect(sun.shadow.bias).toBeGreaterThan(-0.001); // but not the old, coarser magnitude
     expect(sun.shadow.normalBias).toBeGreaterThan(0);
@@ -54,8 +70,8 @@ describe("ShadowFrustumSystem construction", () => {
 
 describe("ShadowFrustumSystem.update", () => {
   it("recenters the target on the player's position (before snapping, to first order)", () => {
-    const sun = noonSun();
-    const sys = new ShadowFrustumSystem(sun, CONFIG);
+    const sun = bareSun();
+    const sys = new ShadowFrustumSystem(sun, fakeSunDirection(), CONFIG);
     sys.update(ctxAt(10, 1.7, -20));
 
     // Snapped to a texel grid, so not exact, but within one texel of the player.
@@ -64,29 +80,31 @@ describe("ShadowFrustumSystem.update", () => {
     expect(Math.abs(sun.target.position.z - -20)).toBeLessThan(texelSize);
   });
 
-  it("preserves the light DIRECTION exactly (position - target unchanged) — shading never shifts", () => {
-    const sun = noonSun();
-    const originalDirection = sun.position.clone().sub(sun.target.position);
-    const sys = new ShadowFrustumSystem(sun, CONFIG);
+  it("writes the INJECTED direction exactly (position - target matches the source) — never derived from the scene graph", () => {
+    const sun = bareSun();
+    const direction = fakeSunDirection(NOON_DIRECTION);
+    const sys = new ShadowFrustumSystem(sun, direction, CONFIG);
 
     sys.update(ctxAt(40, 1.7, -60));
 
-    const newDirection = sun.position.clone().sub(sun.target.position);
-    expect(newDirection.x).toBeCloseTo(originalDirection.x, 9);
-    expect(newDirection.y).toBeCloseTo(originalDirection.y, 9);
-    expect(newDirection.z).toBeCloseTo(originalDirection.z, 9);
+    const rendered = sun.position.clone().sub(sun.target.position).normalize();
+    const expected = direction.getSunDirection();
+    expect(rendered.x).toBeCloseTo(expected.x, 9);
+    expect(rendered.y).toBeCloseTo(expected.y, 9);
+    expect(rendered.z).toBeCloseTo(expected.z, 9);
   });
 
-  it("moves BOTH position and target by the same delta (translation, not a re-aim)", () => {
-    const sun = noonSun();
-    const beforeTarget = sun.target.position.clone();
-    const beforePosition = sun.position.clone();
-    const sys = new ShadowFrustumSystem(sun, CONFIG);
+  it("moves BOTH position and target by the same delta as the player moves (translation, not a re-aim)", () => {
+    const sun = bareSun();
+    const sys = new ShadowFrustumSystem(sun, fakeSunDirection(), CONFIG);
 
     sys.update(ctxAt(5, 1.7, 5));
+    const firstTarget = sun.target.position.clone();
+    const firstPosition = sun.position.clone();
 
-    const targetDelta = sun.target.position.clone().sub(beforeTarget);
-    const positionDelta = sun.position.clone().sub(beforePosition);
+    sys.update(ctxAt(45, 1.7, 25));
+    const targetDelta = sun.target.position.clone().sub(firstTarget);
+    const positionDelta = sun.position.clone().sub(firstPosition);
     expect(positionDelta.x).toBeCloseTo(targetDelta.x, 9);
     expect(positionDelta.y).toBeCloseTo(targetDelta.y, 9);
     expect(positionDelta.z).toBeCloseTo(targetDelta.z, 9);
@@ -98,7 +116,6 @@ describe("ShadowFrustumSystem.update", () => {
   // leak into raw world X/Z when the light isn't purely vertical, so these
   // "does it actually stay put" checks project onto the SAME right/up basis
   // the System itself computes (`lightBasis`), not raw world coordinates.
-  const NOON_DIRECTION: Vec3 = [0.6, 1, 0.4];
   const noonBasis = lightBasis(NOON_DIRECTION);
 
   function alongRightUp(v: THREE.Vector3): { right: number; up: number } {
@@ -121,8 +138,8 @@ describe("ShadowFrustumSystem.update", () => {
   }
 
   it("does not shimmer for sub-texel player motion (snapped right/up bucket is unchanged)", () => {
-    const sun = noonSun();
-    const sys = new ShadowFrustumSystem(sun, CONFIG);
+    const sun = bareSun();
+    const sys = new ShadowFrustumSystem(sun, fakeSunDirection(), CONFIG);
     const texelSize = (CONFIG.halfExtent * 2) / CONFIG.mapSize;
 
     // Exactly on a grid point (safely mid-bucket, `texelSize / 2` from either
@@ -140,8 +157,8 @@ describe("ShadowFrustumSystem.update", () => {
   });
 
   it("moves in whole-texel steps (along the light's right axis) as the player crosses a texel boundary", () => {
-    const sun = noonSun();
-    const sys = new ShadowFrustumSystem(sun, CONFIG);
+    const sun = bareSun();
+    const sys = new ShadowFrustumSystem(sun, fakeSunDirection(), CONFIG);
     const texelSize = (CONFIG.halfExtent * 2) / CONFIG.mapSize;
 
     sys.update(ctxAt(0, 1.7, 0));
@@ -162,21 +179,46 @@ describe("ShadowFrustumSystem.update", () => {
     expect(steps).toBeCloseTo(Math.round(steps), 3);
   });
 
-  it("tracks the sun direction as it changes across frames (still preserved each time)", () => {
-    const sun = noonSun();
-    const sys = new ShadowFrustumSystem(sun, CONFIG);
+  // Review fix regression: the OLD implementation derived direction from
+  // `sun.position - sun.target.position`, which only stayed correct on frame 1
+  // (target still at the origin). This test used to fake that correctness by
+  // manually resetting `sun.target.position` to (0,0,0) between frames —
+  // simulating a `DayCycleSystem` behaviour that doesn't exist and masking the
+  // real bug (the frustum system, not the day cycle, owns `sun.target`).
+  // Now it drives the fake direction source through several frames — including
+  // a direction CHANGE, and a player position well off the origin, where the
+  // old bug's error was largest — with no scene-graph reset of any kind, and
+  // asserts the rendered direction matches the injected source every frame.
+  it("tracks the sun direction as it changes across frames, off-origin, with no fake target reset", () => {
+    const sun = bareSun();
+    const direction = fakeSunDirection(NOON_DIRECTION);
+    const sys = new ShadowFrustumSystem(sun, direction, CONFIG);
 
-    sys.update(ctxAt(0, 1.7, 0));
-    // Simulate the day cycle moving the sun to a new (dusk-ish) direction
-    // before the NEXT frame's update — mirrors registration AFTER DayCycleSystem.
-    const duskDirection = new THREE.Vector3(-0.7, 0.3, 0.2).multiplyScalar(200);
-    sun.target.position.set(0, 0, 0);
-    sun.position.copy(duskDirection);
+    const player: Vec3 = [100, 1.7, 20];
+    sys.update(ctxAt(player[0], player[1], player[2]));
+    let rendered = sun.position.clone().sub(sun.target.position).normalize();
+    let expected = direction.getSunDirection();
+    expect(rendered.x).toBeCloseTo(expected.x, 6);
+    expect(rendered.y).toBeCloseTo(expected.y, 6);
+    expect(rendered.z).toBeCloseTo(expected.z, 6);
 
-    sys.update(ctxAt(30, 1.7, 30));
-    const newDirection = sun.position.clone().sub(sun.target.position);
-    expect(newDirection.x).toBeCloseTo(duskDirection.x, 6);
-    expect(newDirection.y).toBeCloseTo(duskDirection.y, 6);
-    expect(newDirection.z).toBeCloseTo(duskDirection.z, 6);
+    // The day cycle moves the sun to a new (dusk-ish) direction before the
+    // NEXT frame — no manual target reset, just a new answer from the source.
+    direction.set([-0.7, 0.3, 0.2]);
+    sys.update(ctxAt(player[0], player[1], player[2]));
+    rendered = sun.position.clone().sub(sun.target.position).normalize();
+    expected = direction.getSunDirection();
+    expect(rendered.x).toBeCloseTo(expected.x, 6);
+    expect(rendered.y).toBeCloseTo(expected.y, 6);
+    expect(rendered.z).toBeCloseTo(expected.z, 6);
+
+    // A THIRD frame, still off-origin, still no reset — the old bug's error
+    // compounded further with every additional frame.
+    sys.update(ctxAt(player[0] + 5, player[1], player[2] + 5));
+    rendered = sun.position.clone().sub(sun.target.position).normalize();
+    expected = direction.getSunDirection();
+    expect(rendered.x).toBeCloseTo(expected.x, 6);
+    expect(rendered.y).toBeCloseTo(expected.y, 6);
+    expect(rendered.z).toBeCloseTo(expected.z, 6);
   });
 });

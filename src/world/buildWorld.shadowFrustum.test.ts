@@ -59,8 +59,16 @@ describe("buildWorld → ShadowFrustumSystem registration (visual-overhaul slice
     expect(engine.getSystem("shadowFrustum")).toBe(shadowFrustum[0]);
 
     expect(ctorArgs).toHaveLength(1);
-    const [sun, config] = ctorArgs[0] as [unknown, { halfExtent: number; mapSize: number }];
+    const [sun, sunDirection, config] = ctorArgs[0] as [
+      unknown,
+      { getSunDirection(): unknown },
+      { halfExtent: number; mapSize: number },
+    ];
     expect(sun).toBe(world.sky.sun);
+    // The direction seam (review fix): must be the SAME live DayCycleSystem
+    // instance backing `world.dayCycle`, not a re-derivation from the scene
+    // graph — asserted structurally via the accessor it exposes.
+    expect(typeof sunDirection.getSunDirection).toBe("function");
     expect(config.mapSize).toBe(QUALITY_TIERS.high.shadowMapSize);
     expect(config.halfExtent).toBeGreaterThanOrEqual(60);
     expect(config.halfExtent).toBeLessThanOrEqual(90);
@@ -85,7 +93,7 @@ describe("buildWorld → ShadowFrustumSystem registration (visual-overhaul slice
   it("threads the resolved tier's shadowMapSize (medium vs high differ)", () => {
     const engineMedium = new Engine({ renderer: stubRenderer() });
     const worldMedium = buildWorld(engineMedium, QUALITY_TIERS.medium);
-    const mediumConfig = ctorArgs[0][1] as { mapSize: number };
+    const mediumConfig = ctorArgs[0][2] as { mapSize: number };
     expect(mediumConfig.mapSize).toBe(QUALITY_TIERS.medium.shadowMapSize);
     worldMedium.dispose();
     engineMedium.dispose();
@@ -93,7 +101,7 @@ describe("buildWorld → ShadowFrustumSystem registration (visual-overhaul slice
 
     const engineHigh = new Engine({ renderer: stubRenderer() });
     const worldHigh = buildWorld(engineHigh, QUALITY_TIERS.high);
-    const highConfig = ctorArgs[0][1] as { mapSize: number };
+    const highConfig = ctorArgs[0][2] as { mapSize: number };
     expect(highConfig.mapSize).toBe(QUALITY_TIERS.high.shadowMapSize);
     worldHigh.dispose();
     engineHigh.dispose();

@@ -158,7 +158,7 @@ export function buildWorld(
   // one frame of lag would be harmless either way).
   if (quality.shadows) {
     engine.addSystem(
-      new ShadowFrustumSystem(sky.sun, {
+      new ShadowFrustumSystem(sky.sun, dayCycleSystem, {
         halfExtent: SHADOW_FRUSTUM_HALF_EXTENT,
         mapSize: quality.shadowMapSize,
       }),
