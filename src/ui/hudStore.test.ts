@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { createHudStore } from "./hudStore.ts";
+import { compassWithHysteresis, createHudStore } from "./hudStore.ts";
 
 describe("hudStore", () => {
   it("starts at rest, facing north, not sprinting", () => {
     const store = createHudStore();
-    expect(store.getSnapshot()).toEqual({ speed: 0, sprinting: false, heading: 0 });
+    expect(store.getSnapshot()).toEqual({ speed: 0, sprinting: false, heading: 0, compass: "N" });
   });
 
   it("returns a stable snapshot reference while nothing changes", () => {
@@ -41,7 +41,7 @@ describe("hudStore", () => {
     const listener = vi.fn();
     store.subscribe(listener);
     store.set({ speed: 0, sprinting: true, heading: -90 });
-    expect(store.getSnapshot()).toEqual({ speed: 0, sprinting: true, heading: 270 });
+    expect(store.getSnapshot()).toEqual({ speed: 0, sprinting: true, heading: 270, compass: "W" });
     expect(listener).toHaveBeenCalledOnce();
     // 450 normalises to the same 90… 
     store.set({ speed: 0, sprinting: true, heading: 450 });
@@ -55,5 +55,34 @@ describe("hudStore", () => {
     unsub();
     store.set({ speed: 5, sprinting: true, heading: 10 });
     expect(listener).not.toHaveBeenCalled();
+  });
+});
+
+describe("compassWithHysteresis (the no-flicker contract)", () => {
+  it("holds the current point within the margin past a boundary", () => {
+    // N/NE boundary is 22.5°: at 28° (5.5° past) N must STILL show…
+    expect(compassWithHysteresis(28, "N")).toBe("N");
+    // …and NE, once shown, holds back across the same zone.
+    expect(compassWithHysteresis(18, "NE")).toBe("NE");
+  });
+
+  it("flips once clearly past the boundary, and snaps exactly on big turns", () => {
+    expect(compassWithHysteresis(32, "N")).toBe("NE"); // 9.5° past — flips
+    expect(compassWithHysteresis(180, "N")).toBe("S"); // half turn — exact
+    expect(compassWithHysteresis(271, "S")).toBe("W");
+  });
+
+  it("is stable under per-frame jitter straddling a boundary", () => {
+    let point: import("./hudStore.ts").CompassPoint = "N";
+    for (const h of [21, 24, 22, 25, 23, 21, 26]) {
+      point = compassWithHysteresis(h, point);
+    }
+    expect(point).toBe("N"); // never flickered
+  });
+
+  it("handles the 359↔0 wrap without escaping north", () => {
+    expect(compassWithHysteresis(355, "N")).toBe("N");
+    expect(compassWithHysteresis(2, "N")).toBe("N");
+    expect(compassWithHysteresis(326, "N")).toBe("NW"); // 34° out — clearly past margin
   });
 });

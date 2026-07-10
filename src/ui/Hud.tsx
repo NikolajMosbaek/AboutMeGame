@@ -31,7 +31,7 @@ export function Hud({ hud, discovery, onOpenMenu, onOpenJournal }: HudProps) {
     <>
       <div className="hud-telemetry" role="status" aria-label="explorer status">
         <span className={`hud-mode${h.sprinting ? " hud-mode--sprint" : ""}`}>
-          {h.sprinting ? "SPRINT" : compassPoint(h.heading)}
+          {h.sprinting ? "SPRINT" : h.compass}
         </span>
         <span className="hud-stat">
           <span className="hud-stat__value">{h.speed}</span>
@@ -88,10 +88,3 @@ export function Hud({ hud, discovery, onOpenMenu, onOpenJournal }: HudProps) {
   );
 }
 
-/** Compass point for a heading in degrees (0 = N), 8-wind resolution — the HUD
- *  shows where you're facing, which is how the clue texts give directions. */
-function compassPoint(heading: number): string {
-  const POINTS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"] as const;
-  const idx = Math.round((((heading % 360) + 360) % 360) / 45) % 8;
-  return POINTS[idx];
-}
