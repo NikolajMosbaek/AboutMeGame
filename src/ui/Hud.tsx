@@ -14,7 +14,7 @@ export interface HudProps {
 /**
  * In-game HUD (#42) + discovery progress (#45). A thin, non-intrusive overlay:
  *  • top-left telemetry — mode (DRIVE/FLY), speed, and altitude (fly only),
- *  • top-right the single "Discovered N / total" progress badge (moved here from
+ *  • top-right the single "Pages N / total" progress badge (moved here from
  *    RevealPanel so there's exactly one) plus a menu button,
  *  • a small controls reminder along the bottom.
  * Reads the throttled hud store and the discovery store via useSyncExternalStore;
@@ -41,8 +41,8 @@ export function Hud({ hud, discovery, onOpenMenu, onOpenJournal }: HudProps) {
 
       <div className="hud-top-right">
         {/* Static visual progress. The spoken update lives in DiscoveryAnnouncer
-            (a single polite live region that names the landmark), so this badge
-            is not a live region — that avoids a bare "N / 13" double-announce.
+            (a single polite live region that names the page), so this badge
+            is not a live region — that avoids a bare "N / 6" double-announce.
             The remaining-count momentum line is a subordinate, aria-hidden cue;
             its meaning folds into this one aria-label so there's no second
             announcer and no double-announce. The completed branch is driven off
@@ -52,13 +52,13 @@ export function Hud({ hud, discovery, onOpenMenu, onOpenJournal }: HudProps) {
           className="discovery-progress"
           aria-label={
             d.completed
-              ? `All ${d.total} landmarks discovered`
-              : `Discovered ${d.discoveredCount} of ${d.total} landmarks, ${remaining} to go`
+              ? `All ${d.total} pages found`
+              : `${d.discoveredCount} of ${d.total} pages found, ${remaining} to go`
           }
         >
-          Discovered {d.discoveredCount} / {d.total}
+          Pages {d.discoveredCount} / {d.total}
           <span className="discovery-remaining" aria-hidden="true">
-            {d.completed ? "All discovered" : `${remaining} to go`}
+            {d.completed ? "All found" : `${remaining} to go`}
           </span>
         </div>
         <button

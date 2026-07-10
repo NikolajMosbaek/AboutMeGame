@@ -14,17 +14,17 @@ describe("App", () => {
   it("opens on the title screen", () => {
     render(<App />);
     expect(
-      screen.getByRole("heading", { level: 1, name: "AboutMeGame" }),
+      screen.getByRole("heading", { level: 1, name: "THE LOST IDOL" }),
     ).toBeInTheDocument();
     expect(screen.queryByTestId("game-canvas")).not.toBeInTheDocument();
   });
 
-  it("mounts the world and leaves the title when Drive in is clicked", () => {
+  it("mounts the world and leaves the title when Begin the expedition is clicked", () => {
     render(<App />);
-    fireEvent.click(screen.getByRole("button", { name: "Drive in" }));
+    fireEvent.click(screen.getByRole("button", { name: "Begin the expedition" }));
     expect(screen.getByTestId("game-canvas")).toBeInTheDocument();
     expect(
-      screen.queryByRole("heading", { level: 1, name: "AboutMeGame" }),
+      screen.queryByRole("heading", { level: 1, name: "THE LOST IDOL" }),
     ).not.toBeInTheDocument();
   });
 });

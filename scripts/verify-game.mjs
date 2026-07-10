@@ -590,9 +590,10 @@ async function verifyLandmarkTour(page) {
 // mode's mid-run reload.
 async function enterWorld(page, start = true) {
   if (start) {
-    // The landing CTA reads "Drive in" on a fresh state and "Continue" when
-    // saved progress exists (the completion-panel mode seeds 12/13).
-    const cta = page.getByRole("button", { name: /^(drive in|continue)$/i });
+    // The landing CTA reads "Begin the expedition" on a fresh state and
+    // "Continue" when saved progress exists (the completion-panel mode seeds
+    // 12/13).
+    const cta = page.getByRole("button", { name: /^(begin the expedition|continue)$/i });
     if (await cta.count()) {
       await cta.first().click();
     }
@@ -600,7 +601,7 @@ async function enterWorld(page, start = true) {
   await page.waitForFunction(() => typeof window.advanceTime === "function", {
     timeout: 15_000,
   });
-  const gotIt = page.getByRole("button", { name: /got it, drive in/i });
+  const gotIt = page.getByRole("button", { name: /got it, let's go/i });
   if (await gotIt.count()) {
     await gotIt.first().click();
     await page.waitForTimeout(100);
