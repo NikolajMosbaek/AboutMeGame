@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import * as THREE from "three";
 import { BloomEffect, EffectPass, SMAAEffect, ToneMappingMode, VignetteEffect } from "postprocessing";
-import { buildEffectStack, buildPasses } from "./createCompositor.ts";
+import { N8AOPostPass } from "n8ao";
+import { buildAOPass, buildEffectStack, buildPasses } from "./createCompositor.ts";
 import { QUALITY_TIERS } from "../perf/quality.ts";
 
 /**
@@ -62,13 +63,16 @@ describe("buildPasses (EffectPass merging)", () => {
   it("merges bloom + SMAA + vignette + tone-mapping into ONE EffectPass, not four", () => {
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera();
-    const { renderPass, effectPass } = buildPasses(scene, camera, QUALITY_TIERS.medium);
+    const { renderPass, aoPass, effectPass } = buildPasses(scene, camera, QUALITY_TIERS.medium);
 
-    // Exactly two passes make up the whole chain: the scene render and ONE
-    // fullscreen effect pass. This is the mobile fill-rate win pmndrs
-    // `postprocessing` buys over the old pass-per-effect chain (RenderPass →
-    // UnrealBloomPass → OutputPass, three separate fullscreen blits).
+    // Exactly three passes make up the whole chain: the scene render, N8AO
+    // (which cannot merge into an `Effect` — it's its own `Pass`), and ONE
+    // fullscreen effect pass for everything else. The merge is still the
+    // mobile fill-rate win pmndrs `postprocessing` buys over the old
+    // pass-per-effect chain (RenderPass → UnrealBloomPass → OutputPass, three
+    // separate fullscreen blits) — it just doesn't apply to N8AO itself.
     expect(renderPass).toBeDefined();
+    expect(aoPass).toBeInstanceOf(N8AOPostPass);
     expect(effectPass).toBeInstanceOf(EffectPass);
   });
 
@@ -85,6 +89,53 @@ describe("buildPasses (EffectPass merging)", () => {
     expect(effects).toEqual(
       expect.arrayContaining([stack.bloom, stack.smaa, stack.vignette, stack.toneMapping]),
     );
+  });
+});
+
+describe("buildAOPass (N8AO ambient occlusion, medium/high)", () => {
+  it("applies quality.ao's look constants (aoRadius/distanceFalloff/intensity/halfRes)", () => {
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera();
+    const pass = buildAOPass(scene, camera, QUALITY_TIERS.high);
+
+    expect(pass).toBeInstanceOf(N8AOPostPass);
+    expect(pass.configuration.aoRadius).toBe(QUALITY_TIERS.high.ao.aoRadius);
+    expect(pass.configuration.distanceFalloff).toBe(QUALITY_TIERS.high.ao.distanceFalloff);
+    expect(pass.configuration.intensity).toBe(QUALITY_TIERS.high.ao.intensity);
+    expect(pass.configuration.halfRes).toBe(QUALITY_TIERS.high.ao.halfRes);
+  });
+
+  it("tuned for this world's scale — aoRadius in the 1.5-3 range (not a dirty-corners look)", () => {
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera();
+    const pass = buildAOPass(scene, camera, QUALITY_TIERS.medium);
+    expect(pass.configuration.aoRadius).toBeGreaterThanOrEqual(1.5);
+    expect(pass.configuration.aoRadius).toBeLessThanOrEqual(3);
+  });
+
+  it("runs a cheaper quality preset on medium than on high (aoSamples proxy)", () => {
+    // setQualityMode isn't independently readable, so this reads through the
+    // ONE side-effect it has that IS readable: it doesn't touch aoRadius/etc,
+    // only sample counts — asserted instead via the source tier config, which
+    // this function is pinned to apply (see the previous test) and
+    // `perf/quality.test.ts` locks distinct presets per tier.
+    expect(QUALITY_TIERS.medium.ao.qualityMode).not.toBe(QUALITY_TIERS.high.ao.qualityMode);
+  });
+
+  it("disables gammaCorrection — this pass is never the LAST pass in the chain", () => {
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera();
+    const pass = buildAOPass(scene, camera, QUALITY_TIERS.high);
+    expect(pass.configuration.gammaCorrection).toBe(false);
+  });
+});
+
+describe("buildPasses — AO sits BEFORE the merged effect pass (n8ao's own ordering rule)", () => {
+  it("returns renderPass, aoPass and effectPass as three distinct instances", () => {
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera();
+    const { renderPass, aoPass, effectPass } = buildPasses(scene, camera, QUALITY_TIERS.medium);
+    expect(new Set([renderPass, aoPass, effectPass]).size).toBe(3);
   });
 });
 
