@@ -1,50 +1,151 @@
 import * as THREE from "three";
-import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
-import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
-import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
-import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
+import {
+  BloomEffect,
+  EffectComposer,
+  EffectPass,
+  RenderPass,
+  SMAAEffect,
+  ToneMappingEffect,
+  ToneMappingMode,
+  VignetteEffect,
+} from "postprocessing";
 import type { QualityConfig } from "../perf/quality.ts";
 import type { RenderDelegate } from "./types.ts";
 import { configureCompositorColor } from "./compositorColor.ts";
 
 /**
- * The post-processing compositor — the only place an `EffectComposer` (and any
- * `three/examples/jsm/postprocessing/*` pass) is constructed. Sibling to
- * `createRenderer.ts`: like it, nothing that runs under jsdom imports this file,
- * so the Vitest suite stays WebGL-free. It returns a `RenderDelegate`, the
- * minimal seam the Engine presents through (`EngineOptions.compositor`); the
- * Engine itself never sees a `three/examples/jsm` type.
+ * The post-processing compositor — the only place a pmndrs `postprocessing`
+ * `EffectComposer` (or any of its passes/effects) is constructed. Sibling to
+ * `createRenderer.ts`: like it, nothing that runs under jsdom imports the
+ * WebGL-touching parts of this file, so the Vitest suite stays WebGL-free —
+ * only the pure `buildEffectStack`/`buildPasses` below are exercised there
+ * (constructing an `Effect`/`Pass` needs no WebGL context; only
+ * `EffectComposer.addPass`/`render`/`setSize` do, once a real renderer is
+ * attached). It returns a `RenderDelegate`, the minimal seam the Engine
+ * presents through (`EngineOptions.compositor`); the Engine itself never sees
+ * a `postprocessing` type.
  *
- * Built only on the medium/high tiers (where `quality.bloom` is true) so the two
- * genuine emissive sources — the site accents (page, carvings, statue eyes) — visibly glow. On
- * low, `GameCanvas` injects nothing and the Engine presents via the bare
- * `renderer.render`, so zero composer bytes are constructed and there is no
- * post-processing fill-rate cost.
+ * Built only on the medium/high tiers (where `quality.bloom` is true, gated in
+ * `GameCanvas`) so the two genuine emissive sources — the site accents (page,
+ * carvings, statue eyes) and later fireflies — visibly glow. On low, nothing
+ * is constructed here at all: zero composer bytes, zero post-processing fill
+ * cost, and the Engine presents via the bare `renderer.render`.
  */
 export type Compositor = RenderDelegate;
 
-/** Bloom look, tuned by eye against the warm palette in `scripts/verify-game.mjs`.
- *  The threshold is deliberately HIGH so ordinary lit stone, the `#cfe4f2` sky
- *  and water specular do NOT bloom — only the two promoted sources clear it. */
-const BLOOM_STRENGTH = 0.5;
-const BLOOM_RADIUS = 0.3;
-const BLOOM_THRESHOLD = 0.85;
+/**
+ * Bloom look, tuned by eye against the warm palette in `scripts/verify-game.mjs`.
+ * The threshold is deliberately HIGH so ordinary lit stone, the `#cfe4f2` sky
+ * and water specular do NOT bloom — only the two promoted sources clear it.
+ * This exact value is a load-bearing invariant: `src/world/landmarks.test.ts`,
+ * `src/wildlife/fliers.ts` and `src/wildlife/jaguar.ts` all pin their emissive
+ * intensities against it, so it must never move without updating those too.
+ */
+const BLOOM_LUMINANCE_THRESHOLD = 0.85;
+
+/** Bloom intensity — tuned for visual parity with the three-examples-era
+ *  `UnrealBloomPass(strength: 0.5, radius: 0.3)` look now that the algorithm is
+ *  pmndrs's mipmap-blur bloom (a different blur/energy model, so the numbers
+ *  aren't directly portable; this was tuned by eye against the same accents —
+ *  the journal page, statue eyes and idol — via `npm run verify`'s screenshot). */
+const BLOOM_INTENSITY = 1.4;
 
 /**
- * Build the bloom compositor for a medium/high mount.
+ * Mip levels for the bloom mip-pyramid on medium vs high. `BloomEffect`'s
+ * `resolution`/`resolutionScale` option (the literal analogue of the old
+ * `UnrealBloomPass.setSize` half-res hack) only affects its LEGACY
+ * `KawaseBlurPass` path — with `mipmapBlur: true` (the modern path this
+ * compositor uses throughout) the pyramid always samples the full-resolution
+ * input buffer at `MipmapBlurPass.setSize`, so `resolution.scale` is a
+ * documented no-op there. `levels` is the real cost/quality knob for the
+ * mipmap path: each level is one more downsample + upsample render pass, so
+ * fewer levels is both cheaper AND a softer/coarser-radius glow — medium runs
+ * fewer levels than the default; high keeps the library default (8).
+ */
+const BLOOM_LEVELS_HIGH = 8;
+const BLOOM_LEVELS_MEDIUM = 6;
+
+/** Vignette look — a subtle frame darkening, not a stylistic statement. */
+const VIGNETTE_DARKNESS = 0.25;
+const VIGNETTE_OFFSET = 0.3;
+
+/** The merged effect stack for the medium/high compositor path. Each effect is
+ *  a plain object graph (uniforms + GLSL strings) with no WebGL calls in its
+ *  constructor, so this is safe to build headless in a test — only
+ *  `EffectComposer.addPass` (which reads live renderer state) needs a real
+ *  `WebGLRenderer`. */
+export interface EffectStack {
+  bloom: BloomEffect;
+  smaa: SMAAEffect;
+  vignette: VignetteEffect;
+  toneMapping: ToneMappingEffect;
+}
+
+/**
+ * Build the four effects that make up the compositor's look. Pure aside from
+ * the `postprocessing`/`three` object construction — no renderer, no scene,
+ * no camera touched — so it is unit-tested headless for the tuned constants
+ * (bloom threshold, AgX mode, vignette look) and the per-tier mip-level count.
+ */
+export function buildEffectStack(quality: QualityConfig): EffectStack {
+  // Medium runs a shorter mip pyramid (cheaper, slightly softer glow); high
+  // keeps the library default. Low never reaches this function at all (no
+  // compositor is built).
+  const levels = quality.tier === "medium" ? BLOOM_LEVELS_MEDIUM : BLOOM_LEVELS_HIGH;
+  const bloom = new BloomEffect({
+    mipmapBlur: true,
+    luminanceThreshold: BLOOM_LUMINANCE_THRESHOLD,
+    intensity: BLOOM_INTENSITY,
+    levels,
+  });
+
+  const smaa = new SMAAEffect();
+  const vignette = new VignetteEffect({ darkness: VIGNETTE_DARKNESS, offset: VIGNETTE_OFFSET });
+  // AgX — matches the bare (low-tier) renderer path's tone-map
+  // (`configureBareRendererColor`) so both grade identically; this is the ONE
+  // place in the composited chain that owns tone-mapping (`configureCompositorColor`
+  // switches the renderer itself to `NoToneMapping` so it never double-applies).
+  const toneMapping = new ToneMappingEffect({ mode: ToneMappingMode.AGX });
+
+  return { bloom, smaa, vignette, toneMapping };
+}
+
+/**
+ * Build the two passes the composer runs: a `RenderPass` and ONE merged
+ * `EffectPass` housing every fullscreen effect (bloom, SMAA, vignette, tone
+ * mapping). Merging into a single `EffectPass` is the whole point of using
+ * pmndrs `postprocessing` over the old pass-per-effect `EffectComposer` chain —
+ * it costs one fullscreen fragment pass instead of four, which is the mobile
+ * fill-rate win. Like `buildEffectStack`, constructing these needs no WebGL
+ * context, so it is unit-tested headless.
+ */
+export function buildPasses(
+  scene: THREE.Scene,
+  camera: THREE.Camera,
+  quality: QualityConfig,
+): { renderPass: RenderPass; effectPass: EffectPass; stack: EffectStack } {
+  const stack = buildEffectStack(quality);
+  const renderPass = new RenderPass(scene, camera);
+  const effectPass = new EffectPass(camera, stack.bloom, stack.smaa, stack.vignette, stack.toneMapping);
+  return { renderPass, effectPass, stack };
+}
+
+/**
+ * Build the post-processing compositor for a medium/high mount.
  *
- * Chain: `RenderPass(scene,camera)` → `UnrealBloomPass` → `OutputPass`.
+ * Chain: `RenderPass(scene,camera)` → one merged `EffectPass` (bloom + SMAA +
+ * vignette + AgX tone mapping).
  *
- * Colour ownership stays at `ACESFilmicToneMapping` / `SRGBColorSpace` (the same
- * values `createRenderer` sets) so `OutputPass` picks them up and applies ACES +
- * sRGB exactly once at the end of the chain — see `configureCompositorColor` for
- * why neutralising the renderer to `NoToneMapping` / linear would instead turn
- * `OutputPass` into a pass-through and present a raw, un-encoded (dark) buffer.
- * The intermediate `EffectComposer` targets are linear `HalfFloatType`, so the
- * `RenderPass` writes scene-linear HDR and bloom adds light in that linear space;
- * only the final present is tone-mapped + encoded. This keeps the base
- * (non-glowing) pixels identical to the plain low path — only the added light
- * differs — and avoids a double tone-map. The plain low path is untouched.
+ * Colour ownership: `configureCompositorColor` switches the renderer to
+ * `NoToneMapping` (leaving `outputColorSpace` at `SRGBColorSpace`) so it draws
+ * scene-linear HDR into the composer's `HalfFloatType` input buffer instead of
+ * tone-mapping on the way in; the `ToneMappingEffect` inside the merged
+ * `EffectPass` applies AgX exactly once, at the very end of the chain, and the
+ * `EffectPass` itself sRGB-encodes the final present (postprocessing "follows
+ * suit" from the renderer's `outputColorSpace` — see the `postprocessing`
+ * README's "Color Management"/"Tone Mapping" sections). `HalfFloatType`
+ * buffers are what make this safe: `UnsignedByteType` buffers would clamp to
+ * `[0,1]` before bloom/tone-mapping ever saw the light, per the same README.
  */
 export function createBloomCompositor(
   renderer: THREE.WebGLRenderer,
@@ -52,44 +153,13 @@ export function createBloomCompositor(
   camera: THREE.Camera,
   quality: QualityConfig,
 ): Compositor {
-  // Final tone-mapping + encoding is applied by OutputPass at the end of the
-  // chain. OutputPass derives its tone-map + sRGB-encode shader defines from the
-  // renderer's own `toneMapping` / `outputColorSpace`, so these MUST stay at the
-  // renderer's existing ACES + sRGB — leaving them there is what makes OutputPass
-  // encode once. (Neutralising to NoToneMapping / linear would make OutputPass a
-  // pass-through that presents a raw, un-encoded, dark buffer.) RenderPass writes
-  // into linear HalfFloat targets, so it renders scene-linear HDR; bloom sums in
-  // linear HDR; OutputPass tone-maps + encodes the final present exactly once.
   configureCompositorColor(renderer);
 
-  const composer = new EffectComposer(renderer);
-  // The composer normally bakes `renderer.getPixelRatio()` into an internal
-  // `_pixelRatio` it multiplies every `setSize` by. We instead own dpr scaling
-  // explicitly (see `setSize`), so neutralise the internal factor — this makes
-  // the buffers exactly the dimensions we pass and decouples them from any later
-  // live pixel-ratio change on the renderer.
-  composer.setPixelRatio(1);
-
-  const renderPass = new RenderPass(scene, camera);
-
-  // The constructor resolution is dead weight here: `EffectComposer.addPass`
-  // (and every `setSize`) immediately overwrites it with the composer's
-  // effective dimensions. The real per-tier bloom-buffer sizing is owned by
-  // `setSize` below — a placeholder Vector2 is all the constructor needs.
-  const bloomPass = new UnrealBloomPass(
-    new THREE.Vector2(1, 1),
-    BLOOM_STRENGTH,
-    BLOOM_RADIUS,
-    BLOOM_THRESHOLD,
-  );
-
-  const outputPass = new OutputPass();
+  const composer = new EffectComposer(renderer, { frameBufferType: THREE.HalfFloatType });
+  const { renderPass, effectPass } = buildPasses(scene, camera, quality);
 
   composer.addPass(renderPass);
-  composer.addPass(bloomPass);
-  composer.addPass(outputPass);
-
-  const isMedium = quality.tier === "medium";
+  composer.addPass(effectPass);
 
   return {
     render() {
@@ -97,31 +167,22 @@ export function createBloomCompositor(
     },
 
     setSize(width: number, height: number) {
-      // Read dpr from the renderer so the composer buffers track the actual
-      // drawing buffer, not CSS pixels. With the internal factor neutralised
-      // above, `setSize(w*dpr, h*dpr)` yields a base RenderPass + rt1/rt2 at
-      // exactly `w*dpr` — pixel-identical to the low path's drawing buffer, so
-      // the base frame matches across tiers and only the glow differs.
-      const dpr = renderer.getPixelRatio();
-      const w = Math.max(1, Math.round(width * dpr));
-      const h = Math.max(1, Math.round(height * dpr));
-      composer.setSize(w, h);
-      // Half-res bloom on medium: downscale ONLY the bloom mip pyramid, after
-      // the composer has pushed the full-res value to every pass. `EffectComposer.render`
-      // never re-calls `setSize` per frame, so this override sticks frame-to-frame
-      // and is re-applied on each resize. On high, leave the full-res value.
-      if (isMedium) {
-        bloomPass.setSize(Math.max(1, Math.round(w * 0.5)), Math.max(1, Math.round(h * 0.5)));
-      }
+      // `EffectComposer.setSize` takes CSS-pixel dimensions directly (unlike
+      // the old three-examples `EffectComposer`, which needed dpr baked in by
+      // hand): it calls `renderer.setSize(width, height)` itself if they
+      // differ from the renderer's current size (a no-op here, since `Engine`
+      // already called `renderer.setSize` with these same values just before
+      // this), then reads `renderer.getDrawingBufferSize()` — which already
+      // accounts for pixel ratio — to size every internal buffer/pass. So no
+      // manual dpr multiplication is needed on this seam any more.
+      composer.setSize(width, height);
     },
 
     dispose() {
-      // `composer.dispose` frees rt1/rt2 + the copy pass; the bloom pass owns its
-      // bright + horizontal/vertical mip targets, materials and fsQuad and frees
-      // them itself; `OutputPass` frees its fsQuad. `RenderPass` has no targets.
+      // `composer.dispose()` disposes every pass, and `EffectPass.dispose()`
+      // disposes each of its effects in turn — so the whole stack (bloom,
+      // SMAA, vignette, tone mapping) is freed by this one call.
       composer.dispose();
-      bloomPass.dispose();
-      outputPass.dispose();
     },
   };
 }
