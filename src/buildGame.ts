@@ -13,6 +13,9 @@ import { QUALITY_TIERS, type QualityConfig } from "./perf/quality.ts";
 import { AudioEngine, type AudioContextFactory } from "./audio/AudioEngine.ts";
 import { createSurvivalStore, type SurvivalStore } from "./survival/survivalStore.ts";
 import { SurvivalSystem } from "./survival/SurvivalSystem.ts";
+import { buildForage } from "./forage/buildForage.ts";
+import { createForageStore, type ForageStore } from "./forage/forageStore.ts";
+import { ForageSystem } from "./forage/ForageSystem.ts";
 import { SPAWN } from "./world/worldConfig.ts";
 import { AudioSystem } from "./audio/AudioSystem.ts";
 import { DiscoveryBurstSystem } from "./fx/DiscoveryBurstSystem.ts";
@@ -35,6 +38,8 @@ export interface Game {
     eat(amount: number): void;
     hurt(amount: number): void;
   };
+  /** Foraging (pivot slice E): pick-and-eat plants. */
+  forage: { store: ForageStore };
   /** Toggle the sun's shadow casting live (#47), so a quality change in the menu
    *  re-applies shadows in BOTH directions — the renderer's shadowMap.enabled
    *  flag alone can't turn shadows back on once the caster was built without it. */
@@ -93,7 +98,7 @@ export function buildGame(
   const discovery = buildDiscovery(engine, world, player, session);
 
   // Survival rules — AFTER discovery in the update order, so an interact press
-  // near a clue site opens the clue and only a free press reaches the drink.
+  // near a clue site opens the clue and only a free press reaches food/drink.
   const survivalSystem = new SurvivalSystem(
     player.explorer,
     player.input,
@@ -102,6 +107,26 @@ export function buildGame(
     discovery.store,
     session,
     SPAWN,
+  );
+
+  // Foraging sits BETWEEN discovery and survival on the shared interact key:
+  // sites first, then a pick, and survival's unconditional drain stays the
+  // terminal sink (so no press ever banks). Registration order = priority.
+  const forage = buildForage(world.terrain, quality.propDensity);
+  engine.scene.add(forage.group);
+  const forageStore = createForageStore();
+  engine.addSystem(
+    new ForageSystem(
+      forage.plants,
+      player.explorer,
+      player.input,
+      discovery.store,
+      (amount) => survivalSystem.eat(amount),
+      forageStore,
+      session,
+      forage.setRipe,
+      () => forage.dispose(),
+    ),
   );
   engine.addSystem(survivalSystem);
   sprintGate = survivalSystem.canSprint;
@@ -166,6 +191,7 @@ export function buildGame(
       eat: (amount: number) => survivalSystem.eat(amount),
       hurt: (amount: number) => survivalSystem.hurt(amount),
     },
+    forage: { store: forageStore },
     setShadowsEnabled(enabled) {
       world.sky.sun.castShadow = enabled;
     },

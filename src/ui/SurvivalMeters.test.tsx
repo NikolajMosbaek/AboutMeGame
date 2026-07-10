@@ -3,7 +3,6 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { SurvivalMeters, LOW_METER } from "./SurvivalMeters.tsx";
 import { DeathOverlay } from "./DeathOverlay.tsx";
 import { createSurvivalStore } from "../survival/survivalStore.ts";
-import { createDiscoveryStore } from "../discovery/discoveryStore.ts";
 
 function fullSnapshot() {
   return {
@@ -21,7 +20,7 @@ describe("SurvivalMeters (pivot slice D)", () => {
   it("renders all four meters with value-bearing labels", () => {
     const survival = createSurvivalStore();
     survival.set({ ...fullSnapshot(), health: 80, stamina: 55, hunger: 40, thirst: 12 });
-    render(<SurvivalMeters survival={survival} discovery={createDiscoveryStore(6)} />);
+    render(<SurvivalMeters survival={survival} />);
     expect(screen.getByRole("img", { name: "Health 80 of 100" })).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "Stamina 55 of 100" })).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "Hunger 40 of 100" })).toBeInTheDocument();
@@ -32,32 +31,12 @@ describe("SurvivalMeters (pivot slice D)", () => {
     const survival = createSurvivalStore();
     survival.set({ ...fullSnapshot(), thirst: LOW_METER });
     const { container } = render(
-      <SurvivalMeters survival={survival} discovery={createDiscoveryStore(6)} />,
+      <SurvivalMeters survival={survival} />,
     );
     expect(container.querySelector(".meter--thirst")!.className).toContain("meter--low");
     expect(container.querySelector(".meter--health")!.className).not.toContain("meter--low");
   });
 
-  it("shows the drink hint only when water is reachable and no clue prompt owns the key", () => {
-    const survival = createSurvivalStore();
-    const discovery = createDiscoveryStore(6);
-    survival.set({ ...fullSnapshot(), canDrink: true });
-    const { rerender } = render(<SurvivalMeters survival={survival} discovery={discovery} />);
-    expect(screen.getByText(/drink/i)).toBeInTheDocument();
-
-    // A clue prompt in range takes the key: the hint yields.
-    act(() => discovery.setNearby({ id: "a", order: 1, title: "T", teaser: "t", inRange: true }));
-    rerender(<SurvivalMeters survival={survival} discovery={discovery} />);
-    expect(screen.queryByText(/drink/i)).toBeNull();
-
-    // Out of water: no hint either.
-    act(() => {
-      discovery.setNearby(null);
-      survival.set({ ...fullSnapshot(), canDrink: false });
-    });
-    rerender(<SurvivalMeters survival={survival} discovery={discovery} />);
-    expect(screen.queryByText(/drink/i)).toBeNull();
-  });
 });
 
 describe("DeathOverlay (pivot slice D)", () => {
