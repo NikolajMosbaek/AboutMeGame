@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { describe, expect, it, vi } from "vitest";
 import type { FrameContext } from "../engine/types.ts";
 import type { ReducedMotionSource } from "./buildWorld.ts";
-import { GOLDEN_T } from "./dayCycle.ts";
+import { dayPalette, GOLDEN_T } from "./dayCycle.ts";
 import { DayCycleSystem, PERIOD_SECONDS, SUN_DISTANCE } from "./dayCycleSystem.ts";
 
 // --- Plain fakes for the three live handles (headless, no WebGL) -------------
@@ -347,5 +347,48 @@ describe("getPhase (wildlife day/night seam)", () => {
     expect(sys.getPhase()).toBe(GOLDEN_T);
     for (let i = 0; i < 33; i++) sys.update(ctx);
     expect(sys.getPhase()).toBe(GOLDEN_T); // held still
+  });
+});
+
+describe("getPalette (env-light IBL seam, visual-overhaul slice 2)", () => {
+  it("returns dayPalette(getPhase()) — always in lockstep with the phase accessor", () => {
+    const sun = fakeSun();
+    const dome = fakeDome();
+    const sys = new DayCycleSystem(sun as never, dome as never, null, reducedMotion(false));
+    const { ctx } = ctxWith(0.1 * PERIOD_SECONDS);
+    sys.update(ctx);
+
+    expect(sys.getPalette()).toEqual(dayPalette(sys.getPhase()));
+  });
+
+  it("is recomputed on every call — never a stale cached snapshot", () => {
+    const sun = fakeSun();
+    const dome = fakeDome();
+    const sys = new DayCycleSystem(sun as never, dome as never, null, reducedMotion(false));
+    const { ctx } = ctxWith(0.1 * PERIOD_SECONDS);
+
+    sys.update(ctx);
+    const first = sys.getPalette();
+    sys.update(ctx);
+    const second = sys.getPalette();
+
+    expect(second).toEqual(dayPalette(sys.getPhase()));
+    expect(second.sunIntensity).not.toBe(first.sunIntensity);
+  });
+
+  it("under reduced motion, always returns the GOLDEN_T palette — matches what's actually painted", () => {
+    const sun = fakeSun();
+    const dome = fakeDome();
+    const sys = new DayCycleSystem(sun as never, dome as never, null, reducedMotion(true));
+    const { ctx } = ctxWith(0.25 * PERIOD_SECONDS); // would be noon if motion were on
+    sys.update(ctx);
+
+    expect(sys.getPalette()).toEqual(dayPalette(GOLDEN_T));
+  });
+});
+
+describe("DayCycleSystem.goldenPalette (static, the low-tier one-shot env-light bake)", () => {
+  it("returns dayPalette(GOLDEN_T) — reachable without a live instance", () => {
+    expect(DayCycleSystem.goldenPalette()).toEqual(dayPalette(GOLDEN_T));
   });
 });

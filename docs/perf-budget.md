@@ -38,6 +38,19 @@ any touch/coarse-pointer device caps at `medium` no matter how many cores it
 reports. The table is the single source of truth (`QUALITY_TIERS`), asserted in
 `src/perf/quality.test.ts`.
 
+**Software WebGL forces `low`, overriding every other signal.** `readEnv()`
+probes the WebGL renderer string once per session (throwaway canvas/context,
+`WEBGL_debug_renderer_info` → `UNMASKED_RENDERER_WEBGL`, plain `RENDERER`
+fallback; non-throwing — no context ⇒ no signal ⇒ the heuristics above decide).
+A string matching `/swiftshader|llvmpipe|softpipe|software|angle \(software/i`
+means the "GPU" is a CPU rasterizer (VMs, CI runners, old laptops, blocklisted
+GPUs): the medium tier's N8AO passes + ~2s PMREM env rebakes take seconds per
+frame there — no core/RAM count compensates for a missing GPU, so detection
+lands on `low` (no compositor/AO, no shadows, ONE static env bake at load).
+Caught by the render-gate CI job (screenshot timeout on the GPU-less runner,
+visual-overhaul slice 2). An explicit player `"low"`/`"high"` setting still
+wins — only `"auto"` follows detection (`resolveQuality`'s contract).
+
 | Knob | low | medium | high | Why it scales |
 |------|-----|--------|------|---------------|
 | `maxPixelRatio` | **1** | 1.5 | 2 | Fill rate is the dominant mobile cost; capping DPR at 1 is the single biggest lever for the target phone. |
@@ -47,6 +60,8 @@ reports. The table is the single source of truth (`QUALITY_TIERS`), asserted in
 | `fog` | **off** | on | on | Cheap, but low drops it so the shorter draw distance reads cleanly. |
 | `waterDisplacement` | **off** | on | on | Vertex displacement + grid subdivision on the full-screen water plane; off on low to protect mobile fill rate. Applies on reload. |
 | `bloom` | **off** | on | on | Threshold post-processing pass that makes the emissive site accents (and later fireflies) glow; fill-rate spend, not draw/triangle; off on low to protect mobile fill rate. **Shipped** behind the renderer seam — pmndrs `postprocessing`'s mipmap-blur `BloomEffect`, merged with SMAA/vignette/tone-mapping into ONE `EffectPass` in `src/engine/createCompositor.ts` (visual-overhaul slice 1, replacing the earlier three-examples `UnrealBloomPass` chain); applies on reload. |
+| `envDynamic` | **off** | on | on | Whether the sky-driven PMREM environment light (`EnvLightSystem`, visual-overhaul slice 2) regenerates as the day cycle moves. Every tier gets the environment map itself (a real per-tier lighting upgrade, not gated); low bakes it ONCE at load (the golden-hour keyframe) and never touches it again — a free visual upgrade with zero steady-state cost. Applies on reload (bake-at-mount). |
+| `ao.qualityMode` | n/a (no compositor) | `"Performance"` | `"Medium"` | N8AO's sample-count preset (visual-overhaul slice 2) — medium/high only, inside the same lazy `postfx` chunk as bloom. `aoRadius`/`distanceFalloff`/`intensity`/`halfRes` are the SAME on both tiers (tuned once for this world's scale); only the preset differs. Applies on reload. |
 
 **Low tier vs the mobile budget.** Low is tuned to comfortably clear the
 mid-range-phone bar: pixelRatio 1 (no super-sampling), no real-time shadows, and
@@ -124,6 +139,63 @@ the old chain's `+4.1 KB`, T9) — later visual-overhaul slices that add more
 new baseline rather than assume similar headroom remains, and anything imported
 from `postprocessing` must stay behind the `loadCompositor` seam so it lands in
 the `postfx` chunk, never the eager graph.
+
+**Visual-overhaul slice 2 (lighting, 2026-07-11)** added three things: a
+sky-driven PMREM environment light (`src/world/envLightSystem.ts`, all
+tiers — built directly by `GameCanvas`, not `buildWorld`, since
+`THREE.PMREMGenerator` needs the real renderer those composition-root
+functions deliberately never touch), N8AO ambient occlusion (`n8ao` `^1.10.3`,
+medium/high only, inside the existing lazy `postfx` chunk), and a
+player-following texel-snapped shadow frustum (`src/world/shadowFrustumSystem.ts`,
+pure CPU-side repositioning of the existing shadow camera — no new GPU
+resources, so it costs nothing in this table).
+
+*Draw calls / triangles.* The env-light bake is transient work — a handful of
+small (96px) cubemap-face renders through a 2-triangle mini-scene (a private
+dome + a small sun-glow disc), run on a schedule (roughly every ~2 seconds
+while the palette is actively moving, per `envBakeScheduler.ts`'s tuned
+defaults — measured over a full 180s loop in `envBakeScheduler.test.ts`), NOT
+a steady per-frame draw-call/triangle cost; low bakes once at load and never
+again. N8AO adds fullscreen passes (its AO compute pass plus a depth-aware
+half-res upscale — `halfRes: true` on both tiers, a deliberate mobile-fill-rate
+default per N8AO's own docs measuring a 2-4x speed win from it), not
+draw-calls/triangles in the `PERF_BUDGET` sense, but it IS extra fill-rate
+spend on top of bloom/SMAA/vignette — the fill-rate-first mitigation order
+(cap DPR → draw calls → overdraw/shadows → triangles) still applies if a
+device struggles.
+
+Measured `vite build` (gzip), same method as slice 1 (branch vs the same base
+commit, confirmed against the dist chunk listing):
+
+- **Entry chunk:** 91.11 → 92.51 KB (**+1.4 KB** — the new pure world modules
+  `envBakeScheduler.ts`/`envIntensity.ts`/`shadowFrustum.ts`/`shadowFrustumSystem.ts`
+  plus `dayCycleSystem.ts`'s two new methods, all pulled in eagerly via
+  `buildWorld`/`buildGame` on every tier).
+- **`three` vendor chunk (eager):** 133.17 → 133.26 KB (**+0.09 KB**,
+  effectively unchanged — `PMREMGenerator` was already part of `three`; nothing
+  new was added to this chunk).
+- **`postfx` chunk (lazy, medium/high only):** 74.47 → 151.72 KB (**+77.25 KB**,
+  entirely `n8ao`'s own weight — bloom/SMAA/vignette/tone-mapping are
+  unchanged). This is a MUCH bigger add than slice 1 warned about ("later
+  slices... should re-measure against this new baseline rather than assume
+  similar headroom remains") — n8ao ships a single monolithic bundle (AO
+  compute + Poisson-disc denoise + blue-noise tables + half-res upscale
+  shaders), and there is no smaller "AO-only" build to reach for without
+  vendoring a custom shader, which is out of this slice's scope.
+- **CSS:** unchanged, 4.54 KB.
+- **Summed JS gzip (`check:bundle`):** 298.1 → **376.7 KB**, only **23.3 KB**
+  of the 400 KB cap left free (was 101.9 KB after slice 1). **Total download:**
+  339.2 → **417.9 KB**, 5582.1 KB of the 6 MB cap still free.
+
+Both caps still hold (`npm run check:bundle` EXIT=0), but the JS-gzip
+headroom is now thin: **the very next slice that adds any meaningful JS
+(terrain PBR splatting, water normal maps, or flora GLB decoding logic) should
+re-measure before assuming there's room** — 23.3 KB does not survive a second
+n8ao-sized library add. If a future slice needs more headroom, the standing
+options are (in the team's own fill-rate/bytes-first order): drop `halfRes`
+tuning further, reconsider N8AO's inclusion on medium specifically, or accept
+the cost against a documented trade so the decision is visible here rather
+than silently exhausting the cap.
 
 ## How it is enforced
 

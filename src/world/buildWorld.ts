@@ -9,6 +9,7 @@ import { WaterSystem } from "./waterSystem.ts";
 import { DayCycleSystem } from "./dayCycleSystem.ts";
 import { UnderwaterFxSystem } from "./underwaterFxSystem.ts";
 import { buildAquatic } from "./aquatic.ts";
+import { ShadowFrustumSystem } from "./shadowFrustumSystem.ts";
 import { WORLD } from "./worldConfig.ts";
 import { QUALITY_TIERS, type QualityConfig } from "../perf/quality.ts";
 
@@ -18,6 +19,17 @@ import { QUALITY_TIERS, type QualityConfig } from "../perf/quality.ts";
 export interface ReducedMotionSource {
   getSnapshot(): { reducedMotion: boolean };
 }
+
+/** Half-extent of the player-following shadow frustum (visual-overhaul slice
+ *  2, `ShadowFrustumSystem`) — within the design's 60-90-unit range. At this
+ *  size (full width 140) the SAME `shadowMapSize` per tier yields texels
+ *  roughly 3x smaller than the old whole-island frame (`islandRadius * 1.1`
+ *  full width 440): 1024/140 ≈ 0.137 m/texel vs the old ≈ 0.43 m/texel on
+ *  medium, ≈0.068 vs ≈0.21 on high — a real, measured sharpening, short of the
+ *  design doc's illustrative "~10x" (that figure would need a ~44-unit full
+ *  frustum, well outside the stated 60-90 range; recorded here as a deviation
+ *  rather than silently claimed). */
+const SHADOW_FRUSTUM_HALF_EXTENT = 70;
 
 /** The assembled world. The player reads `terrain`/`boundaries`/`waterDepthAt`;
  *  discovery reads `landmarks.placed`. Shared by reference — the DI seam. */
@@ -32,10 +44,14 @@ export interface World {
    *  the foam bake uses. Movement (wading/blocking), and later drinking,
    *  audio and FX all ask here, so a reshaped river changes one function. */
   waterDepthAt(x: number, z: number): number;
-  /** The living-sky loop's current phase (pivot slice F wildlife seam) — see
-   *  `DayCycleSystem.getPhase()`. Exposed as the narrow accessor, never the
-   *  System itself, so a consumer can't reach into the sky/dome/fog handles. */
-  dayCycle: { getPhase(): number };
+  /** The living-sky loop's current phase (pivot slice F wildlife seam) and
+   *  current palette (visual-overhaul slice 2's `EnvLightSystem` seam) — see
+   *  `DayCycleSystem.getPhase()`/`getPalette()`. Exposed as this narrow
+   *  accessor, never the System itself, so a consumer can't reach into the
+   *  sky/dome/fog handles. `EnvLightSystem` is built OUTSIDE `buildWorld` (by
+   *  `GameCanvas`, which owns the real renderer `PMREMGenerator` needs) and
+   *  reads this same accessor. */
+  dayCycle: Pick<DayCycleSystem, "getPhase" | "getPalette">;
   dispose(): void;
 }
 
@@ -94,7 +110,10 @@ export function buildWorld(
     boundaries,
     landmarks,
     waterDepthAt: (x, z) => WORLD.seaLevel - terrain.heightAt(x, z),
-    dayCycle: { getPhase: () => dayCycleSystem.getPhase() },
+    dayCycle: {
+      getPhase: () => dayCycleSystem.getPhase(),
+      getPalette: () => dayCycleSystem.getPalette(),
+    },
     dispose() {
       terrain.dispose();
       sky.dispose();
@@ -128,6 +147,23 @@ export function buildWorld(
   // individually (never the whole World/Sky), and the reduced-motion gate so it
   // pins to golden hour and holds when the player asks for less motion.
   engine.addSystem(dayCycleSystem);
+
+  // The player-following, texel-snapped shadow frustum (visual-overhaul slice
+  // 2) — visual-only, registered here alongside the sky/water systems, NOT the
+  // interact-key chain. Only where shadows actually run (`quality.shadows`):
+  // on low there is no shadow map to sharpen, so nothing is registered (a
+  // system that only ever repositioned an inert light would be pure waste).
+  // AFTER the day cycle so it reads THIS frame's freshly-written sun
+  // direction before recentering (see `ShadowFrustumSystem`'s own doc for why
+  // one frame of lag would be harmless either way).
+  if (quality.shadows) {
+    engine.addSystem(
+      new ShadowFrustumSystem(sky.sun, dayCycleSystem, {
+        halfExtent: SHADOW_FRUSTUM_HALF_EXTENT,
+        mapSize: quality.shadowMapSize,
+      }),
+    );
+  }
 
   // Underwater fog (#184) — AFTER the day cycle, which owns the fog colour:
   // this layers the submerged teal + density on top and restores exactly on

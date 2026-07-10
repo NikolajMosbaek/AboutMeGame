@@ -9,6 +9,32 @@
 
 import type { DeviceTier } from "./deviceCapability.ts";
 
+/** N8AO tuning for one tier (visual-overhaul slice 2) — only reached on the
+ *  tiers that build a compositor (`bloom: true`); the low tier's `ao` value is
+ *  otherwise inert (the compositor, and therefore N8AO, is never constructed
+ *  there). `aoRadius`/`distanceFalloff`/`intensity` are the ARTISTIC look
+ *  (same for every tier that runs AO — tuned once for this island's scale);
+ *  `qualityMode`/`halfRes` are the per-tier cost/quality levers. */
+export interface AOQualityConfig {
+  /** World-unit AO radius (N8AO's `configuration.aoRadius`) — how far the
+   *  occlusion reaches from a given surface. Tuned for this world's scale
+   *  (520-unit island, 1.7-unit eye height): grounded contact darkening under
+   *  trees/rocks/tent, not a dirty-corners look. */
+  aoRadius: number;
+  /** N8AO's `distanceFalloff` (post-1.7 API: a ratio of `aoRadius`, not an
+   *  absolute distance). */
+  distanceFalloff: number;
+  /** Artistic AO strength (`pow(ao, intensity)`) — moderate, not a heavy
+   *  black-crevice look. */
+  intensity: number;
+  /** N8AO's built-in quality preset — the sample-count/cost lever. */
+  qualityMode: "Performance" | "Low" | "Medium" | "High" | "Ultra";
+  /** Compute AO at half resolution, upscaled — a 2-4x speed win with
+   *  negligible quality loss (N8AO's depth-aware upsampling); a deliberate
+   *  mobile-fill-rate-first default on every tier that runs AO. */
+  halfRes: boolean;
+}
+
 /** The render budget for one tier. Every cost knob the scaler controls. */
 export interface QualityConfig {
   /** Which tier this config is. */
@@ -37,6 +63,14 @@ export interface QualityConfig {
    *  The actual EffectComposer pass lives behind the renderer seam, wired in a
    *  later G2 slice; this field is the cost-table source it reads from. */
   bloom: boolean;
+  /** Whether the sky-driven IBL environment map (`EnvLightSystem`, visual-
+   *  overhaul slice 2) regenerates as the day cycle moves. `false` (low) bakes
+   *  ONCE at load (the golden-hour keyframe) and never regenerates — a free
+   *  visual upgrade with zero steady-state cost. Every tier gets the
+   *  environment light itself; this only gates whether it TRACKS the cycle. */
+  envDynamic: boolean;
+  /** N8AO ambient-occlusion tuning (medium/high only — see {@link AOQualityConfig}). */
+  ao: AOQualityConfig;
 }
 
 /**
@@ -44,6 +78,12 @@ export interface QualityConfig {
  * (`docs/perf-budget.md`): pixelRatio 1, shadows off, ~40% of the props. Medium
  * turns shadows on at a small map and a 1.5 DPR cap. High is full quality.
  */
+/** AO's artistic look (radius/falloff/intensity) is the SAME on every tier
+ *  that runs it — only the cost levers (`qualityMode`/`halfRes`) scale. Named
+ *  here so the two tiers that build a compositor share one source instead of
+ *  hand-repeating the tuned constants. */
+const AO_LOOK = { aoRadius: 2.2, distanceFalloff: 1, intensity: 3 } as const;
+
 export const QUALITY_TIERS: Record<DeviceTier, QualityConfig> = {
   low: {
     tier: "low",
@@ -54,6 +94,9 @@ export const QUALITY_TIERS: Record<DeviceTier, QualityConfig> = {
     fog: false,
     waterDisplacement: false,
     bloom: false,
+    // Never reached (no compositor is built on low), kept a valid, sane value.
+    envDynamic: false,
+    ao: { ...AO_LOOK, qualityMode: "Performance", halfRes: true },
   },
   medium: {
     tier: "medium",
@@ -64,6 +107,8 @@ export const QUALITY_TIERS: Record<DeviceTier, QualityConfig> = {
     fog: true,
     waterDisplacement: true,
     bloom: true,
+    envDynamic: true,
+    ao: { ...AO_LOOK, qualityMode: "Performance", halfRes: true },
   },
   high: {
     tier: "high",
@@ -74,6 +119,8 @@ export const QUALITY_TIERS: Record<DeviceTier, QualityConfig> = {
     fog: true,
     waterDisplacement: true,
     bloom: true,
+    envDynamic: true,
+    ao: { ...AO_LOOK, qualityMode: "Medium", halfRes: true },
   },
 };
 

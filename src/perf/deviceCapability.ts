@@ -24,6 +24,27 @@ export interface CapabilityEnv {
   coarsePointer: boolean;
   /** `navigator.maxTouchPoints` — a second, cheaper touch signal. */
   maxTouchPoints: number;
+  /** The WebGL renderer string (`WEBGL_debug_renderer_info`'s
+   *  `UNMASKED_RENDERER_WEBGL`, falling back to plain `RENDERER`), or undefined
+   *  where WebGL/the extension is unavailable (jsdom, SSR, blocked contexts).
+   *  The one signal that can DETECT A MISSING GPU: SwiftShader/llvmpipe-style
+   *  software rasterizers render each frame on the CPU, where the medium tier's
+   *  N8AO passes + periodic PMREM env rebakes take seconds per frame — no
+   *  core/RAM count compensates, so it overrides every other heuristic. */
+  webglRenderer: string | undefined;
+}
+
+/** Software (GPU-less) WebGL implementations — Chromium's SwiftShader, Mesa's
+ *  llvmpipe/softpipe, ANGLE's software adapters (WARP), and anything honest
+ *  enough to say "software". Case-insensitive; matched against the raw
+ *  renderer string. */
+const SOFTWARE_RENDERER = /swiftshader|llvmpipe|softpipe|software|angle \(software/i;
+
+/** True when the renderer string names a software (CPU) WebGL implementation.
+ *  Undefined (no context / no string) is NOT software: absence of the signal
+ *  falls through to the conservative heuristics, it never forces a tier. */
+export function isSoftwareRenderer(webglRenderer: string | undefined): boolean {
+  return webglRenderer !== undefined && SOFTWARE_RENDERER.test(webglRenderer);
 }
 
 /**
@@ -42,6 +63,13 @@ export function isTouchEnv(env: CapabilityEnv): boolean {
 }
 
 export function detectTier(env: CapabilityEnv): DeviceTier {
+  // Software WebGL (SwiftShader/llvmpipe/…) overrides EVERYTHING: a 16-core VM
+  // with no GPU still draws each frame on the CPU, so only the lightest budget
+  // (no shadows, no compositor/AO, one static env bake) is playable. Note this
+  // only decides the DETECTED tier — an explicit player "low"/"high" setting
+  // still wins in `resolveQuality` (only "auto" follows detection).
+  if (isSoftwareRenderer(env.webglRenderer)) return "low";
+
   const cores = env.hardwareConcurrency ?? 4; // unknown ⇒ assume a modest 4
   const mem = env.deviceMemory ?? 4; // unknown ⇒ assume a modest 4 GB
   const isTouch = env.coarsePointer || env.maxTouchPoints > 0;
@@ -57,6 +85,44 @@ export function detectTier(env: CapabilityEnv): DeviceTier {
 
   // Everything else — mid laptops, capable phones, unknown hardware.
   return "medium";
+}
+
+/** Memoised result of {@link probeWebglRenderer} — the renderer string is a
+ *  property of the hardware, immutable for the session, and the probe creates
+ *  a real (if throwaway) WebGL context, which is NOT free on the very software
+ *  rasterizers this exists to detect. `null` = not probed yet; `undefined` is a
+ *  valid probed answer ("no context / no string"). Pure callers are unaffected:
+ *  `detectTier` never reads this — tests inject `webglRenderer` via the env. */
+let probedWebglRenderer: string | undefined | null = null;
+
+/** Probe the real WebGL renderer string, cheaply and without ever throwing:
+ *  a throwaway canvas + context, `WEBGL_debug_renderer_info`'s unmasked
+ *  renderer where exposed (Chromium/Firefox), plain `RENDERER` otherwise
+ *  (modern Chromium unmasks it there too). Absent DOM/WebGL (jsdom, SSR,
+ *  blocked contexts) yields `undefined` — no override, the heuristics decide.
+ *  The context is explicitly lost afterwards so the throwaway canvas never
+ *  holds a GPU context slot for the page's lifetime. */
+function probeWebglRenderer(): string | undefined {
+  if (probedWebglRenderer !== null) return probedWebglRenderer;
+  let renderer: string | undefined;
+  try {
+    if (typeof document !== "undefined" && typeof document.createElement === "function") {
+      const canvas = document.createElement("canvas");
+      const gl = (canvas.getContext("webgl2") ??
+        canvas.getContext("webgl")) as WebGLRenderingContext | null;
+      if (gl) {
+        const debugInfo = gl.getExtension("WEBGL_debug_renderer_info");
+        const param = debugInfo ? debugInfo.UNMASKED_RENDERER_WEBGL : gl.RENDERER;
+        const value = gl.getParameter(param);
+        if (typeof value === "string" && value.length > 0) renderer = value;
+        gl.getExtension("WEBGL_lose_context")?.loseContext();
+      }
+    }
+  } catch {
+    renderer = undefined; // any probe failure = no signal, never a crash
+  }
+  probedWebglRenderer = renderer;
+  return renderer;
 }
 
 /** Read the real platform signals, guarding every one so SSR/jsdom/old browsers
@@ -78,6 +144,7 @@ export function readEnv(): CapabilityEnv {
         : 1,
     coarsePointer,
     maxTouchPoints: typeof nav.maxTouchPoints === "number" ? nav.maxTouchPoints : 0,
+    webglRenderer: probeWebglRenderer(),
   };
 }
 

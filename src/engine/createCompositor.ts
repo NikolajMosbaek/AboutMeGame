@@ -9,26 +9,29 @@ import {
   ToneMappingMode,
   VignetteEffect,
 } from "postprocessing";
+import { N8AOPostPass } from "n8ao";
 import type { QualityConfig } from "../perf/quality.ts";
 import type { RenderDelegate } from "./types.ts";
 import { configureCompositorColor } from "./compositorColor.ts";
 
 /**
  * The post-processing compositor — the only place a pmndrs `postprocessing`
- * `EffectComposer` (or any of its passes/effects) is constructed. Sibling to
- * `createRenderer.ts`: like it, nothing that runs under jsdom imports the
- * WebGL-touching parts of this file, so the Vitest suite stays WebGL-free —
- * only the pure `buildEffectStack`/`buildPasses` below are exercised there
- * (constructing an `Effect`/`Pass` needs no WebGL context; only
- * `EffectComposer.addPass`/`render`/`setSize` do, once a real renderer is
- * attached). It returns a `RenderDelegate`, the minimal seam the Engine
- * presents through (`EngineOptions.compositor`); the Engine itself never sees
- * a `postprocessing` type.
+ * `EffectComposer` (or any of its passes/effects), or `n8ao`'s `N8AOPostPass`,
+ * is constructed. Sibling to `createRenderer.ts`: like it, nothing that runs
+ * under jsdom imports the WebGL-touching parts of this file, so the Vitest
+ * suite stays WebGL-free — only the pure `buildEffectStack`/`buildAOPass`/
+ * `buildPasses` below are exercised there (constructing an `Effect`/`Pass`
+ * needs no WebGL context; only `EffectComposer.addPass`/`render`/`setSize` do,
+ * once a real renderer is attached). It returns a `RenderDelegate`, the
+ * minimal seam the Engine presents through (`EngineOptions.compositor`); the
+ * Engine itself never sees a `postprocessing`/`n8ao` type.
  *
  * Built only on the medium/high tiers (where `quality.bloom` is true, gated in
  * `GameCanvas`) so the two genuine emissive sources — the site accents (page,
- * carvings, statue eyes) and later fireflies — visibly glow. On low, nothing
- * is constructed here at all: zero composer bytes, zero post-processing fill
+ * carvings, statue eyes) and later fireflies — visibly glow, and so N8AO's
+ * ambient occlusion grounds contact shadows under trees/rocks/tent. On low,
+ * nothing is constructed here at all: zero composer bytes (`n8ao` included —
+ * see `vite.config.ts`'s `postfx` chunk bucket), zero post-processing fill
  * cost, and the Engine presents via the bare `renderer.render`.
  */
 export type Compositor = RenderDelegate;
@@ -68,6 +71,42 @@ const BLOOM_LEVELS_MEDIUM = 6;
 /** Vignette look — a subtle frame darkening, not a stylistic statement. */
 const VIGNETTE_DARKNESS = 0.25;
 const VIGNETTE_OFFSET = 0.3;
+
+/**
+ * Build the N8AO ambient-occlusion pass (visual-overhaul slice 2, medium/high
+ * only — it lives in this same lazy `postfx` chunk, behind the same
+ * `quality.bloom` gate as the rest of this file). The look constants
+ * (`aoRadius`/`distanceFalloff`/`intensity`) come from `quality.ao` — tuned
+ * once, in `perf/quality.ts`, for this world's scale (520-unit island,
+ * 1.7-unit eye height): grounded contact darkening under trees/rocks/tent, not
+ * a dirty-corners look. Only `qualityMode` (the sample-count preset) differs
+ * by tier — `setQualityMode` is called once here, at construction, per its own
+ * docs (it recompiles shaders; per-frame reassignment would be expensive).
+ * `halfRes` is on for both compositor tiers — N8AO's own docs measure a 2-4x
+ * speed win from it with "negligible" quality loss (depth-aware upsampling),
+ * a deliberate mobile-fill-rate-first default matching this team's "cap
+ * fill-rate spend before touching triangles" doctrine.
+ *
+ * `gammaCorrection` is explicit `false`: this pass is never the LAST pass in
+ * the chain (the merged bloom/SMAA/vignette/tone-map `EffectPass` always
+ * follows it, and owns the sole sRGB encode) — n8ao's own auto-detection
+ * targets exactly this case but its README calls out that the heuristic
+ * "sometimes fails", so this is set explicitly rather than trusted to infer.
+ */
+export function buildAOPass(
+  scene: THREE.Scene,
+  camera: THREE.Camera,
+  quality: QualityConfig,
+): N8AOPostPass {
+  const pass = new N8AOPostPass(scene, camera);
+  pass.configuration.aoRadius = quality.ao.aoRadius;
+  pass.configuration.distanceFalloff = quality.ao.distanceFalloff;
+  pass.configuration.intensity = quality.ao.intensity;
+  pass.configuration.halfRes = quality.ao.halfRes;
+  pass.configuration.gammaCorrection = false;
+  pass.setQualityMode(quality.ao.qualityMode);
+  return pass;
+}
 
 /** The merged effect stack for the medium/high compositor path. Each effect is
  *  a plain object graph (uniforms + GLSL strings) with no WebGL calls in its
@@ -111,30 +150,35 @@ export function buildEffectStack(quality: QualityConfig): EffectStack {
 }
 
 /**
- * Build the two passes the composer runs: a `RenderPass` and ONE merged
- * `EffectPass` housing every fullscreen effect (bloom, SMAA, vignette, tone
- * mapping). Merging into a single `EffectPass` is the whole point of using
- * pmndrs `postprocessing` over the old pass-per-effect `EffectComposer` chain —
- * it costs one fullscreen fragment pass instead of four, which is the mobile
- * fill-rate win. Like `buildEffectStack`, constructing these needs no WebGL
+ * Build the three passes the composer runs: a `RenderPass`, the N8AO
+ * ambient-occlusion pass, and ONE merged `EffectPass` housing every fullscreen
+ * effect (bloom, SMAA, vignette, tone mapping). Merging the LATTER into a
+ * single `EffectPass` is the whole point of using pmndrs `postprocessing` over
+ * the old pass-per-effect `EffectComposer` chain — it costs one fullscreen
+ * fragment pass instead of four for that group, which is the mobile fill-rate
+ * win; N8AO needs its own separate pass (it isn't a pmndrs `Effect` that could
+ * merge into the `EffectPass`) and per n8ao's own README must sit BEFORE it —
+ * ambient occlusion has to modulate the lit scene before bloom/tone-mapping
+ * run, not after. Like `buildEffectStack`, constructing these needs no WebGL
  * context, so it is unit-tested headless.
  */
 export function buildPasses(
   scene: THREE.Scene,
   camera: THREE.Camera,
   quality: QualityConfig,
-): { renderPass: RenderPass; effectPass: EffectPass; stack: EffectStack } {
+): { renderPass: RenderPass; aoPass: N8AOPostPass; effectPass: EffectPass; stack: EffectStack } {
   const stack = buildEffectStack(quality);
   const renderPass = new RenderPass(scene, camera);
+  const aoPass = buildAOPass(scene, camera, quality);
   const effectPass = new EffectPass(camera, stack.bloom, stack.smaa, stack.vignette, stack.toneMapping);
-  return { renderPass, effectPass, stack };
+  return { renderPass, aoPass, effectPass, stack };
 }
 
 /**
  * Build the post-processing compositor for a medium/high mount.
  *
- * Chain: `RenderPass(scene,camera)` → one merged `EffectPass` (bloom + SMAA +
- * vignette + AgX tone mapping).
+ * Chain: `RenderPass(scene,camera)` → `N8AOPostPass` (ambient occlusion) → one
+ * merged `EffectPass` (bloom + SMAA + vignette + AgX tone mapping).
  *
  * Colour ownership: `configureCompositorColor` switches the renderer to
  * `NoToneMapping` (leaving `outputColorSpace` at `SRGBColorSpace`) so it draws
@@ -156,9 +200,10 @@ export function createBloomCompositor(
   configureCompositorColor(renderer);
 
   const composer = new EffectComposer(renderer, { frameBufferType: THREE.HalfFloatType });
-  const { renderPass, effectPass } = buildPasses(scene, camera, quality);
+  const { renderPass, aoPass, effectPass } = buildPasses(scene, camera, quality);
 
   composer.addPass(renderPass);
+  composer.addPass(aoPass);
   composer.addPass(effectPass);
 
   return {
@@ -179,9 +224,11 @@ export function createBloomCompositor(
     },
 
     dispose() {
-      // `composer.dispose()` disposes every pass, and `EffectPass.dispose()`
-      // disposes each of its effects in turn — so the whole stack (bloom,
-      // SMAA, vignette, tone mapping) is freed by this one call.
+      // `composer.dispose()` disposes every registered pass — the `RenderPass`,
+      // `N8AOPostPass` (frees its render targets), and the merged `EffectPass`
+      // (whose own `dispose()` disposes each of its effects in turn: bloom,
+      // SMAA, vignette, tone mapping) — so the whole stack is freed by this
+      // one call.
       composer.dispose();
     },
   };

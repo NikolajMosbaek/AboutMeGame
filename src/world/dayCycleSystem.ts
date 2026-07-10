@@ -24,7 +24,7 @@
 import * as THREE from "three";
 import type { FrameContext, System } from "../engine/types.ts";
 import type { ReducedMotionSource } from "./buildWorld.ts";
-import { dayPalette, GOLDEN_T } from "./dayCycle.ts";
+import { dayPalette, GOLDEN_T, type DayPalette } from "./dayCycle.ts";
 import { WORLD } from "./worldConfig.ts";
 
 /**
@@ -67,6 +67,15 @@ export class DayCycleSystem implements System {
    *  allowed, so a held cycle resumes exactly where it paused. */
   private t = 0;
 
+  /** Scratch holder for the unit sun direction, reused every frame (never
+   *  reallocated) and returned BY REFERENCE from {@link getSunDirection} — this
+   *  System is the one and only owner of "which way is the sun", so a consumer
+   *  (`ShadowFrustumSystem`) reads it here instead of ever re-deriving it from
+   *  `sun.position - sun.target.position` (that difference stops meaning
+   *  anything once something else — the shadow frustum's own recenter — moves
+   *  `sun.target` off the origin this System still assumes). */
+  private readonly sunDirection = new THREE.Vector3();
+
   constructor(
     private readonly sun: THREE.DirectionalLight,
     private readonly dome: THREE.ShaderMaterial,
@@ -95,14 +104,22 @@ export class DayCycleSystem implements System {
     this.sun.color.setRGB(...p.sunColor, THREE.SRGBColorSpace);
     this.sun.intensity = p.sunIntensity;
     // Unit direction from (elevation, azimuth) — azimuth clockwise from +Z toward
-    // +X (matching dayPalette's convention) — scaled to SUN_DISTANCE so the noon
-    // keyframe reproduces sky.ts's (120,200,80) bit-exact.
+    // +X (matching dayPalette's convention). Written into the reused scratch
+    // vector first (the authoritative unit direction `getSunDirection()` hands
+    // out) then scaled to SUN_DISTANCE for `sun.position`, so the noon keyframe
+    // reproduces sky.ts's (120,200,80) bit-exact. This absolute, origin-anchored
+    // write is correct on the low tier (no `ShadowFrustumSystem` there) and
+    // harmless on medium/high, where `ShadowFrustumSystem` runs AFTER this System
+    // every frame and rewrites `sun.position`/`sun.target.position` consistently
+    // from this same direction — see that System's own doc for why it never
+    // re-derives direction from `sun.position - sun.target.position` itself.
     const ce = Math.cos(p.sunElevation);
-    this.sun.position.set(
-      ce * Math.sin(p.sunAzimuth) * SUN_DISTANCE,
-      Math.sin(p.sunElevation) * SUN_DISTANCE,
-      ce * Math.cos(p.sunAzimuth) * SUN_DISTANCE,
+    this.sunDirection.set(
+      ce * Math.sin(p.sunAzimuth),
+      Math.sin(p.sunElevation),
+      ce * Math.cos(p.sunAzimuth),
     );
+    this.sun.position.copy(this.sunDirection).multiplyScalar(SUN_DISTANCE);
 
     // --- Dome gradient: top + bottom uniform colours (mutated by reference) --
     this.dome.uniforms.topColor.value.setRGB(...p.domeTop, THREE.SRGBColorSpace);
@@ -129,5 +146,47 @@ export class DayCycleSystem implements System {
   getPhase(): number {
     if (this.reducedMotion?.getSnapshot().reducedMotion) return GOLDEN_T;
     return this.t / PERIOD_SECONDS;
+  }
+
+  /**
+   * The palette this instance is CURRENTLY painting — exactly what `update()`
+   * last wrote to the sun/dome/fog (pinned to `GOLDEN_T` under reduced
+   * motion, same as {@link getPhase}). Recomputed from `getPhase()` on every
+   * call rather than cached, so it can never drift from what's actually on
+   * screen. Read by `EnvLightSystem` (visual-overhaul slice 2) to know what
+   * to bake into the sky-driven IBL environment map, without that module
+   * importing `./dayCycle` directly — keeping this file the ONE production
+   * importer (the tree-shaking guard at `dayCycle.test.ts`).
+   */
+  getPalette(): DayPalette {
+    return dayPalette(this.getPhase());
+  }
+
+  /**
+   * The unit sun direction this instance last wrote into `sun.position` (before
+   * the `SUN_DISTANCE` scale) — the SAME reused `THREE.Vector3` every call, never
+   * a fresh allocation (mirrors the sun/dome/fog holders this System never
+   * swaps). This is the ONE authoritative source of "which way is the sun" for
+   * anything downstream that needs it as a direction rather than a palette —
+   * today `ShadowFrustumSystem` (visual-overhaul slice 2), so it can re-center
+   * the shadow frustum on the player WITHOUT ever reading `sun.position -
+   * sun.target.position` (that difference is only valid while `sun.target`
+   * sits at the origin this System assumes; once `ShadowFrustumSystem` parks
+   * the target at the player, re-deriving direction from it would feed back a
+   * skewed result forever after). Returned BY REFERENCE — callers must treat it
+   * as read-only for the current frame, not retain and mutate it.
+   */
+  getSunDirection(): THREE.Vector3 {
+    return this.sunDirection;
+  }
+
+  /**
+   * The fixed golden-hour keyframe (`GOLDEN_T`), exposed as a static so a
+   * caller that wants a ONE-TIME "golden hour" bake — the low-tier static
+   * environment light, which never regenerates and so needs no live instance
+   * — can reach it without importing `./dayCycle` itself.
+   */
+  static goldenPalette(): DayPalette {
+    return dayPalette(GOLDEN_T);
   }
 }

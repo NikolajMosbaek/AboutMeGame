@@ -31,6 +31,11 @@ export interface Game {
   player: Player;
   discovery: Discovery;
   session: GameSession;
+  /** The day-cycle palette accessor (same reference as `world.dayCycle`),
+   *  surfaced at the top level so it satisfies `GameHandle.dayCycle` — the
+   *  seam `GameCanvas` wires the renderer-owning `EnvLightSystem` (visual-
+   *  overhaul slice 2) through, without needing the whole `World`. */
+  dayCycle: World["dayCycle"];
   /** Throttled explorer telemetry for the HUD (#42). */
   hud: HudStore;
   /** Projected nav hints to undiscovered landmarks (#44). */
@@ -263,6 +268,7 @@ export function buildGame(
     player,
     discovery,
     session,
+    dayCycle: world.dayCycle,
     hud,
     nav,
     settings,

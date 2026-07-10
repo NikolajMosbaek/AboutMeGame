@@ -22,6 +22,8 @@ describe("resolveQuality", () => {
     expect(low.propDensity).toBeLessThanOrEqual(0.5);
     expect(low.waterDisplacement).toBe(false);
     expect(low.bloom).toBe(false);
+    // Low still gets the env-light IBL (all tiers), just never regenerates.
+    expect(low.envDynamic).toBe(false);
   });
 
   it("the medium tier turns shadows on at a smaller map and caps DPR", () => {
@@ -35,6 +37,9 @@ describe("resolveQuality", () => {
     expect(med.propDensity).toBeLessThan(1);
     expect(med.waterDisplacement).toBe(true);
     expect(med.bloom).toBe(true);
+    expect(med.envDynamic).toBe(true);
+    // Medium runs N8AO at its cheapest preset.
+    expect(med.ao.qualityMode).toBe("Performance");
   });
 
   it("the high tier is full quality", () => {
@@ -45,6 +50,9 @@ describe("resolveQuality", () => {
     expect(high.propDensity).toBe(1);
     expect(high.waterDisplacement).toBe(true);
     expect(high.bloom).toBe(true);
+    expect(high.envDynamic).toBe(true);
+    // High runs a sharper N8AO preset than medium.
+    expect(high.ao.qualityMode).toBe("Medium");
   });
 
   it("monotonically scales every cost knob across the tiers", () => {
@@ -71,5 +79,22 @@ describe("resolveQuality", () => {
     expect(QUALITY_TIERS.low.bloom).toBe(false);
     expect(QUALITY_TIERS.medium.bloom).toBe(true);
     expect(QUALITY_TIERS.high.bloom).toBe(true);
+    // The env-light IBL regen (envDynamic) is off only at the bottom tier —
+    // low still gets the environment map itself, just baked once.
+    expect(QUALITY_TIERS.low.envDynamic).toBe(false);
+    expect(QUALITY_TIERS.medium.envDynamic).toBe(true);
+    expect(QUALITY_TIERS.high.envDynamic).toBe(true);
+  });
+
+  it("N8AO's artistic look (radius/falloff/intensity) is identical on medium and high", () => {
+    // Only the quality PRESET and half-res should differ by tier — the actual
+    // grounding look must not shift when the graphics setting changes.
+    const { medium, high } = QUALITY_TIERS;
+    expect(medium.ao.aoRadius).toBe(high.ao.aoRadius);
+    expect(medium.ao.distanceFalloff).toBe(high.ao.distanceFalloff);
+    expect(medium.ao.intensity).toBe(high.ao.intensity);
+    // Tuned for this world's scale (520-unit island, 1.7-unit eye height).
+    expect(medium.ao.aoRadius).toBeGreaterThanOrEqual(1.5);
+    expect(medium.ao.aoRadius).toBeLessThanOrEqual(3);
   });
 });

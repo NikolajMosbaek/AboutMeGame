@@ -28,18 +28,19 @@ export default defineConfig(({ command, isPreview }) => ({
         // still fold into the same vendor chunk instead of leaking into the
         // entry chunk.
         //
-        // `postprocessing` gets its own SEPARATE bucket, never `three`'s: it is
+        // `postprocessing` (and `n8ao`, visual-overhaul slice 2's ambient
+        // occlusion) get their own SEPARATE bucket, never `three`'s: both are
         // only reached through `GameCanvas`'s dynamic `import()` of
-        // `createCompositor.ts` (the bloom-tier gate), and folding it into the
-        // eagerly-loaded `three` chunk would silently re-eager-load it for the
-        // LOW tier — which must not pay postprocessing's bytes for an effect
+        // `createCompositor.ts` (the bloom-tier gate), and folding either into
+        // the eagerly-loaded `three` chunk would silently re-eager-load them
+        // for the LOW tier — which must not pay their bytes for an effect
         // chain it never builds (docs/perf-budget.md). The bucket also keeps
         // the lazy boundary safe against future accidental static imports: a
         // stray eager import would drag `postfx` into the initial preload
         // graph, but never invisibly merge the bytes into `three`.
         manualChunks(id) {
           if (/node_modules\/three\//.test(id)) return "three";
-          if (/node_modules\/postprocessing\//.test(id)) return "postfx";
+          if (/node_modules\/(postprocessing|n8ao)\//.test(id)) return "postfx";
         },
       },
     },
