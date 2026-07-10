@@ -280,18 +280,18 @@ describe("RevealPanel plain regression (t4)", () => {
     openPlain(store);
     render(<RevealPanel store={store} pois={POIS} />);
 
-    expect(screen.getByText(/Landmark 1 of 13/)).toBeTruthy();
+    expect(screen.getByText(/Page 1 of 13/)).toBeTruthy();
     expect(screen.getByRole("heading", { name: "The Arrivals Gate" })).toBeTruthy();
     const body = screen.getByText("Welcome to the spawn point.");
     expect(body.className).toContain("reveal-panel__body");
 
     // No guess group on a plain reveal. The footer carries the always-present
-    // "Drive on" first, then the named "Next: <title> →" (M2 slice 4) since this
+    // "Press on" first, then the named "Next: <title> →" (M2 slice 4) since this
     // unlocked POI has a concrete next-by-order target.
     expect(screen.queryByRole("group")).toBeNull();
     const buttons = screen.getAllByRole("button");
     expect(buttons).toHaveLength(2);
-    expect(buttons[0].textContent).toBe("Drive on");
+    expect(buttons[0].textContent).toBe("Press on");
     expect(buttons[1].textContent).toMatch(/^Next:/);
   });
 });
@@ -328,7 +328,7 @@ describe("RevealPanel close affordances (t4)", () => {
       open[type](store);
       render(<RevealPanel store={store} pois={POIS} />);
       act(() => {
-        screen.getByRole("button", { name: "Drive on" }).click();
+        screen.getByRole("button", { name: "Press on" }).click();
       });
       expect(store.getSnapshot().open).toBeNull();
     });
@@ -355,13 +355,13 @@ describe("RevealPanel close affordances (t4)", () => {
     });
   }
 
-  it("closes an un-answered guess via Drive on without requiring a pick", () => {
+  it("closes an un-answered guess via Press on without requiring a pick", () => {
     const store = createDiscoveryStore(13);
     openGuess(store);
     render(<RevealPanel store={store} pois={POIS} />);
     expect(store.getSnapshot().open?.guessChoice).toBeNull();
     act(() => {
-      screen.getByRole("button", { name: "Drive on" }).click();
+      screen.getByRole("button", { name: "Press on" }).click();
     });
     expect(store.getSnapshot().open).toBeNull();
   });
@@ -382,7 +382,7 @@ describe("RevealPanel focus management (t7)", () => {
     openPlain(store);
     render(<RevealPanel store={store} pois={POIS} />);
 
-    const close = screen.getByRole("button", { name: "Drive on" });
+    const close = screen.getByRole("button", { name: "Press on" });
     expect(document.activeElement).toBe(close);
   });
 
@@ -391,7 +391,7 @@ describe("RevealPanel focus management (t7)", () => {
     openHighlight(store);
     render(<RevealPanel store={store} pois={POIS} />);
 
-    const close = screen.getByRole("button", { name: "Drive on" });
+    const close = screen.getByRole("button", { name: "Press on" });
     expect(document.activeElement).toBe(close);
   });
 
@@ -425,7 +425,7 @@ describe("RevealPanel focus management (t7)", () => {
       screen.getByRole("button", { name: GUESS.options[0].text }).click();
     });
 
-    const close = screen.getByRole("button", { name: "Drive on" });
+    const close = screen.getByRole("button", { name: "Press on" });
     expect(close.tagName).toBe("BUTTON");
     // Tab order reaches it (native button, not aria-hidden / disabled).
     expect(close.hasAttribute("disabled")).toBe(false);
@@ -447,7 +447,7 @@ describe("RevealPanel close affordances per type (t7)", () => {
       render(<RevealPanel store={s1} pois={POIS} />);
       expect(s1.getSnapshot().open?.guessChoice ?? null).toBeNull();
       act(() => {
-        screen.getByRole("button", { name: "Drive on" }).click();
+        screen.getByRole("button", { name: "Press on" }).click();
       });
       expect(s1.getSnapshot().open).toBeNull();
 
@@ -578,7 +578,7 @@ describe("RevealPanel keyboard activation (t8)", () => {
     spaceRender.unmount();
   });
 
-  it("tabbing walks options → close → next once the body is unlocked (Next after Drive on)", () => {
+  it("tabbing walks options → close → next once the body is unlocked (Next after Press on)", () => {
     const store = createDiscoveryStore(13);
     openGuess(store);
     const { container } = render(<RevealPanel store={store} pois={POIS} />);
@@ -597,23 +597,23 @@ describe("RevealPanel keyboard activation (t8)", () => {
 
     const focusable = focusableInDialog(container);
     // The option buttons come first, in authored order, then the close button,
-    // then Next placed AFTER Drive on in DOM/tab order.
+    // then Next placed AFTER Press on in DOM/tab order.
     const optionA = screen.getByRole("button", { name: GUESS.options[0].text });
     const optionB = screen.getByRole("button", { name: GUESS.options[1].text });
-    const close = screen.getByRole("button", { name: "Drive on" });
+    const close = screen.getByRole("button", { name: "Press on" });
     const next = screen.getByRole("button", { name: /^Next:/ });
 
     expect(focusable).toEqual([optionA, optionB, close, next]);
-    // Next is the last focusable stop, reached by Tab after Drive on.
+    // Next is the last focusable stop, reached by Tab after Press on.
     expect(focusable.indexOf(next)).toBe(focusable.length - 1);
     expect(focusable.indexOf(optionA)).toBeLessThan(focusable.indexOf(optionB));
     expect(focusable.indexOf(optionB)).toBeLessThan(focusable.indexOf(close));
     expect(focusable.indexOf(close)).toBeLessThan(focusable.indexOf(next));
   });
 
-  it("Next is reachable after Drive on and Enter/Space activate it (calls closePoi)", () => {
+  it("Next is reachable after Press on and Enter/Space activate it (calls closePoi)", () => {
     // The keyboard path for forward-nav (T7): focus the Next button — the last
-    // focusable stop, after Drive on — and prove platform Enter/Space activation
+    // focusable stop, after Press on — and prove platform Enter/Space activation
     // closes the panel. As above, jsdom does not synthesize a click from a
     // keystroke on a native button, so we model the platform contract honestly:
     // Next is a real <button type="button"> (Tab-reachable, Enter/Space → click),
@@ -629,10 +629,10 @@ describe("RevealPanel keyboard activation (t8)", () => {
     });
 
     const focusable = focusableInDialog(container);
-    const close = screen.getByRole("button", { name: "Drive on" });
+    const close = screen.getByRole("button", { name: "Press on" });
     const next = screen.getByRole("button", { name: /^Next:/ });
 
-    // Tab reaches Next after Drive on: it is the last focusable stop, right
+    // Tab reaches Next after Press on: it is the last focusable stop, right
     // after the close button in document/tab order.
     expect(focusable.indexOf(next)).toBe(focusable.indexOf(close) + 1);
     expect(focusable.indexOf(next)).toBe(focusable.length - 1);
@@ -704,15 +704,15 @@ describe("RevealPanel Next landmark affordance (t4)", () => {
     expect(store.getSnapshot().discoveredIds).toBe(discoveredBefore);
   });
 
-  it("seats Next and Drive on together in the .reveal-panel__actions footer, both as .cta", () => {
+  it("seats Next and Press on together in the .reveal-panel__actions footer, both as .cta", () => {
     // T5 footer structure (token-driven sizing/focus ring is asserted by the CSS
     // tokens, not the DOM): both controls share the .cta recipe and live inside
     // one .reveal-panel__actions row so they read as the panel's trailing pair.
     const store = createDiscoveryStore(13);
-    openPlain(store); // unlocked plain reveal -> Next present alongside Drive on
+    openPlain(store); // unlocked plain reveal -> Next present alongside Press on
     render(<RevealPanel store={store} pois={SELECTOR_POIS} />);
 
-    const driveOn = screen.getByRole("button", { name: "Drive on" });
+    const driveOn = screen.getByRole("button", { name: "Press on" });
     const next = screen.getByRole("button", { name: /^Next:/ });
 
     // Both carry the shared CTA token class (>=44px hit target + focus ring).
@@ -755,10 +755,10 @@ describe("RevealPanel Next landmark affordance (t4)", () => {
     expect(next.textContent).toContain(expected!.title);
   });
 
-  it("hides Next on the last undiscovered landmark — only Drive on remains", () => {
+  it("hides Next on the last undiscovered landmark — only Press on remains", () => {
     const store = createDiscoveryStore(13);
     // Only ONE POI exists in the candidate set, and it is the open one: the
-    // selector returns null, so Next is absent and Drive on is the lone CTA.
+    // selector returns null, so Next is absent and Press on is the lone CTA.
     const lone = [{ id: "poi-arrivals-gate", order: 1, title: "The Arrivals Gate" }];
     openPlain(store);
     render(<RevealPanel store={store} pois={lone} />);
@@ -767,7 +767,7 @@ describe("RevealPanel Next landmark affordance (t4)", () => {
       nextUndiscovered(lone, store.getSnapshot().discoveredIds, "poi-arrivals-gate", 1),
     ).toBeNull();
     expect(screen.queryByRole("button", { name: /^Next:/ })).toBeNull();
-    expect(screen.getByRole("button", { name: "Drive on" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Press on" })).toBeTruthy();
   });
 
   it("hides Next for an unanswered guess for BOTH reasons: last-only, and not-last", () => {

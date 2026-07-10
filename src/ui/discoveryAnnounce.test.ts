@@ -31,7 +31,7 @@ describe("announcementFor", () => {
         bodyUnlocked: true,
       },
     });
-    expect(announcementFor(prev, next)).toBe("Discovered Root-Cause Quarry — 3 of 13");
+    expect(announcementFor(prev, next)).toBe("Found Root-Cause Quarry — page 3 of 13");
   });
 
   it("says nothing when the discovered count is unchanged", () => {

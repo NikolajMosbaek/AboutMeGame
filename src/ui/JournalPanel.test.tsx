@@ -35,7 +35,7 @@ const JOURNAL_POIS: JournalPoi[] = [
   },
 ];
 
-const LOCK_LABEL = "Undiscovered landmark";
+const LOCK_LABEL = "Page not yet found";
 
 function renderPanel(
   opts: {
@@ -267,7 +267,7 @@ describe("JournalPanel (T7)", () => {
     // the unlocked branch and re-checks journalCanOpen).
     const { store } = renderPanel();
     const spy = vi.spyOn(store, "openPoi");
-    const locked = screen.getAllByRole("button", { name: "Undiscovered landmark" });
+    const locked = screen.getAllByRole("button", { name: "Page not yet found" });
     act(() => {
       locked[0].click();
     });
@@ -291,7 +291,7 @@ const ALL_13: JournalPoi[] = Array.from({ length: 13 }, (_, i) => {
   };
 }).reverse(); // reversed so input order != render order
 
-const LOCK = "Undiscovered landmark";
+const LOCK = "Page not yet found";
 
 /** Render the journal over a 13-landmark store seeded with the given discovered
  *  ids — modelling exactly how `buildGame`/GameCanvas constructs the store (the
