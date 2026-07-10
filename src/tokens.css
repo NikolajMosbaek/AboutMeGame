@@ -437,6 +437,9 @@ body {
   display: grid;
   place-items: center;
   background: rgba(4, 10, 6, 0.78);
+  /* Safe-area clearance (D2f): the card clears the notch and gesture bar. */
+  padding-top: calc(var(--space-2) + var(--safe-top));
+  padding-bottom: calc(var(--space-2) + var(--safe-bottom));
 }
 
 .treasure-panel__card {
