@@ -78,13 +78,17 @@ export function buildGame(
   // it live (#49), so non-essential motion is gated by the in-game toggle too.
   const settings = createSettingsStore();
   const world = buildWorld(engine, quality, settings);
+  // The sprint gate is SurvivalSystem.canSprint — the one rule, exact-valued
+  // (the display store rounds). The system is constructed after the player
+  // needs the gate, so the composition root carries this one late-bound ref.
+  let sprintGate: () => boolean = () => true;
   const player = buildPlayer(
     engine,
     world,
     overlay,
     session,
     settings,
-    () => survivalStore.getSnapshot().stamina > 10 && survivalStore.getSnapshot().alive,
+    () => sprintGate(),
   );
   const discovery = buildDiscovery(engine, world, player, session);
 
@@ -100,6 +104,7 @@ export function buildGame(
     SPAWN,
   );
   engine.addSystem(survivalSystem);
+  sprintGate = survivalSystem.canSprint;
 
   // HUD telemetry feed — registered after the explorer so it reads fresh state.
   const hud = createHudStore();
@@ -152,7 +157,12 @@ export function buildGame(
     settings,
     survival: {
       store: survivalStore,
-      respawn: () => survivalSystem.respawn(),
+      // Death can strike mid-read (a snake while a clue is open): close any
+      // stale reveal on wake so its pause reason can't outlive the overlay.
+      respawn: () => {
+        discovery.store.closePoi();
+        survivalSystem.respawn();
+      },
       eat: (amount: number) => survivalSystem.eat(amount),
       hurt: (amount: number) => survivalSystem.hurt(amount),
     },

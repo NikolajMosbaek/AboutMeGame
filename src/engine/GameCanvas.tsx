@@ -271,6 +271,9 @@ export function GameCanvas({
   useEffect(() => {
     if (!game) return;
     const onKey = (e: KeyboardEvent) => {
+      // The death overlay owns the whole keyboard: no menu/journal opens over
+      // it (its single button is focused; Enter/Space activate it natively).
+      if (game.survival && !game.survival.store.getSnapshot().alive) return;
       // Escape opens the menu — but only when no other modal owns Escape, and
       // the journal owns it while topmost (it closes itself, below). J opens the
       // journal under the same precedence chain, so two modals never stack.
