@@ -92,7 +92,7 @@ export function RevealPanel({ store, pois, quest }: RevealPanelProps) {
             aria-labelledby="reveal-title"
           >
             <p className="reveal-panel__eyebrow">
-              Landmark {open.order} of {snap.total}
+              Page {open.order} of {snap.total}
             </p>
             <h2 id="reveal-title" className="reveal-panel__title">
               {open.title}
@@ -153,7 +153,7 @@ function RevealActions({ open, store, pois, discoveredIds, closeRef }: RevealAct
         className="cta reveal-panel__close"
         onClick={() => store.closePoi()}
       >
-        Drive on
+        Press on
       </button>
       {next && (
         <button

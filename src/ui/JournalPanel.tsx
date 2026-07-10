@@ -19,7 +19,7 @@ export interface JournalPanelProps {
   consumeInteract: () => boolean;
 }
 
-const LOCK_LABEL = "Undiscovered landmark";
+const LOCK_LABEL = "Page not yet found";
 
 /** The focusable stops inside a node, in document order, skipping disabled ones
  *  (the locked rows). Used to seat focus on open and to wrap Tab/Shift+Tab. */
@@ -101,7 +101,7 @@ export function JournalPanel({ store, journalPois, onClose, consumeInteract }: J
   // the previous count so it never fires on mount or on an unrelated re-render.
   useEffect(() => {
     if (snap.discoveredCount > prevCountRef.current) {
-      setAnnouncement("New landmark discovered.");
+      setAnnouncement("New page found.");
     }
     prevCountRef.current = snap.discoveredCount;
   }, [snap.discoveredCount]);
