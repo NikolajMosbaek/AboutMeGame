@@ -30,6 +30,10 @@ export interface World {
    *  the foam bake uses. Movement (wading/blocking), and later drinking,
    *  audio and FX all ask here, so a reshaped river changes one function. */
   waterDepthAt(x: number, z: number): number;
+  /** The living-sky loop's current phase (pivot slice F wildlife seam) — see
+   *  `DayCycleSystem.getPhase()`. Exposed as the narrow accessor, never the
+   *  System itself, so a consumer can't reach into the sky/dome/fog handles. */
+  dayCycle: { getPhase(): number };
   dispose(): void;
 }
 
@@ -71,12 +75,19 @@ export function buildWorld(
   const props = buildProps(terrain, quality.propDensity);
   scene.add(props.group);
 
+  // Constructed here (not inline in the `addSystem` call below) so `World.dayCycle`
+  // can close over the live instance — the single production importer of
+  // `./dayCycle` (the chain that wires the pure palette into the bundle) stays
+  // unchanged; only WHERE the reference is held moves.
+  const dayCycleSystem = new DayCycleSystem(sky.sun, sky.dome, sky.fog, reducedMotion);
+
   const world: World = {
     terrain,
     sky,
     boundaries,
     landmarks,
     waterDepthAt: (x, z) => WORLD.seaLevel - terrain.heightAt(x, z),
+    dayCycle: { getPhase: () => dayCycleSystem.getPhase() },
     dispose() {
       terrain.dispose();
       sky.dispose();
@@ -107,10 +118,8 @@ export function buildWorld(
   // and dome exist on every tier and the fog handle is
   // null-guarded for the low tier. Injected the three live sky handles
   // individually (never the whole World/Sky), and the reduced-motion gate so it
-  // pins to golden hour and holds when the player asks for less motion. This is
-  // the single production importer of `./dayCycle` — the chain that wires the
-  // pure palette into the bundle.
-  engine.addSystem(new DayCycleSystem(sky.sun, sky.dome, sky.fog, reducedMotion));
+  // pins to golden hour and holds when the player asks for less motion.
+  engine.addSystem(dayCycleSystem);
 
   return world;
 }

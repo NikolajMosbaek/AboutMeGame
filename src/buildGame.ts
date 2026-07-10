@@ -19,6 +19,7 @@ import { ForageSystem } from "./forage/ForageSystem.ts";
 import { SPAWN } from "./world/worldConfig.ts";
 import { AudioSystem } from "./audio/AudioSystem.ts";
 import { DiscoveryBurstSystem } from "./fx/DiscoveryBurstSystem.ts";
+import { buildWildlife } from "./wildlife/buildWildlife.ts";
 
 export interface Game {
   world: World;
@@ -130,6 +131,12 @@ export function buildGame(
   );
   engine.addSystem(survivalSystem);
   sprintGate = survivalSystem.canSprint;
+
+  // Wildlife (pivot slice F, #184): birds, butterflies/fireflies, fish, snakes
+  // — ambient life that reacts to the player. Registered AFTER survival so a
+  // snake strike can call the exact same hurt() seam starvation death uses,
+  // via a plain callback (buildWildlife never sees the SurvivalSystem itself).
+  buildWildlife(engine, world, player.explorer, session, (amount) => survivalSystem.hurt(amount));
 
   // HUD telemetry feed — registered after the explorer so it reads fresh state.
   const hud = createHudStore();
