@@ -4,6 +4,23 @@ import { ActionHint } from "./ActionHint.tsx";
 import { createSurvivalStore, type SurvivalSnapshot } from "../survival/survivalStore.ts";
 import { createForageStore } from "../forage/forageStore.ts";
 import { createDiscoveryStore } from "../discovery/discoveryStore.ts";
+import { createQuestStore, type QuestSnapshot } from "../quest/questStore.ts";
+
+function questSnapshot(over: Partial<QuestSnapshot> = {}): QuestSnapshot {
+  return {
+    cluesFound: 0,
+    cluesTotal: 6,
+    digOwnsKey: false,
+    missingPages: 0,
+    digProgress: null,
+    finaleActive: false,
+    treasureFound: false,
+    playSeconds: 0,
+    deaths: 0,
+    fruitEaten: 0,
+    ...over,
+  };
+}
 
 function snapshot(over: Partial<SurvivalSnapshot> = {}): SurvivalSnapshot {
   return {
@@ -25,6 +42,7 @@ function stores() {
     survival: createSurvivalStore(),
     forage: createForageStore(),
     discovery: createDiscoveryStore(6),
+    quest: createQuestStore(6),
   };
 }
 
@@ -62,6 +80,28 @@ describe("ActionHint (pivot slice E) — one meaning for the interact key", () =
     });
     const { container } = render(<ActionHint {...s} />);
     expect(container.firstChild).toBeNull();
+  });
+
+  it("dig-locked: explains the locked dig in the design doc's voice, with the count", () => {
+    const s = stores();
+    act(() => {
+      s.survival.set(snapshot({ canDrink: true }));
+      s.quest.set(questSnapshot({ cluesFound: 3, missingPages: 3 }));
+    });
+    render(<ActionHint {...s} />);
+    const hint = screen.getByRole("status");
+    expect(hint).toHaveTextContent(/You're sure this is the place — but sure isn't certain\./);
+    expect(hint).toHaveTextContent(/3 pages still missing/);
+    expect(hint.className).toContain("drink-hint--dig-locked");
+    // Informational only — never an interactive control.
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  it("dig-locked speaks singular for one missing page (the fig's own note counts)", () => {
+    const s = stores();
+    act(() => s.quest.set(questSnapshot({ cluesFound: 5, missingPages: 1 })));
+    render(<ActionHint {...s} />);
+    expect(screen.getByRole("status")).toHaveTextContent(/1 page still missing/);
   });
 
   it("the dead get no hints", () => {

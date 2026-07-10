@@ -3,19 +3,23 @@
 // on-screen action button) both call this pure resolver instead of each
 // re-deriving the order, so the two surfaces can never disagree about which
 // action a press would trigger. Order, highest first: the treasure dig (the
-// game's climax) > a clue site in range > foraging > drinking > nothing.
+// game's climax) > the locked dig (right place, pages missing — informational,
+// never pressable) > a clue site in range > foraging > drinking > nothing.
 import type { FruitKind } from "../forage/forageStore.ts";
 
-export type ActionKind = "dig-progress" | "dig" | "read" | "forage" | "drink";
+export type ActionKind = "dig-progress" | "dig" | "dig-locked" | "read" | "forage" | "drink";
 
 export interface ActionPriority {
   kind: ActionKind;
   /** Icon + short caption for the touch button. Dig-progress carries the live
-   *  percentage; every other kind is a fixed word. */
+   *  percentage, dig-locked the missing-page count; the rest are fixed words. */
   icon: string;
   label: string;
   /** Only set for kind "forage" — which fruit ActionHint's full phrase names. */
   fruit?: FruitKind;
+  /** Only set for kind "dig-locked": a press would do nothing — the surfaces
+   *  render it as information (dimmed hint / disabled button), never a CTA. */
+  disabled?: true;
 }
 
 export interface ActionPriorityInput {
@@ -24,6 +28,9 @@ export interface ActionPriorityInput {
   digProgress: number | null;
   /** True once every clue is read and the dig press is live (quest store). */
   digOwnsKey: boolean;
+  /** Pages still unread while standing at the dig patch (quest store) — the
+   *  dig is LOCKED, not absent; 0 anywhere else. */
+  missingPages: number;
   /** A discovery site's reveal prompt is in range (its own card owns the UI). */
   siteInRange: boolean;
   /** The fruit kind in reach, or null (forage store). */
@@ -39,6 +46,15 @@ export function resolveActionPriority(input: ActionPriorityInput): ActionPriorit
     return { kind: "dig-progress", icon: "⛏", label: `Digging… ${pct}%` };
   }
   if (input.digOwnsKey) return { kind: "dig", icon: "⛏", label: "Dig" };
+  if (input.missingPages > 0) {
+    const pages = input.missingPages === 1 ? "1 page" : `${input.missingPages} pages`;
+    return {
+      kind: "dig-locked",
+      icon: "🔒",
+      label: `The place is right — ${pages} still missing`,
+      disabled: true,
+    };
+  }
   if (input.siteInRange) return { kind: "read", icon: "📖", label: "Read" };
   if (input.forageFruit) return { kind: "forage", icon: "🍌", label: "Eat", fruit: input.forageFruit };
   if (input.canDrink) return { kind: "drink", icon: "💧", label: "Drink" };

@@ -6,6 +6,7 @@ function input(over: Partial<ActionPriorityInput> = {}): ActionPriorityInput {
     alive: true,
     digProgress: null,
     digOwnsKey: false,
+    missingPages: 0,
     siteInRange: false,
     forageFruit: null,
     canDrink: false,
@@ -34,6 +35,28 @@ describe("resolveActionPriority — the one interact-key ladder", () => {
       input({ digOwnsKey: true, siteInRange: true, forageFruit: "mango", canDrink: true }),
     );
     expect(p).toEqual({ kind: "dig", icon: "⛏", label: "Dig" });
+  });
+
+  it("dig-locked sits between dig and a site in range, and is not pressable", () => {
+    const p = resolveActionPriority(
+      input({ missingPages: 3, siteInRange: true, forageFruit: "mango", canDrink: true }),
+    );
+    expect(p).toEqual({
+      kind: "dig-locked",
+      icon: "🔒",
+      label: "The place is right — 3 pages still missing",
+      disabled: true,
+    });
+  });
+
+  it("dig-locked speaks singular for one missing page", () => {
+    const p = resolveActionPriority(input({ missingPages: 1 }));
+    expect(p?.label).toBe("The place is right — 1 page still missing");
+  });
+
+  it("dig-owns-key outranks dig-locked (all pages read means it can't be locked)", () => {
+    const p = resolveActionPriority(input({ digOwnsKey: true, missingPages: 1 }));
+    expect(p?.kind).toBe("dig");
   });
 
   it("a site in range outranks forage and drink", () => {
