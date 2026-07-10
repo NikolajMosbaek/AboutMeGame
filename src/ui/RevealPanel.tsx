@@ -73,7 +73,10 @@ export function RevealPanel({ store, pois, quest }: RevealPanelProps) {
           <span className="reveal-prompt__title">{snap.nearby.title}</span>
           <span className="reveal-prompt__teaser">{snap.nearby.teaser}</span>
           {snap.nearby.inRange && (
-            <span className="reveal-prompt__hint">Press E · or USE to reveal</span>
+            <span className="reveal-prompt__hint">
+              <span className="hint-kbd">Press E to read</span>
+              <span className="hint-touch">Tap Read</span>
+            </span>
           )}
         </div>
       )}

@@ -546,6 +546,17 @@ body {
   opacity: 0.8;
 }
 
+
+/* Device-aware hint text: exactly one of the pair renders. The touch variant
+   wins on coarse pointers (where the keyboard line would be a lie). */
+.hint-touch { display: none; }
+@media (pointer: coarse) {
+  .hint-kbd { display: none; }
+  .hint-touch { display: inline; }
+  /* The keyboard controls reminder has no meaning on a phone. */
+  .hud-controls { display: none; }
+}
+
 /* ----- Discovery UI (#38) ----- */
 .discovery-progress {
   position: fixed;
