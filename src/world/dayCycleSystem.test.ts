@@ -311,3 +311,41 @@ describe("DayCycleSystem (G3 slice, T2)", () => {
     expect(sun.position).toBe(positionBefore);
   });
 });
+
+describe("getPhase (wildlife day/night seam)", () => {
+  it("stays in [0,1) and tracks the accumulated cycle time", () => {
+    const sun = fakeSun();
+    const dome = fakeDome();
+    const sys = new DayCycleSystem(
+      sun as never,
+      dome as never,
+      null,
+      reducedMotion(false),
+    );
+    expect(sys.getPhase()).toBe(0);
+
+    const { ctx } = ctxWith(PERIOD_SECONDS / 4 / 60);
+    for (let i = 0; i < 60; i++) sys.update(ctx); // a quarter period
+    expect(sys.getPhase()).toBeCloseTo(0.25, 2);
+
+    const full = ctxWith(PERIOD_SECONDS / 60);
+    for (let i = 0; i < 60; i++) sys.update(full.ctx); // one full period wraps
+    expect(sys.getPhase()).toBeCloseTo(0.25, 2);
+    expect(sys.getPhase()).toBeGreaterThanOrEqual(0);
+    expect(sys.getPhase()).toBeLessThan(1);
+  });
+
+  it("pins to the golden-hour phase under reduced motion", () => {
+    const sys = new DayCycleSystem(
+      fakeSun() as never,
+      fakeDome() as never,
+      null,
+      reducedMotion(true),
+    );
+    const { ctx } = ctxWith(1);
+    for (let i = 0; i < 90; i++) sys.update(ctx);
+    expect(sys.getPhase()).toBe(GOLDEN_T);
+    for (let i = 0; i < 33; i++) sys.update(ctx);
+    expect(sys.getPhase()).toBe(GOLDEN_T); // held still
+  });
+});

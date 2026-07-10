@@ -36,9 +36,3 @@ export function mergeOrThrow(sources: THREE.BufferGeometry[]): THREE.BufferGeome
   return merged;
 }
 
-/** Triangle count of one instance of a geometry (indexed or not) — used by the
- *  draw-call/triangle budget tests, not shipped in any hot path. */
-export function triCount(geo: THREE.BufferGeometry): number {
-  const n = geo.index ? geo.index.count : geo.getAttribute("position").count;
-  return Math.floor(n / 3);
-}

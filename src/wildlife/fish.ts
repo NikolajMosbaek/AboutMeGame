@@ -188,10 +188,11 @@ export class FishSystem implements System {
 
       this.posv.set(next.x, WORLD.seaLevel - SWIM_DEPTH, next.z);
       // Facing: the patrol wander heading while patrolling; while fleeing,
-      // point along the escape vector so the dart reads as deliberate.
+      // point along the ACTUAL escape vector (away from the player — the same
+      // direction stepFish moves it) so the dart reads as deliberate.
       const heading =
         next.mode === "flee"
-          ? Math.atan2(next.x - pool.x, next.z - pool.z) // away from the pool it's fleeing across
+          ? Math.atan2(next.x - p.x, next.z - p.z)
           : next.angle;
       this.euler.set(0, heading, 0);
       this.q.setFromEuler(this.euler);
