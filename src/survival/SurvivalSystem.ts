@@ -30,6 +30,16 @@ export const TUNE = {
   /** Stamina: ~6 s of sprint, ~10 s to recover. */
   staminaDrainPerSec: FULL / 6,
   staminaRegenPerSec: FULL / 10,
+  /** Swimming costs stamina too (#184): a fraction of the sprint rate at
+   *  cruise, a third at sprint-swim — and the river's grip wrings you at the
+   *  FULL sprint rate whether you fight it or not. */
+  swimStaminaFactor: 1 / 8,
+  sprintSwimStaminaFactor: 1 / 3,
+  /** Breath (#184): ~30 s underwater, refilled in ~3 s at the surface. */
+  breathDrainPerSec: FULL / 30,
+  breathRegenPerSec: FULL / 3,
+  /** Health loss per second while breath is empty (drowning). */
+  drownDrainPerSec: 4,
   /** Sprint re-engages only above this (the explorer's gate reads it). */
   sprintMinStamina: 10,
   /** Health drain per second PER empty meter (both empty stack to 4/s). */
@@ -68,6 +78,8 @@ export class SurvivalSystem implements System {
   private stamina = FULL;
   private hunger = FULL;
   private thirst = FULL;
+  private breath = FULL;
+  private submerged = false;
   private alive = true;
   private deaths = 0;
   private canDrink = false;
@@ -115,6 +127,8 @@ export class SurvivalSystem implements System {
     this.stamina = FULL;
     this.hunger = TUNE.respawnLevel;
     this.thirst = TUNE.respawnLevel;
+    this.breath = FULL; // you wake on dry land
+    this.submerged = false;
     this.alive = true;
     this.explorer.respawn(this.respawnPoint);
     this.session.setPaused("death", false);
@@ -137,9 +151,27 @@ export class SurvivalSystem implements System {
     this.thirst -= TUNE.thirstPerSec * (s.sprinting ? TUNE.sprintThirstFactor : 1) * dt;
     this.hunger -= TUNE.hungerPerSec * dt;
 
-    // Stamina spends on sprint, recovers otherwise.
-    if (s.sprinting) this.stamina -= TUNE.staminaDrainPerSec * dt;
+    // Stamina: on land sprint spends and rest recovers; in the water the
+    // swimming itself costs (#184) — a sliver at cruise, a third of sprint at
+    // sprint-swim, and the river's grip wrings you at the FULL sprint rate
+    // even adrift. A still float rests like standing still does.
+    if (s.mode === "swim") {
+      const factor = s.gripped
+        ? 1
+        : s.sprinting
+          ? TUNE.sprintSwimStaminaFactor
+          : s.speed > 0.1
+            ? TUNE.swimStaminaFactor
+            : 0;
+      if (factor > 0) this.stamina -= TUNE.staminaDrainPerSec * factor * dt;
+      else this.stamina += TUNE.staminaRegenPerSec * dt;
+    } else if (s.sprinting) this.stamina -= TUNE.staminaDrainPerSec * dt;
     else this.stamina += TUNE.staminaRegenPerSec * dt;
+
+    // Breath (#184): drains while the eye is under, refills fast surfaced.
+    this.submerged = s.submerged;
+    if (this.submerged) this.breath -= TUNE.breathDrainPerSec * dt;
+    else this.breath += TUNE.breathRegenPerSec * dt;
 
     // Water within reach: underfoot or a step ahead of where you face.
     const fwd = forwardXZFromYaw(s.yaw);
@@ -159,10 +191,12 @@ export class SurvivalSystem implements System {
       this.thirst = Math.min(FULL, this.thirst + TUNE.drinkPerGulp);
     }
 
-    // Empty meters bite; a fed, watered explorer slowly mends.
+    // Empty meters bite; a fed, watered explorer slowly mends. Drowning
+    // (breath empty) bites hardest and blocks regen like starving does.
     let drain = 0;
     if (this.thirst <= 0) drain += TUNE.starveDrainPerSec;
     if (this.hunger <= 0) drain += TUNE.starveDrainPerSec;
+    if (this.breath <= 0) drain += TUNE.drownDrainPerSec;
     if (drain > 0) {
       this.health -= drain * dt;
     } else if (
@@ -190,6 +224,7 @@ export class SurvivalSystem implements System {
     this.stamina = Math.min(FULL, Math.max(0, this.stamina));
     this.hunger = Math.min(FULL, Math.max(0, this.hunger));
     this.thirst = Math.min(FULL, Math.max(0, this.thirst));
+    this.breath = Math.min(FULL, Math.max(0, this.breath));
   }
 
   private push(): void {
@@ -198,6 +233,8 @@ export class SurvivalSystem implements System {
       stamina: this.stamina,
       hunger: this.hunger,
       thirst: this.thirst,
+      breath: this.breath,
+      submerged: this.submerged,
       alive: this.alive,
       deaths: this.deaths,
       canDrink: this.canDrink,
@@ -210,6 +247,8 @@ export class SurvivalSystem implements System {
       stamina: Math.round(this.stamina),
       hunger: Math.round(this.hunger),
       thirst: Math.round(this.thirst),
+      breath: Math.round(this.breath),
+      submerged: this.submerged,
       alive: this.alive,
       deaths: this.deaths,
       canDrink: this.canDrink,

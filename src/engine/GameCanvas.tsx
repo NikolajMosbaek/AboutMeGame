@@ -18,6 +18,7 @@ import { JournalPanel } from "../ui/JournalPanel.tsx";
 import { DiscoveryAnnouncer } from "../ui/DiscoveryAnnouncer.tsx";
 import { TreasurePanel } from "../ui/TreasurePanel.tsx";
 import { SurvivalMeters } from "../ui/SurvivalMeters.tsx";
+import { UnderwaterOverlay } from "../ui/UnderwaterOverlay.tsx";
 import { DeathOverlay } from "../ui/DeathOverlay.tsx";
 import { ActionHint } from "../ui/ActionHint.tsx";
 import { TouchActionButton } from "../ui/TouchActionButton.tsx";
@@ -371,6 +372,7 @@ export function GameCanvas({
           />
           {game.survival && (
             <>
+              <UnderwaterOverlay survival={game.survival.store} />
               <SurvivalMeters survival={game.survival.store} />
               <DeathOverlay survival={game.survival.store} onRespawn={game.survival.respawn} />
               <ActionHint

@@ -70,3 +70,46 @@ describe("FirstPersonCameraSystem (pivot slice B)", () => {
     expect(spreadReduced).toBeLessThan(1e-6); // dead level under reduced motion
   });
 });
+
+describe("FirstPersonCameraSystem while swimming (#184)", () => {
+  function swimRig() {
+    const engine = fakeEngine();
+    const input = fakeInput();
+    // Uniform deep water; a boundless lagoon zone makes it swimmable.
+    const t = flat(-5);
+    const explorer = new ExplorerSystem(
+      input.snap, t, open(), (x, z) => 0 - t.heightAt(x, z), { x: 0, z: 0 },
+      undefined, undefined, { inLagoon: () => true, riverFlowAt: () => null },
+    );
+    const cam = new FirstPersonCameraSystem(engine, explorer);
+    return { engine, input, explorer, cam };
+  }
+
+  it("rides the swimming eye height, not the walking one", () => {
+    const { engine, explorer, cam } = swimRig();
+    explorer.update(ctx); // enters the swim, floats at the surface
+    cam.update(ctx);
+    expect(explorer.state.mode).toBe("swim");
+    expect(engine.camera.position.y).toBeCloseTo(
+      explorer.state.position.y + TUNE.swimEyeHeight,
+      5,
+    );
+  });
+
+  it("does not head-bob in the water, even at cruise speed", () => {
+    const { engine, input, explorer, cam } = swimRig();
+    input.state.moveZ = 1;
+    const ys: number[] = [];
+    const rel: number[] = [];
+    for (let i = 0; i < 120; i++) {
+      explorer.update(ctx);
+      cam.update(ctx);
+      ys.push(engine.camera.position.y);
+      rel.push(engine.camera.position.y - explorer.state.position.y);
+    }
+    expect(explorer.state.speed).toBeGreaterThan(1); // genuinely moving
+    // Eye tracks the body exactly — no stride bob layered on the water line.
+    const spread = Math.max(...rel) - Math.min(...rel);
+    expect(spread).toBeLessThan(1e-6);
+  });
+});

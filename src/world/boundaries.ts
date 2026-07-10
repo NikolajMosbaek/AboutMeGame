@@ -92,6 +92,12 @@ export function buildBoundaries(
     opacity: 0.82,
     roughness: 0.25,
     metalness: 0.1,
+    // Swimming (#184) puts the camera under the plane: without the back
+    // faces the surface would vanish overhead. Cost: the water's fragments
+    // shade from below too — one 64×64 plane, a few extra ms of fill only
+    // while the surface is actually on screen from beneath; no extra draw
+    // call (three renders both sides in the same pass).
+    side: THREE.DoubleSide,
   });
 
   // Bake the ground-height lookup texture only when `heightAt` is injected; the

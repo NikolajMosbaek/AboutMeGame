@@ -11,12 +11,12 @@ function text(entry: ControlEntry): string {
 }
 
 describe("resolveControlScheme", () => {
-  it("returns the full first-person keyboard table (W A S D / Mouse / Shift / E / Esc)", () => {
+  it("returns the full first-person keyboard table (W A S D / Mouse / Shift / Space / E / Esc)", () => {
     const scheme = resolveControlScheme("keyboard");
     expect(scheme.channel).toBe("keyboard");
 
     const labels = scheme.entries.map((e) => e.label);
-    for (const key of ["W A S D", "Mouse", "Shift", "E", "Esc"]) {
+    for (const key of ["W A S D", "Mouse", "Shift", "Space", "E", "Esc"]) {
       expect(labels).toContain(key);
     }
 
@@ -28,10 +28,14 @@ describe("resolveControlScheme", () => {
     expect(byLabel("Shift")).toBe("Sprint");
     expect(byLabel("E")).toBe("Use / examine");
     expect(byLabel("Esc")).toBe("Menu");
+    // Swimming (#184): Space is a real binding again, and the one line of
+    // water lore rides with it — the lagoon swims, the river grips.
+    expect(byLabel("Space")).toMatch(/swim where you look/i);
+    expect(byLabel("Space")).toMatch(/current is not your friend/i);
 
     // The vehicle-era hints are gone.
     expect(labels).not.toContain("F");
-    expect(labels).not.toContain("Space");
+    expect(labels).not.toContain("FLY");
   });
 
   it("returns the on-screen touch controls (joystick / look drag / action button) and never 'W A S D'", () => {

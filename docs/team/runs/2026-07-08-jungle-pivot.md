@@ -33,6 +33,14 @@ This outranks the charter's previous vision and the pre-pivot board ordering.
    progress kept.
 6. **Design spec:** `docs/design/2026-07-08-the-lost-idol-design.md` (binding).
    Slices A–I defined there; one issue/branch/PR each.
+7. **Swimming is lagoon-scoped, with a river current** (owner's call,
+   2026-07-10; supersedes the design doc's "no swimming in v1" non-goal). The
+   calm LAGOON basin becomes free swim/dive water (breath meter, underwater
+   fog + wash, kelp/lily dressing); the deep RIVER channel does NOT open up —
+   it grips with a downstream current you can barely fight, releasing at the
+   lagoon or at wade-depth ground. Fords keep working; the clue prose is
+   untouched — clue 2's "what the river carved, it keeps" is now literally
+   true in the mechanics.
 
 ## Verification plan
 

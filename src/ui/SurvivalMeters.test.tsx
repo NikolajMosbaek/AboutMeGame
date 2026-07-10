@@ -10,6 +10,8 @@ function fullSnapshot() {
     stamina: 100,
     hunger: 100,
     thirst: 100,
+    breath: 100,
+    submerged: false,
     alive: true,
     deaths: 0,
     canDrink: false,
@@ -37,6 +39,34 @@ describe("SurvivalMeters (pivot slice D)", () => {
     expect(container.querySelector(".meter--health")!.className).not.toContain("meter--low");
   });
 
+  it("hides the breath bar while surfaced at full air", () => {
+    const survival = createSurvivalStore();
+    survival.set(fullSnapshot());
+    render(<SurvivalMeters survival={survival} />);
+    expect(screen.queryByRole("img", { name: /breath/i })).not.toBeInTheDocument();
+  });
+
+  it("shows the breath bar while submerged, and while refilling below full", () => {
+    const survival = createSurvivalStore();
+    survival.set({ ...fullSnapshot(), submerged: true });
+    const { unmount } = render(<SurvivalMeters survival={survival} />);
+    expect(screen.getByRole("img", { name: "Breath 100 of 100" })).toBeInTheDocument();
+    unmount();
+
+    // Surfaced but not yet refilled: the bar stays until it reads full again.
+    const refilling = createSurvivalStore();
+    refilling.set({ ...fullSnapshot(), submerged: false, breath: 64 });
+    const { container } = render(<SurvivalMeters survival={refilling} />);
+    expect(screen.getByRole("img", { name: "Breath 64 of 100" })).toBeInTheDocument();
+    expect(container.querySelector(".meter--breath")).toBeInTheDocument();
+  });
+
+  it("flags low breath like any other meter", () => {
+    const survival = createSurvivalStore();
+    survival.set({ ...fullSnapshot(), submerged: true, breath: LOW_METER });
+    const { container } = render(<SurvivalMeters survival={survival} />);
+    expect(container.querySelector(".meter--breath")!.className).toContain("meter--low");
+  });
 });
 
 describe("DeathOverlay (pivot slice D)", () => {

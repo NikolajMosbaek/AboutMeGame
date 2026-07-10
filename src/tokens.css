@@ -397,6 +397,18 @@ body {
 .meter--stamina .meter__fill { background: #e8c94e; }
 .meter--hunger .meter__fill { background: #c78b4e; }
 .meter--thirst .meter__fill { background: #58a6d6; }
+.meter--breath .meter__fill { background: #55dfe0; }
+
+/* Underwater wash (#184): a static translucent teal film over the whole view
+   while the eye is below the surface. Below the HUD (z 12) so meters and
+   prompts stay readable through the water; pointer-events none — visual only. */
+.underwater-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(14, 74, 86, 0.38);
+  pointer-events: none;
+  z-index: 8;
+}
 
 /* Low-meter attention flash — non-essential motion, so both reduced-motion
    gates suppress it (the colour + width still carry the state). */

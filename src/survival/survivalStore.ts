@@ -10,6 +10,10 @@ export interface SurvivalSnapshot {
   stamina: number;
   hunger: number;
   thirst: number;
+  /** Air left, 0..100 (#184) — drains submerged, refills surfaced. */
+  breath: number;
+  /** The eye is underwater right now (breath bar + underwater wash show). */
+  submerged: boolean;
   /** False from the moment health hits 0 until the respawn. */
   alive: boolean;
   /** Times the jungle has won this session (the completion screen tells). */
@@ -35,6 +39,8 @@ export function createSurvivalStore(): SurvivalStore {
     stamina: FULL,
     hunger: FULL,
     thirst: FULL,
+    breath: FULL,
+    submerged: false,
     alive: true,
     deaths: 0,
     canDrink: false,
@@ -51,11 +57,14 @@ export function createSurvivalStore(): SurvivalStore {
       const stamina = Math.round(next.stamina);
       const hunger = Math.round(next.hunger);
       const thirst = Math.round(next.thirst);
+      const breath = Math.round(next.breath);
       if (
         health === snapshot.health &&
         stamina === snapshot.stamina &&
         hunger === snapshot.hunger &&
         thirst === snapshot.thirst &&
+        breath === snapshot.breath &&
+        next.submerged === snapshot.submerged &&
         next.alive === snapshot.alive &&
         next.deaths === snapshot.deaths &&
         next.canDrink === snapshot.canDrink
@@ -67,6 +76,8 @@ export function createSurvivalStore(): SurvivalStore {
         stamina,
         hunger,
         thirst,
+        breath,
+        submerged: next.submerged,
         alive: next.alive,
         deaths: next.deaths,
         canDrink: next.canDrink,

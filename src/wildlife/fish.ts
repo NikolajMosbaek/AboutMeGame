@@ -42,14 +42,27 @@ export interface Pool {
   z: number;
 }
 
+/** Extra lagoon-basin candidates over the kelp beds (#184): fish are dealt to
+ *  pools round-robin, so more lagoon pools = more fish where the player now
+ *  swims. Offsets stay well inside `LAGOON.radius`, at full basin depth. */
+const LAGOON_POOL_OFFSETS = [
+  { dx: 0, dz: 0 },
+  { dx: 10, dz: -6 },
+  { dx: -9, dz: 7 },
+] as const;
+
 /**
- * Candidate pool centres deep enough to hold fish: the lagoon plus every
+ * Candidate pool centres deep enough to hold fish: the lagoon (weighted with
+ * the kelp-bed offsets above, so the swimmable water reads alive) plus every
  * river-course point (`RIVER.points`, the channel's own centreline, always at
  * full bed depth). Filtered live against `waterDepthAt` rather than hardcoded,
  * so a future reshape of the river/lagoon keeps this correct for free.
  */
 export function selectPools(waterDepthAt: WaterDepthAt): Pool[] {
-  const candidates: Pool[] = [{ x: LAGOON.x, z: LAGOON.z }, ...RIVER.points];
+  const candidates: Pool[] = [
+    ...LAGOON_POOL_OFFSETS.map((o) => ({ x: LAGOON.x + o.dx, z: LAGOON.z + o.dz })),
+    ...RIVER.points,
+  ];
   return candidates.filter((p) => waterDepthAt(p.x, p.z) > MIN_POOL_DEPTH);
 }
 
@@ -176,6 +189,15 @@ export class FishSystem implements System {
     this.states = Array.from({ length: FISH_COUNT }, (_, i) =>
       initialFishState(this.pools[i % this.pools.length], i),
     );
+
+    // Subtle per-instance shade variation (#184) — deterministic by index, so
+    // the school doesn't read as twelve copies of one shadow. instanceColor
+    // multiplies the stamped vertex colour; costs nothing per frame.
+    const tint = new THREE.Color();
+    for (let i = 0; i < FISH_COUNT; i++) {
+      this.mesh.setColorAt(i, tint.setHex(0xffffff).offsetHSL(0, 0, ((i % 5) - 2) * 0.05));
+    }
+    if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
   }
 
   update(ctx: FrameContext): void {
