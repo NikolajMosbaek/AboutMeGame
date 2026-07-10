@@ -13,6 +13,7 @@ function rig(opts: { found?: string[]; at?: { x: number; z: number } } = {}) {
   const store = createQuestStore(CLUES.length);
   const session = createSession();
   const reveal = vi.fn();
+  const onFinaleStart = vi.fn();
   let found = opts.found ?? [];
   let panelOpen = false;
   let interact = false;
@@ -35,12 +36,15 @@ function rig(opts: { found?: string[]; at?: { x: number; z: number } } = {}) {
     store,
     session,
     reveal,
+    undefined,
+    onFinaleStart,
   );
   return {
     sys,
     store,
     session,
     reveal,
+    onFinaleStart,
     player,
     press: () => (interact = true),
     setFound: (ids: string[]) => (found = ids),
@@ -78,21 +82,87 @@ describe("QuestSystem (pivot slice G)", () => {
     expect(ready.store.getSnapshot().digOwnsKey).toBe(true);
   });
 
-  it("digging takes ~digSeconds of holding your ground, then reveals + pauses", () => {
+  it("digging takes ~digSeconds of holding your ground, then the finale runs unpaused", () => {
     const r = rig({ found: CLUES, at: DIG });
     r.press();
     run(r, 1); // consume: dig starts
     expect(r.store.getSnapshot().digProgress).not.toBeNull();
 
     run(r, Math.ceil(TUNE.digSeconds * FPS) + 2);
+    // Dig complete ⇒ the spectacle, NOT the win yet: chest up, birds startled,
+    // world still live — treasureFound (the panel's edge) waits for the end.
     const s = r.store.getSnapshot();
-    expect(s.treasureFound).toBe(true);
+    expect(s.finaleActive).toBe(true);
+    expect(s.treasureFound).toBe(false);
     expect(s.digProgress).toBeNull();
     expect(r.reveal).toHaveBeenCalledOnce();
+    expect(r.onFinaleStart).toHaveBeenCalledOnce();
+    expect(r.session.paused).toBe(false);
+  });
+
+  it("the finale ends after ~finaleSeconds: treasureFound flips and the session pauses", () => {
+    const r = rig({ found: CLUES, at: DIG });
+    r.press();
+    run(r, Math.ceil(TUNE.digSeconds * FPS) + 2);
+    expect(r.store.getSnapshot().finaleActive).toBe(true);
+
+    run(r, Math.ceil(TUNE.finaleSeconds * FPS) + 2);
+    const s = r.store.getSnapshot();
+    expect(s.finaleActive).toBe(false);
+    expect(s.treasureFound).toBe(true);
     expect(r.session.isPaused("treasure")).toBe(true);
+    expect(r.onFinaleStart).toHaveBeenCalledOnce();
     // Stats froze at the win (the panel reads them from the same snapshot).
     expect(s.deaths).toBe(2);
     expect(s.fruitEaten).toBe(7);
+  });
+
+  it("the dig never re-arms during the finale", () => {
+    const r = rig({ found: CLUES, at: DIG });
+    r.press();
+    run(r, Math.ceil(TUNE.digSeconds * FPS) + 2);
+    expect(r.store.getSnapshot().finaleActive).toBe(true);
+    expect(r.store.getSnapshot().digOwnsKey).toBe(false);
+
+    r.press();
+    run(r, 1);
+    expect(r.store.getSnapshot().digProgress).toBeNull();
+    expect(r.reveal).toHaveBeenCalledOnce();
+  });
+
+  it("publishes the missing-page count only at the dig patch", () => {
+    // Away from the dig the count is 0 — it means nothing there.
+    const away = rig({ found: ["a", "b", "c"], at: { x: 0, z: 0 } });
+    run(away, 1);
+    expect(away.store.getSnapshot().missingPages).toBe(0);
+
+    // At the dig with 3 of 6 read: 3 missing (the locked-dig hint's count).
+    const locked = rig({ found: ["a", "b", "c"], at: DIG });
+    run(locked, 1);
+    expect(locked.store.getSnapshot().missingPages).toBe(3);
+    expect(locked.store.getSnapshot().digOwnsKey).toBe(false);
+
+    // The fig's own unread page counts too: 5 of 6 read ⇒ 1 missing.
+    const oneShort = rig({ found: CLUES.slice(0, 5), at: DIG });
+    run(oneShort, 1);
+    expect(oneShort.store.getSnapshot().missingPages).toBe(1);
+
+    // All read ⇒ nothing missing, the dig owns the key instead.
+    const ready = rig({ found: CLUES, at: DIG });
+    run(ready, 1);
+    expect(ready.store.getSnapshot().missingPages).toBe(0);
+    expect(ready.store.getSnapshot().digOwnsKey).toBe(true);
+  });
+
+  it("clears the missing-page count once the treasure is found", () => {
+    const r = rig({ found: CLUES, at: DIG });
+    r.press();
+    run(r, Math.ceil((TUNE.digSeconds + TUNE.finaleSeconds) * FPS) + 4);
+    expect(r.store.getSnapshot().treasureFound).toBe(true);
+    r.session.setPaused("treasure", false);
+    r.setFound(["a"]); // impossible in prod (pages persist) — a pure guard check
+    run(r, 1);
+    expect(r.store.getSnapshot().missingPages).toBe(0);
   });
 
   it("walking off the patch cancels the dig", () => {
@@ -146,7 +216,7 @@ describe("QuestSystem (pivot slice G)", () => {
   it("digs exactly once: after the treasure, presses at the patch flow on", () => {
     const r = rig({ found: CLUES, at: DIG });
     r.press();
-    run(r, Math.ceil(TUNE.digSeconds * FPS) + 2);
+    run(r, Math.ceil((TUNE.digSeconds + TUNE.finaleSeconds) * FPS) + 4);
     expect(r.store.getSnapshot().treasureFound).toBe(true);
     r.session.setPaused("treasure", false); // "keep exploring"
 

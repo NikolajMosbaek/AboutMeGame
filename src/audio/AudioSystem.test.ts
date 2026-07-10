@@ -16,6 +16,7 @@ function fakeEngine() {
     hurtThud: vi.fn(),
     digThud: vi.fn(),
     snakeAlert: vi.fn(),
+    growl: vi.fn(),
     fanfare: vi.fn(),
     deathSting: vi.fn(),
     birdChirp: vi.fn(),
@@ -66,11 +67,18 @@ function survivalSource(snap: { thirst: number; health: number; alive: boolean }
 function forageSource(snap: { eaten: number }) {
   return { getSnapshot: () => snap };
 }
-function questSource(snap: { digProgress: number | null; treasureFound: boolean }) {
+function questSource(snap: {
+  digProgress: number | null;
+  finaleActive: boolean;
+  treasureFound: boolean;
+}) {
   return { getSnapshot: () => snap };
 }
 function snakeSource(alert: boolean) {
   return { anyAlert: () => alert };
+}
+function jaguarSource(stalking: boolean) {
+  return { isStalking: () => stalking };
 }
 
 // A fully-neutral rig — nothing rises, nothing moves — for tests that only
@@ -83,8 +91,9 @@ function neutralArgs() {
     waterDepthAt: NO_WATER,
     survival: survivalSource({ thirst: 50, health: 100, alive: true }),
     forage: forageSource({ eaten: 0 }),
-    quest: questSource({ digProgress: null, treasureFound: false }),
+    quest: questSource({ digProgress: null, finaleActive: false, treasureFound: false }),
     snakes: snakeSource(false),
+    jaguar: jaguarSource(false),
   };
 }
 
@@ -103,6 +112,7 @@ function makeSystem(overrides: Partial<ReturnType<typeof neutralArgs>> = {}) {
     args.forage,
     args.quest,
     args.snakes,
+    args.jaguar,
   );
   return { engine, store, sys, args };
 }
@@ -140,6 +150,7 @@ describe("AudioSystem", () => {
       args.forage,
       args.quest,
       args.snakes,
+      args.jaguar,
     );
 
     expect(engine.chime).not.toHaveBeenCalled(); // mount didn't re-chime saved progress
@@ -288,8 +299,30 @@ describe("AudioSystem", () => {
     expect(engine.deathSting).toHaveBeenCalledTimes(1);
   });
 
+  it("fires the fanfare at finale START, not again when treasureFound lands at its end", () => {
+    const quest = questSource({ digProgress: null, finaleActive: false, treasureFound: false });
+    const { engine, sys } = makeSystem({ quest });
+
+    sys.update(CTX());
+    expect(engine.fanfare).not.toHaveBeenCalled();
+
+    // Dig completes ⇒ the finale begins — the fanfare lands HERE, with the
+    // motes and the startled birds, not 4.5 s later behind the panel.
+    quest.getSnapshot().finaleActive = true;
+    sys.update(CTX());
+    expect(engine.fanfare).toHaveBeenCalledTimes(1);
+
+    // Finale ends: treasureFound flips as finaleActive drops — same
+    // celebration, no second fanfare.
+    quest.getSnapshot().finaleActive = false;
+    quest.getSnapshot().treasureFound = true;
+    sys.update(CTX());
+    sys.update(CTX());
+    expect(engine.fanfare).toHaveBeenCalledTimes(1);
+  });
+
   it("thuds each dig third exactly once and fanfares once on treasure found", () => {
-    const quest = questSource({ digProgress: null, treasureFound: false });
+    const quest = questSource({ digProgress: null, finaleActive: false, treasureFound: false });
     const { engine, sys } = makeSystem({ quest });
 
     sys.update(CTX());
@@ -320,6 +353,27 @@ describe("AudioSystem", () => {
     expect(engine.fanfare).toHaveBeenCalledTimes(1);
     sys.update(CTX());
     expect(engine.fanfare).toHaveBeenCalledTimes(1);
+  });
+
+  it("growls once on the jaguar's stalk rising edge, and again for a fresh stalk", () => {
+    let stalking = false;
+    const jaguar = { isStalking: () => stalking };
+    const { engine, sys } = makeSystem({ jaguar });
+
+    sys.update(CTX());
+    expect(engine.growl).not.toHaveBeenCalled();
+
+    stalking = true; // the jaguar commits — the warning IS the mechanic
+    sys.update(CTX());
+    expect(engine.growl).toHaveBeenCalledTimes(1);
+    sys.update(CTX()); // held stalk ⇒ no re-fire
+    expect(engine.growl).toHaveBeenCalledTimes(1);
+
+    stalking = false; // broke off (camp, water, distance)
+    sys.update(CTX());
+    stalking = true; // a new hunt, a new warning
+    sys.update(CTX());
+    expect(engine.growl).toHaveBeenCalledTimes(2);
   });
 
   it("rattles once on the snake-alert rising edge", () => {

@@ -17,9 +17,11 @@
 //  - drink (thirst rises) → gulp, eat (fruit eaten rises) → bite, health drops
 //    sharply → hurt thud, alive falls → death sting — all edges off the
 //    survival/forage stores;
-//  - dig progress crosses a third → dig thud; treasure found → fanfare — edges
-//    off the quest store;
+//  - dig progress crosses a third → dig thud; the finale begins (dig complete)
+//    → fanfare — edges off the quest store;
 //  - a snake goes alert/strikes → rattle, on the rising edge of `anyAlert()`;
+//  - the jaguar commits to a stalk → low growl, on the rising edge of
+//    `isStalking()` (same polled-warning posture as the rattle);
 //  - the ambient bed's day/night crossfade and river proximity, driven every
 //    frame from the world's day phase and water-depth field, plus sparse
 //    bird/owl one-shot accents on their own timer;
@@ -67,10 +69,10 @@ export interface ForageSource {
   getSnapshot(): { eaten: number };
 }
 
-/** The quest's live read — dig progress and the win flag. A `QuestStore`
- *  satisfies it via `getSnapshot()`. */
+/** The quest's live read — dig progress, the finale window and the win flag.
+ *  A `QuestStore` satisfies it via `getSnapshot()`. */
 export interface QuestSource {
-  getSnapshot(): { digProgress: number | null; treasureFound: boolean };
+  getSnapshot(): { digProgress: number | null; finaleActive: boolean; treasureFound: boolean };
 }
 
 /** Whether any snake is alert or mid-strike right now — polled (not a
@@ -78,6 +80,14 @@ export interface QuestSource {
  *  same posture as `HurtFn`. `SnakesSystem` satisfies it via `anyAlert()`. */
 export interface SnakeAlertSource {
   anyAlert(): boolean;
+}
+
+/** Whether the jaguar is committed to the player (stalk or charge) — polled
+ *  on the same posture as {@link SnakeAlertSource}. `JaguarSystem` satisfies
+ *  it via `isStalking()`. The growl is the warning: hearing it means head for
+ *  the camp, the water, or open ground. */
+export interface JaguarStalkSource {
+  isStalking(): boolean;
 }
 
 // --- Tuning (pacing/thresholds, no magic numbers below) ---------------------
@@ -148,8 +158,12 @@ export class AudioSystem implements System {
   private lastAlive: boolean;
   private lastEaten: number;
   private lastDigThird = 0;
-  private lastTreasureFound: boolean;
+  /** True once the celebration (finale OR the win it ends in) has begun —
+   *  the fanfare fires on this edge, i.e. at dig completion, not 4.5 s later
+   *  when the panel's pause lands. */
+  private lastCelebrating: boolean;
   private lastSnakeAlert = false;
+  private lastJaguarStalking = false;
 
   constructor(
     private readonly engine: AudioEngine,
@@ -162,6 +176,7 @@ export class AudioSystem implements System {
     private readonly forage: ForageSource,
     private readonly quest: QuestSource,
     private readonly snakes: SnakeAlertSource,
+    private readonly jaguar: JaguarStalkSource,
   ) {
     // Apply the persisted mute before anything plays.
     this.engine.setMuted(this.muted.getSnapshot().muted);
@@ -184,7 +199,8 @@ export class AudioSystem implements System {
     this.lastHealth = sv.health;
     this.lastAlive = sv.alive;
     this.lastEaten = this.forage.getSnapshot().eaten;
-    this.lastTreasureFound = this.quest.getSnapshot().treasureFound;
+    const q = this.quest.getSnapshot();
+    this.lastCelebrating = q.finaleActive || q.treasureFound;
   }
 
   update(ctx: FrameContext): void {
@@ -257,13 +273,22 @@ export class AudioSystem implements System {
       if (third > this.lastDigThird) this.engine.digThud();
       this.lastDigThird = third;
     }
-    if (q.treasureFound && !this.lastTreasureFound) this.engine.fanfare();
-    this.lastTreasureFound = q.treasureFound;
+    // Fanfare on the celebration's rising edge — finale start (dig complete).
+    // `finaleActive || treasureFound` stays true across the finale→won
+    // handover, so the win itself never re-fires it.
+    const celebrating = q.finaleActive || q.treasureFound;
+    if (celebrating && !this.lastCelebrating) this.engine.fanfare();
+    this.lastCelebrating = celebrating;
 
     // Snake alert rising edge → rattle warning.
     const alert = this.snakes.anyAlert();
     if (alert && !this.lastSnakeAlert) this.engine.snakeAlert();
     this.lastSnakeAlert = alert;
+
+    // Jaguar stalk rising edge → low growl (the predator's own warning seam).
+    const stalking = this.jaguar.isStalking();
+    if (stalking && !this.lastJaguarStalking) this.engine.growl();
+    this.lastJaguarStalking = stalking;
   }
 
   dispose(): void {

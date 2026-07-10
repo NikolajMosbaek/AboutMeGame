@@ -9,8 +9,15 @@ export interface QuestSnapshot {
   /** Standing at the dig patch with every page read, treasure still buried —
    *  the dig owns the interact key right now. */
   digOwnsKey: boolean;
+  /** Pages still unread while standing at the dig patch with the treasure
+   *  buried — the "dig-locked" hint's count. 0 anywhere else (the number is
+   *  only meaningful at the dig, where it explains the locked dig). */
+  missingPages: number;
   /** 0..1 while digging; null when not. Cancelled by walking away. */
   digProgress: number | null;
+  /** The ~4.5 s completion spectacle is running: chest up, motes rising,
+   *  world still live. Ends by flipping `treasureFound`. */
+  finaleActive: boolean;
   /** The idol is out of the ground — the expedition is over. */
   treasureFound: boolean;
   /** Play-time seconds (pauses excluded), whole seconds for display. */
@@ -32,7 +39,9 @@ export function createQuestStore(cluesTotal: number): QuestStore {
     cluesFound: 0,
     cluesTotal,
     digOwnsKey: false,
+    missingPages: 0,
     digProgress: null,
+    finaleActive: false,
     treasureFound: false,
     playSeconds: 0,
     deaths: 0,
@@ -52,7 +61,9 @@ export function createQuestStore(cluesTotal: number): QuestStore {
       if (
         next.cluesFound === snapshot.cluesFound &&
         next.digOwnsKey === snapshot.digOwnsKey &&
+        next.missingPages === snapshot.missingPages &&
         progress === snapshot.digProgress &&
+        next.finaleActive === snapshot.finaleActive &&
         next.treasureFound === snapshot.treasureFound &&
         playSeconds === snapshot.playSeconds &&
         next.deaths === snapshot.deaths &&
@@ -64,7 +75,9 @@ export function createQuestStore(cluesTotal: number): QuestStore {
         cluesFound: next.cluesFound,
         cluesTotal: snapshot.cluesTotal,
         digOwnsKey: next.digOwnsKey,
+        missingPages: next.missingPages,
         digProgress: progress,
+        finaleActive: next.finaleActive,
         treasureFound: next.treasureFound,
         playSeconds,
         deaths: next.deaths,

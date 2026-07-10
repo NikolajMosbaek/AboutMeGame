@@ -33,6 +33,8 @@ This outranks the charter's previous vision and the pre-pivot board ordering.
    progress kept.
 6. **Design spec:** `docs/design/2026-07-08-the-lost-idol-design.md` (binding).
    Slices A–I defined there; one issue/branch/PR each.
+7. **Dig-locked feedback (playtest):** standing at the dig with pages missing now explains itself — quest store `missingPages`, a non-interactive "dig-locked" rung on the action ladder, disabled touch state — in the design doc's voice ("You're sure this is the place — but sure isn't certain.").
+8. **Finale + jaguar (owner notes 2026-07-10):** dig completion runs a ~4.5 s unpaused finale (200-mote gold spiral, idol emissive pulse 1.1→2.5→1.4, all flocks startled, fanfare at finale start) before `treasureFound` pauses for the panel; and one hit-and-run jaguar (prowl→stalk→charge→strike→retreat, 90 s cooldown, camp/water/distance escapes, night-bolder, growl warning) hunts the west valley + northern highland.
 
 ## Verification plan
 

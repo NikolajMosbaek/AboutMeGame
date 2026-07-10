@@ -149,6 +149,20 @@ describe("BirdsSystem", () => {
     expect(state.flocks[0]).toBe("scatter");
   });
 
+  it("startle() sends every flock into a fresh scatter at once (the treasure finale)", () => {
+    const { sys } = rig(1000, 1000); // player far away — nothing would scatter alone
+    for (let i = 0; i < 10; i++) sys.update(FRAME);
+    expect(sys.describe()).toEqual({ flocks: ["orbit", "orbit"] });
+
+    sys.startle();
+    expect(sys.describe()).toEqual({ flocks: ["scatter", "scatter"] });
+
+    // A committed startle, exactly like a player-triggered one: it holds for
+    // the scatter minimum even with no one nearby.
+    for (let i = 0; i < Math.floor((SCATTER_MIN_DURATION - 0.2) * 60); i++) sys.update(FRAME);
+    expect(sys.describe()).toEqual({ flocks: ["scatter", "scatter"] });
+  });
+
   it("disposes every geometry/material without throwing, and detaches from the scene", () => {
     const { scene, sys } = rig();
     expect(() => sys.dispose()).not.toThrow();

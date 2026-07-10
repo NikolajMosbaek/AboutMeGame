@@ -103,8 +103,8 @@ const RIVER_EPSILON = 0.02;
 
 /**
  * AudioEngine — synthesises the jungle's whole soundscape. One-shots (footstep,
- * drink, eat, hurt, snake rattle, dig thud, fanfare, death sting, clue chime,
- * sprint breath, bird/owl accents) are single voices that stop and disconnect
+ * drink, eat, hurt, snake rattle, jaguar growl, dig thud, fanfare, death sting,
+ * clue chime, sprint breath, bird/owl accents) are single voices that stop and disconnect
  * themselves; the ambient bed (`startMusic`/`stopMusic`) is the two persistent
  * layers described above. `setMuted` gates everything at the master gain.
  * Browsers spawn a context "suspended" until a user gesture, so the constructor
@@ -277,6 +277,31 @@ export class AudioEngine {
       const freq = i % 2 === 0 ? 1700 : 1500;
       this.blip(freq, t + i * 0.045, 0.03, 0.12, "square");
     }
+  }
+
+  /** A long low rumble sliding downward — the jaguar has committed to you.
+   *  One-shot on the stalk's rising edge; like the rattle, the warning IS the
+   *  mechanic: hearing it means make for the camp, the water, or distance. */
+  growl(): void {
+    if (!this.canPlay()) return;
+    const t = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const filter = this.ctx.createBiquadFilter();
+    const gain = this.ctx.createGain();
+    osc.type = "sawtooth";
+    filter.type = "lowpass";
+    filter.frequency.value = 220;
+    filter.Q.value = 2;
+    osc.frequency.setValueAtTime(70, t);
+    osc.frequency.exponentialRampToValueAtTime(45, t + 0.9);
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.linearRampToValueAtTime(0.22, t + 0.12);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 1.0);
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.master);
+    osc.start(t);
+    osc.stop(t + 1.05);
   }
 
   /** A bright four-note ascending fanfare — the idol comes out of the ground. */
