@@ -11,6 +11,9 @@ import { NavSystem } from "./ui/NavSystem.ts";
 import { createSettingsStore, type SettingsStore } from "./settings/settingsStore.ts";
 import { QUALITY_TIERS, type QualityConfig } from "./perf/quality.ts";
 import { AudioEngine, type AudioContextFactory } from "./audio/AudioEngine.ts";
+import { createSurvivalStore, type SurvivalStore } from "./survival/survivalStore.ts";
+import { SurvivalSystem } from "./survival/SurvivalSystem.ts";
+import { SPAWN } from "./world/worldConfig.ts";
 import { AudioSystem } from "./audio/AudioSystem.ts";
 import { DiscoveryBurstSystem } from "./fx/DiscoveryBurstSystem.ts";
 
@@ -25,6 +28,8 @@ export interface Game {
   nav: NavStore;
   /** Persisted player settings (#41), read/written by the pause menu. */
   settings: SettingsStore;
+  /** Survival meters + death/respawn (pivot slice D). */
+  survival: { store: SurvivalStore; respawn(): void; eat(amount: number): void };
   /** Toggle the sun's shadow casting live (#47), so a quality change in the menu
    *  re-applies shadows in BOTH directions — the renderer's shadowMap.enabled
    *  flag alone can't turn shadows back on once the caster was built without it. */
@@ -60,12 +65,36 @@ export function buildGame(
   ctxFactory: AudioContextFactory | undefined = defaultAudioContextFactory(),
 ): Game {
   const session = createSession();
+  // Survival store exists before the player so the explorer's sprint gate can
+  // read stamina without a circular seam (the system itself registers later,
+  // after discovery, because the two share the interact edge — clues first).
+  const survivalStore = createSurvivalStore();
   // Settings come first now: the world's beacon pulse reads `reducedMotion` from
   // it live (#49), so non-essential motion is gated by the in-game toggle too.
   const settings = createSettingsStore();
   const world = buildWorld(engine, quality, settings);
-  const player = buildPlayer(engine, world, overlay, session, settings);
+  const player = buildPlayer(
+    engine,
+    world,
+    overlay,
+    session,
+    settings,
+    () => survivalStore.getSnapshot().stamina > 10 && survivalStore.getSnapshot().alive,
+  );
   const discovery = buildDiscovery(engine, world, player, session);
+
+  // Survival rules — AFTER discovery in the update order, so an interact press
+  // near a clue site opens the clue and only a free press reaches the drink.
+  const survivalSystem = new SurvivalSystem(
+    player.explorer,
+    player.input,
+    world.waterDepthAt,
+    survivalStore,
+    discovery.store,
+    session,
+    SPAWN,
+  );
+  engine.addSystem(survivalSystem);
 
   // HUD telemetry feed — registered after the explorer so it reads fresh state.
   const hud = createHudStore();
@@ -116,6 +145,11 @@ export function buildGame(
     hud,
     nav,
     settings,
+    survival: {
+      store: survivalStore,
+      respawn: () => survivalSystem.respawn(),
+      eat: (amount: number) => survivalSystem.eat(amount),
+    },
     setShadowsEnabled(enabled) {
       world.sky.sun.castShadow = enabled;
     },

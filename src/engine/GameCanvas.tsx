@@ -17,6 +17,9 @@ import { SettingsMenu } from "../ui/SettingsMenu.tsx";
 import { JournalPanel } from "../ui/JournalPanel.tsx";
 import { DiscoveryAnnouncer } from "../ui/DiscoveryAnnouncer.tsx";
 import { CompletionPanel } from "../ui/CompletionPanel.tsx";
+import { SurvivalMeters } from "../ui/SurvivalMeters.tsx";
+import { DeathOverlay } from "../ui/DeathOverlay.tsx";
+import type { SurvivalStore } from "../survival/survivalStore.ts";
 import type { DiscoveryStore } from "../discovery/discoveryStore.ts";
 import type { JournalPoi } from "../content/discoverablePois.ts";
 import type { HudStore } from "../ui/hudStore.ts";
@@ -44,6 +47,9 @@ export interface GameHandle {
   nav: NavStore;
   settings: SettingsStore;
   session: GameSession;
+  /** Survival meters + the death→respawn action (pivot slice D). Optional so a
+   *  minimal preview/test build without survival still mounts. */
+  survival?: { store: SurvivalStore; respawn(): void };
   /** Toggle shadow casting live when graphics quality changes (#47). */
   setShadowsEnabled?: (enabled: boolean) => void;
 }
@@ -327,6 +333,12 @@ export function GameCanvas({
             onOpenMenu={() => setMenuOpen(true)}
             onOpenJournal={() => setJournalOpen(true)}
           />
+          {game.survival && (
+            <>
+              <SurvivalMeters survival={game.survival.store} discovery={game.discovery.store} />
+              <DeathOverlay survival={game.survival.store} onRespawn={game.survival.respawn} />
+            </>
+          )}
           <DiscoveryAnnouncer store={game.discovery.store} />
           <NavMarkers nav={game.nav} />
           <RevealPanel store={game.discovery.store} pois={game.discovery.pois} />

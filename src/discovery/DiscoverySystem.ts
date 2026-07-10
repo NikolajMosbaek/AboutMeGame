@@ -51,20 +51,20 @@ export class DiscoverySystem implements System {
   }
 
   update(_ctx: FrameContext): void {
-    const interact = this.input.consumeInteract();
-
     // The sim is paused while a reveal panel is open — derived here, so closing
     // the panel from any path (button, Escape, click-out, interact) resumes.
     this.session.setPaused("reveal", this.store.getSnapshot().open !== null);
 
     // Panel open: an interact closes it; otherwise stay paused.
     if (this.store.getSnapshot().open) {
-      if (interact) this.store.closePoi();
+      if (this.input.consumeInteract()) this.store.closePoi();
       return;
     }
 
-    // Paused by something else (e.g. the menu): the interact edge is already
-    // drained above, so we just bail — no reveal opens behind the menu.
+    // Paused by something else (e.g. the menu): bail WITHOUT consuming — the
+    // survival system (registered after) drains the edge every frame, so a
+    // press behind the menu still can't leak, and this system only ever eats
+    // presses it actually uses (slice D: E is shared with drinking).
     if (this.session.paused) return;
 
     const p = this.player.state.position;
@@ -85,7 +85,10 @@ export class DiscoverySystem implements System {
         : null,
     );
 
-    if (nearest && inRange && interact) {
+    // Consume the edge ONLY when a site is in range to use it — otherwise the
+    // press flows on to the survival system (drink). Clues outrank a drink
+    // because this system runs first.
+    if (nearest && inRange && this.input.consumeInteract()) {
       this.store.openPoi({ id: nearest.id, order: nearest.order, title: nearest.title, body: nearest.body, interaction: nearest.interaction });
       if (!this.discovered.has(nearest.id)) {
         this.discovered.add(nearest.id);

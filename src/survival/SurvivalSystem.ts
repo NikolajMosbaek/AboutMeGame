@@ -1,0 +1,205 @@
+import type { System, FrameContext } from "../engine/types.ts";
+import type { ExplorerSystem, WaterDepthAt } from "../player/explorer.ts";
+import { forwardXZFromYaw } from "../player/explorer.ts";
+import type { GameSession } from "../gameSession.ts";
+import type { SurvivalStore } from "./survivalStore.ts";
+import { FULL } from "./survivalStore.ts";
+
+/** The interact edge the system consumes for drinking — player input satisfies
+ *  it. Registered AFTER DiscoverySystem, so a press near a clue site is used by
+ *  the site (clues outrank a drink); whatever survives arrives here, and the
+ *  system drains it every frame so no stale press fires later. */
+export interface InteractSource {
+  consumeInteract(): boolean;
+}
+
+/** Whether a site interaction currently owns the E key (in-range prompt up) —
+ *  the discovery store satisfies it. Lets the drink hint hide while a clue
+ *  prompt is showing, so the player is never shown two meanings for one key. */
+export interface SitePromptSource {
+  getSnapshot(): { nearby: { inRange: boolean } | null };
+}
+
+export const TUNE = {
+  /** Thirst: full → empty in ~7 minutes of play. */
+  thirstPerSec: FULL / (7 * 60),
+  /** Sprinting parches you faster. */
+  sprintThirstFactor: 1.6,
+  /** Hunger: full → empty in ~11 minutes. */
+  hungerPerSec: FULL / (11 * 60),
+  /** Stamina: ~6 s of sprint, ~10 s to recover. */
+  staminaDrainPerSec: FULL / 6,
+  staminaRegenPerSec: FULL / 10,
+  /** Sprint re-engages only above this (the explorer's gate reads it). */
+  sprintMinStamina: 10,
+  /** Health drain per second PER empty meter (both empty stack to 4/s). */
+  starveDrainPerSec: 2,
+  /** Health regen per second while fed AND watered (both above half). */
+  regenPerSec: 1,
+  regenThreshold: 50,
+  /** One gulp of river water. */
+  drinkPerGulp: 30,
+  /** Water within reach: at your feet, or this far ahead of you. */
+  drinkReach: 1.9,
+  /** Minimum depth that counts as drinkable water. */
+  drinkMinDepth: 0.05,
+  /** Meters after waking back at camp — weakened, not fresh. */
+  respawnLevel: 75,
+} as const;
+
+/**
+ * The survival rules (pivot slice D): hunger and thirst decay while you play,
+ * sprint spends stamina (the explorer's sprint gate reads the store), empty
+ * meters drain health, food-and-water above half slowly heal you, and reaching
+ * water lets you drink with the interact key — one gulp per press. Health
+ * reaching zero pauses the session under the "death" reason and flips
+ * `alive:false`; the React death overlay calls `respawn()` to wake the player
+ * back at camp with quest progress kept (deaths are counted for the completion
+ * screen). All rates live in TUNE; the store rounds for display, the system
+ * keeps full precision here.
+ *
+ * Eating arrives with the foraging slice via {@link eat} — the seam exists so
+ * fruit restores hunger without that slice touching the decay rules.
+ */
+export class SurvivalSystem implements System {
+  readonly id = "survival";
+
+  private health = FULL;
+  private stamina = FULL;
+  private hunger = FULL;
+  private thirst = FULL;
+  private alive = true;
+  private deaths = 0;
+  private canDrink = false;
+
+  constructor(
+    private readonly explorer: ExplorerSystem,
+    private readonly input: InteractSource,
+    private readonly waterDepthAt: WaterDepthAt,
+    private readonly store: SurvivalStore,
+    private readonly sitePrompt: SitePromptSource,
+    private readonly session: GameSession,
+    private readonly respawnPoint: { x: number; z: number; yaw?: number },
+  ) {
+    this.push();
+  }
+
+  /** The explorer's sprint gate: stamina left, and you're not dying/dead. */
+  canSprint = (): boolean => this.alive && this.stamina > TUNE.sprintMinStamina;
+
+  /** Restore hunger (foraging slice feeds this). Clamped; no-op while dead. */
+  eat(amount: number): void {
+    if (!this.alive) return;
+    this.hunger = Math.min(FULL, this.hunger + amount);
+    this.push();
+  }
+
+  /** Wake back at camp: meters to respawnLevel, position reset, quest kept.
+   *  The React death overlay calls this; it's idempotent while alive. */
+  respawn(): void {
+    if (this.alive) return;
+    this.health = TUNE.respawnLevel;
+    this.stamina = FULL;
+    this.hunger = TUNE.respawnLevel;
+    this.thirst = TUNE.respawnLevel;
+    this.alive = true;
+    this.explorer.respawn(this.respawnPoint);
+    this.session.setPaused("death", false);
+    this.push();
+  }
+
+  update(ctx: FrameContext): void {
+    if (this.session.paused || !this.alive) {
+      // Hold all decay while a panel/menu (or death) owns the screen, and
+      // drain the interact edge so a press behind an overlay can't fire a
+      // drink on resume (the same discipline the explorer applies to look).
+      this.input.consumeInteract();
+      return;
+    }
+
+    const dt = ctx.dt;
+    const s = this.explorer.state;
+
+    // Decay. Sprinting parches; existing is hungry work either way.
+    this.thirst -= TUNE.thirstPerSec * (s.sprinting ? TUNE.sprintThirstFactor : 1) * dt;
+    this.hunger -= TUNE.hungerPerSec * dt;
+
+    // Stamina spends on sprint, recovers otherwise.
+    if (s.sprinting) this.stamina -= TUNE.staminaDrainPerSec * dt;
+    else this.stamina += TUNE.staminaRegenPerSec * dt;
+
+    // Water within reach: underfoot or a step ahead of where you face.
+    const fwd = forwardXZFromYaw(s.yaw);
+    this.canDrink =
+      this.waterDepthAt(s.position.x, s.position.z) > TUNE.drinkMinDepth ||
+      this.waterDepthAt(
+        s.position.x + fwd.x * TUNE.drinkReach,
+        s.position.z + fwd.z * TUNE.drinkReach,
+      ) > TUNE.drinkMinDepth;
+
+    // Drink: one gulp per interact press. The edge is consumed EVERY frame
+    // (used or not) so a press in the dry jungle can't fire minutes later;
+    // DiscoverySystem runs first and keeps presses that open/close clues.
+    const pressed = this.input.consumeInteract();
+    const siteOwnsKey = this.sitePrompt.getSnapshot().nearby?.inRange ?? false;
+    if (pressed && this.canDrink && !siteOwnsKey) {
+      this.thirst = Math.min(FULL, this.thirst + TUNE.drinkPerGulp);
+    }
+
+    // Empty meters bite; a fed, watered explorer slowly mends.
+    let drain = 0;
+    if (this.thirst <= 0) drain += TUNE.starveDrainPerSec;
+    if (this.hunger <= 0) drain += TUNE.starveDrainPerSec;
+    if (drain > 0) {
+      this.health -= drain * dt;
+    } else if (
+      this.health < FULL &&
+      this.thirst > TUNE.regenThreshold &&
+      this.hunger > TUNE.regenThreshold
+    ) {
+      this.health += TUNE.regenPerSec * dt;
+    }
+
+    this.clamp();
+
+    // Death: pause the world under its own reason; the overlay owns the rest.
+    if (this.health <= 0 && this.alive) {
+      this.alive = false;
+      this.deaths += 1;
+      this.session.setPaused("death", true);
+    }
+
+    this.push();
+  }
+
+  private clamp(): void {
+    this.health = Math.min(FULL, Math.max(0, this.health));
+    this.stamina = Math.min(FULL, Math.max(0, this.stamina));
+    this.hunger = Math.min(FULL, Math.max(0, this.hunger));
+    this.thirst = Math.min(FULL, Math.max(0, this.thirst));
+  }
+
+  private push(): void {
+    this.store.set({
+      health: this.health,
+      stamina: this.stamina,
+      hunger: this.hunger,
+      thirst: this.thirst,
+      alive: this.alive,
+      deaths: this.deaths,
+      canDrink: this.canDrink,
+    });
+  }
+
+  describe(): Record<string, unknown> {
+    return {
+      health: Math.round(this.health),
+      stamina: Math.round(this.stamina),
+      hunger: Math.round(this.hunger),
+      thirst: Math.round(this.thirst),
+      alive: this.alive,
+      deaths: this.deaths,
+      canDrink: this.canDrink,
+    };
+  }
+}
