@@ -1,6 +1,5 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { makeNoise2D } from "../world/noise.ts";
 import { WORLD, RIVER, SPAWN, POI_ANCHORS } from "../world/worldConfig.ts";
 import { distToRiver, type Terrain } from "../world/terrain.ts";
 import type { FruitPlant } from "./ForageSystem.ts";
@@ -42,8 +41,10 @@ export function buildForage(terrain: Terrain, density = 1): Forage {
   const disposables: Array<{ dispose(): void }> = [];
   const plants: FruitPlant[] = [];
 
-  const rng = makeNoise2D(WORLD.seed ^ 0x5f10d1);
-  const value = (i: number, ch: number) => rng.fbm(i * 12.9898 + ch * 78.233, ch * 37.719 - i, 1);
+  // Uniform per-(attempt, channel) values via integer hashing — value NOISE is
+  // bell-shaped around 0.5 and starves the map's outer ring of candidates
+  // (review, slice E), so placement uses a real hash, not fbm.
+  const value = (i: number, ch: number) => hash01(WORLD.seed ^ 0x5f10d1, i, ch);
 
   const plantMat = new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.95 });
   const fruitMat = new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.55 });
@@ -90,9 +91,9 @@ export function buildForage(terrain: Terrain, density = 1): Forage {
   const sc = new THREE.Vector3();
   const UP = new THREE.Vector3(0, 1, 0);
 
+  const allMeshes: THREE.InstancedMesh[] = [];
   const fruitMeshes: THREE.InstancedMesh[] = [];
   const fruitScale: number[] = []; // remembered per plant for regrow restore
-  let plantIndexBase = 0;
 
   for (let k = 0; k < kinds.length; k++) {
     const spec = kinds[k];
@@ -137,10 +138,9 @@ export function buildForage(terrain: Terrain, density = 1): Forage {
     plantMesh.instanceMatrix.needsUpdate = true;
     fruitMesh.instanceMatrix.needsUpdate = true;
     group.add(plantMesh, fruitMesh);
+    allMeshes.push(plantMesh, fruitMesh);
     fruitMeshes.push(fruitMesh);
-    plantIndexBase += placedCount;
   }
-  void plantIndexBase;
 
   // Map a flat plant index back to (mesh, local index) for setRipe.
   const meshFor = (index: number): { mesh: THREE.InstancedMesh; local: number } => {
@@ -172,6 +172,10 @@ export function buildForage(terrain: Terrain, density = 1): Forage {
       mesh.instanceMatrix.needsUpdate = true;
     },
     dispose() {
+      // InstancedMesh owns its instanceMatrix GPU buffer — geometry disposal
+      // does NOT free it (three r169 releases it only via the mesh's own
+      // dispose event). Meshes first, then the shared geometries/materials.
+      for (const mesh of allMeshes) mesh.dispose();
       for (const d of disposables) d.dispose();
     },
   };
@@ -262,4 +266,13 @@ function mangoClusterGeo(): THREE.BufferGeometry {
     parts.push(at(stamp(new THREE.SphereGeometry(0.11, 6, 5), MANGO_FRUIT), Math.cos(t) * 0.5, -0.35 * (i % 2) - 0.1, Math.sin(t) * 0.5));
   }
   return mergeOwn(parts);
+}
+
+/** Deterministic uniform [0,1) from (seed, i, ch) — mulberry32-style mix. */
+function hash01(seed: number, i: number, ch: number): number {
+  let h = (seed ^ (i * 0x9e3779b1) ^ (ch * 0x85ebca6b)) >>> 0;
+  h = Math.imul(h ^ (h >>> 16), 0x21f0aaad);
+  h = Math.imul(h ^ (h >>> 15), 0x735a2d97);
+  h = (h ^ (h >>> 15)) >>> 0;
+  return h / 4294967296;
 }

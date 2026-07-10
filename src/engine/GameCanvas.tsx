@@ -344,13 +344,11 @@ export function GameCanvas({
             <>
               <SurvivalMeters survival={game.survival.store} />
               <DeathOverlay survival={game.survival.store} onRespawn={game.survival.respawn} />
-              {game.forage && (
-                <ActionHint
-                  survival={game.survival.store}
-                  forage={game.forage.store}
-                  discovery={game.discovery.store}
-                />
-              )}
+              <ActionHint
+                survival={game.survival.store}
+                forage={game.forage?.store}
+                discovery={game.discovery.store}
+              />
             </>
           )}
           <DiscoveryAnnouncer store={game.discovery.store} />

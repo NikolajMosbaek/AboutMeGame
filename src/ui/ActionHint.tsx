@@ -5,7 +5,9 @@ import type { DiscoveryStore } from "../discovery/discoveryStore.ts";
 
 export interface ActionHintProps {
   survival: SurvivalStore;
-  forage: ForageStore;
+  /** Optional so a minimal build with survival-but-no-foraging keeps its
+   *  drink hint (the fields are independently optional on GameHandle). */
+  forage?: ForageStore;
   discovery: DiscoveryStore;
 }
 
@@ -22,9 +24,14 @@ const FRUIT_LABEL: Record<FruitKind, string> = {
  * reveal prompt (so this renders nothing), then foraging, then drinking.
  * Dead players get no hints — the death overlay owns the screen.
  */
+const NO_FORAGE = { nearby: null, eaten: 0 } as const;
+
 export function ActionHint({ survival, forage, discovery }: ActionHintProps) {
   const s = useSyncExternalStore(survival.subscribe, survival.getSnapshot);
-  const f = useSyncExternalStore(forage.subscribe, forage.getSnapshot);
+  const f = useSyncExternalStore(
+    forage?.subscribe ?? (() => () => {}),
+    forage?.getSnapshot ?? (() => NO_FORAGE),
+  );
   const d = useSyncExternalStore(discovery.subscribe, discovery.getSnapshot);
 
   if (!s.alive) return null;
