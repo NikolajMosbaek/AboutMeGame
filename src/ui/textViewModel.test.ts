@@ -267,13 +267,6 @@ function rowById(rows: TextViewRow[], id: string): TextViewRow {
   return row;
 }
 
-/** Narrow to a highlight POI's emphasis; throws if the POI's type drifted. */
-function emphasisOf(poi: PoiContent): string {
-  if (poi.interaction.type !== "highlight") {
-    throw new Error(`expected "${poi.id}" to be a highlight POI, got "${poi.interaction.type}"`);
-  }
-  return poi.interaction.emphasis;
-}
 
 describe("buildTextViewModel(loadContent()) — real-dataset acceptance", () => {
   let warn: ReturnType<typeof vi.spyOn>;
@@ -292,55 +285,25 @@ describe("buildTextViewModel(loadContent()) — real-dataset acceptance", () => 
     warn.mockRestore();
   });
 
-  it("splits poi-end-state-overlook into exactly 3 segments with only the middle emphasized", () => {
-    const poi = poiById(content, "poi-end-state-overlook");
-    const row = rowById(rows, "poi-end-state-overlook");
-
-    expect(row.bodySegments).toHaveLength(3);
-    expect(row.bodySegments.map((s) => s.emphasized)).toEqual([false, true, false]);
-    expect(row.bodySegments[1].text).toBe(emphasisOf(poi));
-    expectConcatEquals(row.bodySegments, poi.body);
-  });
-
-  it("carries answerReveal on BOTH real guess POIs and on no other row", () => {
-    // The rule is "defined iff the source guess carries it" — the dataset has
-    // TWO such POIs, so a single exemplar would under-specify it. Values are
-    // compared byte-for-byte against the source interaction, never prose.
-    for (const id of ["poi-staff-engineer-gate", "poi-force-push-dam"]) {
-      const poi = poiById(content, id);
-      if (poi.interaction.type !== "guess") {
-        throw new Error(`expected "${id}" to be a guess POI`);
-      }
-      expect(poi.interaction.answerReveal).toBeTypeOf("string");
-      expect(rowById(rows, id).answerReveal).toBe(poi.interaction.answerReveal);
+  it("maps every clue to one unemphasized full-body segment (plain readable pages)", () => {
+    for (const row of rows) {
+      const poi = poiById(content, row.id);
+      expect(row.bodySegments).toEqual([{ text: poi.body, emphasized: false }]);
+      expect("answerReveal" in row).toBe(false);
     }
-
-    // ...and the key is genuinely absent from every other row.
-    const idsWithReveal = rows
-      .filter((r) => "answerReveal" in r)
-      .map((r) => r.id)
-      .sort();
-    expect(idsWithReveal).toEqual(["poi-force-push-dam", "poi-staff-engineer-gate"]);
   });
 
-  it("maps poi-arrivals-gate to one unemphasized full-body segment with no answerReveal", () => {
-    const poi = poiById(content, "poi-arrivals-gate");
-    const row = rowById(rows, "poi-arrivals-gate");
-
-    expect(row.bodySegments).toEqual([{ text: poi.body, emphasized: false }]);
-    expect("answerReveal" in row).toBe(false);
-    expect(row.answerReveal).toBeUndefined();
-    // Teaser CONTENT, not just presence — nothing renders it until #144, so
-    // this is the only assertion keeping the field wired end-to-end.
-    expect(row.teaser).toBe(
-      "Hi, I'm Nikolaj. I work in iOS and Swift — drive on, I'll show you how.",
-    );
+  it("keeps the camp clue's teaser wired end-to-end", () => {
+    const poi = poiById(content, "site-base-camp");
+    const row = rowById(rows, "site-base-camp");
+    expect(row.teaser).toBe(poi.teaser);
+    expect(row.teaser.length).toBeGreaterThan(0);
   });
 
-  it("holds the lossless invariant across all 13 POIs, one row each, ascending by order", () => {
-    expect(content.pois).toHaveLength(13);
-    expect(rows).toHaveLength(13);
-    expect(new Set(rows.map((r) => r.id)).size).toBe(13);
+  it("holds the lossless invariant across all 6 clues, one row each, ascending by order", () => {
+    expect(content.pois).toHaveLength(6);
+    expect(rows).toHaveLength(6);
+    expect(new Set(rows.map((r) => r.id)).size).toBe(6);
     expect(rows.map((r) => r.order)).toEqual(
       content.pois.map((p) => p.order).sort((a, b) => a - b),
     );
@@ -348,27 +311,5 @@ describe("buildTextViewModel(loadContent()) — real-dataset acceptance", () => 
       expectConcatEquals(row.bodySegments, poiById(content, row.id).body);
       expect(row.bodySegments.filter((s) => s.emphasized).length).toBeLessThanOrEqual(1);
     }
-  });
-
-  it("content-drift canary: every authored highlight emphasis is a verbatim substring of its body", () => {
-    const highlights = content.pois.filter((p) => p.interaction.type === "highlight");
-    // The canary must have something to watch; if the last highlight POI is
-    // ever removed, decide that deliberately rather than passing vacuously.
-    expect(highlights.length).toBeGreaterThan(0);
-
-    for (const poi of highlights) {
-      const emphasis = emphasisOf(poi);
-      expect(poi.body.includes(emphasis)).toBe(true);
-      const row = rowById(rows, poi.id);
-      // A verbatim match always splits (>1 segments) with exactly the
-      // emphasis span marked — a future copy edit that breaks the match
-      // fails HERE instead of silently un-emphasizing the text view.
-      expect(row.bodySegments.length).toBeGreaterThan(1);
-      expect(row.bodySegments.filter((s) => s.emphasized)).toEqual([
-        { text: emphasis, emphasized: true },
-      ]);
-    }
-    // Building from the shipped dataset is warn-free: no fallback fired.
-    expect(warn).not.toHaveBeenCalled();
   });
 });

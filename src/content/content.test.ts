@@ -159,9 +159,9 @@ describe("parseInteraction (#34, M2)", () => {
 });
 
 describe("content model (#34)", () => {
-  it("loads 13 validated POIs with required string fields", () => {
+  it("loads the 6 validated clue POIs with required string fields", () => {
     const set = loadContent();
-    expect(set.pois).toHaveLength(13);
+    expect(set.pois).toHaveLength(6);
     for (const p of set.pois) {
       expect(p.id).toBeTruthy();
       expect(p.title).toBeTruthy();
@@ -170,42 +170,38 @@ describe("content model (#34)", () => {
     }
   });
 
-  // M2 slice 3 authors interactions on three POIs; the rest stay plain. This
-  // asserts the authored content resolves to the intended variants (not merely
-  // that loadContent does not throw), so a coerce-to-plain typo fails loudly.
-  it("resolves the authored guess and highlight interactions, rest plain", () => {
+  // The clue chain is plain readable pages — interactions (the dig) arrive
+  // with the quest slice. Every clue resolves to `plain`, loudly, so a typo'd
+  // interaction blob in the JSON can't silently ship.
+  it("resolves every clue to a plain interaction (the chain is readable pages)", () => {
     const by = contentById();
-
-    for (const id of ["poi-staff-engineer-gate", "poi-force-push-dam"]) {
-      const i = by.get(id)!.interaction;
-      expect(i.type).toBe("guess");
-      if (i.type !== "guess") throw new Error("narrowing");
-      expect(i.options.length).toBeGreaterThanOrEqual(2);
-      expect(i.options.length).toBeLessThanOrEqual(3);
-      expect(i.options.filter((o) => o.correct)).toHaveLength(1);
-      expect(i.prompt.length).toBeGreaterThan(0);
-    }
-
-    const overlook = by.get("poi-end-state-overlook")!.interaction;
-    expect(overlook.type).toBe("highlight");
-    if (overlook.type !== "highlight") throw new Error("narrowing");
-    expect(overlook.emphasis.length).toBeGreaterThan(0);
-
-    const authored = new Set([
-      "poi-staff-engineer-gate",
-      "poi-force-push-dam",
-      "poi-end-state-overlook",
-    ]);
-    for (const [id, p] of by) {
-      if (authored.has(id)) continue;
+    for (const [, p] of by) {
       expect(p.interaction).toEqual({ type: "plain" });
     }
   });
 
   it("indexes content by id", () => {
     const map = contentById();
-    expect(map.size).toBe(13);
-    expect(map.get("poi-arrivals-gate")?.order).toBe(1);
+    expect(map.size).toBe(6);
+    expect(map.get("site-base-camp")?.order).toBe(1);
+  });
+
+  it("each clue's body names the next site (the chain is navigable by reading)", () => {
+    // The load-bearing words that locate the next site, one per hop. If a
+    // rewrite drops the pointer, the treasure hunt silently breaks — this is
+    // the one place the prose itself is under test.
+    const pointers: Array<[string, RegExp]> = [
+      ["site-base-camp", /CANOE/],
+      ["site-wrecked-canoe", /OVERHANG/i],
+      ["site-carved-overhang", /LAST CAMP/i],
+      ["site-last-camp", /RUIN/i],
+      ["site-fallen-idol-ruin", /FIG/i],
+      ["site-ancient-fig", /dig/i],
+    ];
+    const by = contentById();
+    for (const [id, re] of pointers) {
+      expect(by.get(id)?.body, `${id} must point onward`).toMatch(re);
+    }
   });
 });
 

@@ -1,0 +1,50 @@
+{
+  "schemaVersion": "1",
+  "note": "The Lost Idol — the clue chain. Each site's body is a readable clue that locates the NEXT site by landmark description (navigation by reading the world; no map markers). Order = the intended chain; discovery is not gated on order, only the final dig is (quest slice). Teasers show in the approach prompt before interacting.",
+  "contentSet": "expedition",
+  "voice": "Field notes of a vanished expedition, found one page at a time.",
+  "pois": [
+    {
+      "id": "site-base-camp",
+      "order": 1,
+      "title": "Torn Journal Page",
+      "teaser": "Your camp. The fire is cold, and a page is pinned under a mug.",
+      "body": "Day 19. If anyone reads this: we are going after it without R. — he has the old map, but M. copied what matters onto whatever paper we had left, one page hidden at each stop so R. cannot take the trail from us.\n\nFirst mark: we dragged the CANOE out of the water on the WEST BANK of the river, where it opens toward this lagoon. The next page is with the canoe. Follow the shore north, keep the water on your right, and you will walk straight into it.\n\nEat when you are hungry and drink when you are not — the jungle takes the careless first. — M."
+    },
+    {
+      "id": "site-wrecked-canoe",
+      "order": 2,
+      "title": "The Wrecked Canoe",
+      "teaser": "A hull, half out of the water, its ribs snapped. Something is scratched into the paddle.",
+      "body": "Scratched into the paddle blade, in a steadier hand than the last page:\n\n\"Rapids stove the hull and took most of the tins. We go on foot now, UPRIVER, toward the country where the river is born. High on the north side there is a ROCK OVERHANG like a brow over an eye — old carvings on it, older than any map. We shelter there tonight. Climb steadily and don't trust the deep water: what the river carved, it keeps. — M.\""
+    },
+    {
+      "id": "site-carved-overhang",
+      "order": 3,
+      "title": "Carvings in the Rock",
+      "teaser": "A stone brow shelters a patch of dry ground. Spirals cover the wall — and newer letters.",
+      "body": "The spirals are old — cut by whoever made the idol, long before any expedition. But along the bottom edge, fresher letters, hurried:\n\n\"R. found us here and took the mule and left in the night, back toward his dig. K. is fevered. We descend at dawn, down the LOW VALLEY WEST OF THE RIVER, and will make camp under the tallest kapok we can find. If we do not come home, our LAST CAMP is there — look for the stones we will pile so the jungle cannot swallow us entirely. — M.\""
+    },
+    {
+      "id": "site-last-camp",
+      "order": 4,
+      "title": "The Last Camp",
+      "teaser": "A rotted pack against a cairn of piled stones. Somebody built this to be found.",
+      "body": "Inside the pack, wrapped in oilcloth, a corner torn from the old map itself — R. never got all of it. The sketch shows a RUINED WALL and a FALLEN STONE FACE lying in the grass, EAST ACROSS THE RIVER from here, ringed twice in charcoal.\n\nUnder the sketch, M.'s hand, shaking now:\n\n\"R. digs at the ruin. He is wrong. He has the map but the map is younger than the idol. Go to the ruin if you must — his field book will be there, and R. was at least an honest recorder — but the ruin is where the idol was WORSHIPPED, not where it sleeps.\""
+    },
+    {
+      "id": "site-fallen-idol-ruin",
+      "order": 5,
+      "title": "The Fallen Ruin",
+      "teaser": "A broken wall. A great stone head on its side in the grass. The ground is full of abandoned holes.",
+      "body": "A dozen pits, all empty. Against the statue's cheek, R.'s field book, final entry:\n\n\"Not here. Of course not here. Weeks of digging and the truth was above me the whole time: the HEAD. Its EYES. Stand behind the fallen face at first light and sight along its gaze — it looks EAST, up the hill, at the STRANGLER FIG older than the ruin itself, the one tree the builders would not cut. Between its roots. The soil there will be loose. I go at dawn, alone, and I will owe M. an apology and half of everything.\"\n\nThe entry is the last thing written. The pencil is still in the book."
+    },
+    {
+      "id": "site-ancient-fig",
+      "order": 6,
+      "title": "The Ancient Fig",
+      "teaser": "The tree is older than anything alive on this island. Between its roots, the ground has been disturbed.",
+      "body": "Buttress roots taller than a person, braided over something they were planted to guard. Between the two greatest roots the soil is loose — someone started digging here, recently, and stopped as suddenly.\n\nA shovel lies where it was dropped.\n\nThis is the place. Dig."
+    }
+  ]
+}

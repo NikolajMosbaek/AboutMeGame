@@ -9,7 +9,7 @@ describe("TextView", () => {
   it("renders every landmark's title and full body in order", () => {
     render(<TextView onBack={() => {}} />);
     const { pois } = loadContent();
-    expect(pois).toHaveLength(13);
+    expect(pois).toHaveLength(6);
 
     // Articles, one per POI, in narrative order.
     const articles = screen.getAllByRole("article");
@@ -61,89 +61,21 @@ describe("TextView", () => {
     expect(screen.getByRole("heading", { level: 1 })).toBeInTheDocument();
   });
 
-  it("renders poi-end-state-overlook's authored emphasis as exactly one <mark> inside a byte-equal body", () => {
-    const poi = loadContent().pois.find((p) => p.id === "poi-end-state-overlook")!;
-    // Derive the emphasis structurally from the content — never hard-code
-    // prose, so copy edits and the content canary fail in the same place.
-    if (poi.interaction.type !== "highlight") {
-      throw new Error("fixture drift: poi-end-state-overlook is no longer a highlight POI");
+  it("renders no emphasis marks and no takeaway callouts (the clue chain is plain pages)", () => {
+    render(<TextView onBack={() => {}} />);
+    for (const article of screen.getAllByRole("article")) {
+      expect(article.querySelectorAll("mark.text-view__emphasis")).toHaveLength(0);
+      expect(within(article).queryByRole("note")).toBeNull();
     }
-    const emphasis = poi.interaction.emphasis;
-
-    render(<TextView onBack={() => {}} />);
-    const article = screen
-      .getAllByRole("article")
-      .find((a) => a.getAttribute("aria-labelledby") === `tv-${poi.id}`)!;
-    expect(article).toBeDefined();
-
-    // Query by element/class, NOT getByRole("mark") — ARIA 1.3 role support
-    // is version-dependent in the pinned testing stack.
-    const marks = within(article).getByText(emphasis, { selector: "mark" });
-    const allMarks = article.querySelectorAll("mark.text-view__emphasis");
-    expect(allMarks).toHaveLength(1);
-    expect(allMarks[0]).toBe(marks);
-    expect(allMarks[0].textContent).toBe(emphasis);
-
-    // The mark lives inside the single body paragraph, whose textContent is
-    // still byte-equal to poi.body — the selector's lossless invariant.
-    const body = article.querySelector(".text-view__body")!;
-    expect(allMarks[0].closest(".text-view__body")).toBe(body);
-    expect(body.textContent).toBe(poi.body);
   });
 
-  it("renders 'The takeaway' callout iff the POI carries an answerReveal — across all 13 articles", () => {
-    render(<TextView onBack={() => {}} />);
-    const { pois } = loadContent();
-    const articles = screen.getAllByRole("article");
-    const ordered = [...pois].sort((a, b) => a.order - b.order);
-
-    // Sanity, non-vacuous: today exactly these two guess POIs carry a reveal.
-    // If content authoring changes, this pins WHERE the iff-rule is exercised.
-    const withReveal = ordered.filter(
-      (p) => p.interaction.type === "guess" && p.interaction.answerReveal !== undefined,
-    );
-    expect(withReveal.map((p) => p.id).sort()).toEqual([
-      "poi-force-push-dam",
-      "poi-staff-engineer-gate",
-    ]);
-
-    ordered.forEach((poi, i) => {
-      const article = articles[i];
-      const reveal =
-        poi.interaction.type === "guess" ? poi.interaction.answerReveal : undefined;
-
-      if (reveal === undefined) {
-        // The iff-rule's negative half: no note role anywhere else.
-        expect(within(article).queryByRole("note")).toBeNull();
-        return;
-      }
-
-      // Headless proxy for "announced by AT as labelled content, not a
-      // control" (jsdom cannot prove real AT behavior): accessible role
-      // note + resolved accessible name + zero interactive roles inside.
-      const callout = within(article).getByRole("note", { name: /takeaway/i });
-      expect(callout.className).toContain("text-view__callout");
-      expect(callout.textContent).toContain(reveal);
-
-      // The callout sits AFTER the body in document order.
-      const body = article.querySelector(".text-view__body")!;
-      expect(
-        body.compareDocumentPosition(callout) & Node.DOCUMENT_POSITION_FOLLOWING,
-      ).toBeTruthy();
-
-      // Nothing focusable, no disclosure pattern.
-      expect(within(callout).queryAllByRole("button")).toHaveLength(0);
-      expect(within(callout).queryAllByRole("link")).toHaveLength(0);
-    });
-  });
-
-  it("renders teaser + body only for a landmark with neither highlight nor answerReveal (poi-arrivals-gate)", () => {
-    const poi = loadContent().pois.find((p) => p.id === "poi-arrivals-gate")!;
+  it("renders teaser + body only for a plain clue (site-base-camp)", () => {
+    const poi = loadContent().pois.find((p) => p.id === "site-base-camp")!;
     // Fixture-drift guard: the graceful default is only exercised by a plain
     // POI. If arrivals-gate ever gains a highlight or a guess reveal, pick a
     // new plain fixture rather than weakening the negatives below.
     if (poi.interaction.type !== "plain") {
-      throw new Error("fixture drift: poi-arrivals-gate is no longer a plain POI");
+      throw new Error("fixture drift: site-base-camp is no longer a plain POI");
     }
 
     render(<TextView onBack={() => {}} />);
