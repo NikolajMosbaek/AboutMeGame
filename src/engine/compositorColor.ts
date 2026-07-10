@@ -2,10 +2,14 @@ import * as THREE from "three";
 
 /** The minimal slice of a renderer whose colour ownership the compositor moves.
  *  A real `THREE.WebGLRenderer` satisfies it; a test passes a plain object so the
- *  decision can be asserted WebGL-free. */
+ *  decision can be asserted WebGL-free. `outputColorSpace` is typed as `string`
+ *  (not `THREE.ColorSpace`) because `WebGLRenderer.outputColorSpace` itself is,
+ *  as of three 0.185 — three widened it so a custom-registered colour space can
+ *  be assigned too; the literal `THREE.SRGBColorSpace` we assign is still a
+ *  valid `string`. */
 export interface ColorOwnedRenderer {
   toneMapping: THREE.ToneMapping;
-  outputColorSpace: THREE.ColorSpace;
+  outputColorSpace: string;
 }
 
 /**

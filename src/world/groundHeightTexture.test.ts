@@ -29,9 +29,11 @@ describe("createGroundHeightTexture (R-channel ground-height DataTexture)", () =
     expect(GROUND_TEXTURE_RES).toBe(128);
     expect(texture.format).toBe(THREE.RedFormat);
     expect(texture.type).toBe(THREE.FloatType);
-    // One float per texel, R-channel only.
+    // One float per texel, R-channel only. `image.data` is typed nullable
+    // (three widened `DataTextureImageData` generically); we always construct
+    // it with real data, so the non-null assertion is safe here.
     expect(texture.image.data).toBeInstanceOf(Float32Array);
-    expect(texture.image.data.length).toBe(GROUND_TEXTURE_RES * GROUND_TEXTURE_RES);
+    expect(texture.image.data!.length).toBe(GROUND_TEXTURE_RES * GROUND_TEXTURE_RES);
   });
 
   it("samples over WORLD.islandRadius extent and the foam reaches into open water", () => {

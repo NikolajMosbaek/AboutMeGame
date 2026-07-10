@@ -46,10 +46,9 @@ export function createGroundHeightTexture(
 ): GroundHeightTexture {
   const baked = bakeGroundHeight(heightAt, GROUND_TEXTURE_EXTENT, GROUND_TEXTURE_RES);
   const texture = new THREE.DataTexture(
-    // `bakeGroundHeight` allocates its own `ArrayBuffer`-backed Float32Array, so
-    // this is sound at runtime; the cast only bridges the `@types/three`
-    // `BufferSource` param vs TS's `ArrayBufferLike`-generic typed arrays.
-    baked.data as unknown as BufferSource,
+    // `bakeGroundHeight`'s `Float32Array` satisfies `DataTexture`'s `data` param
+    // (`TypedArray | null | undefined`) directly — no bridging cast needed.
+    baked.data,
     GROUND_TEXTURE_RES,
     GROUND_TEXTURE_RES,
     THREE.RedFormat,
