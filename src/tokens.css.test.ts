@@ -119,8 +119,8 @@ describe("tokens.css — safe-area + dvh layout-token consumption (MOB1 #148 T1)
     );
   });
 
-  it(".touch-use bottom offset resolves through var(--safe-bottom)", () => {
-    const base = blocksFor(css, ".touch-use")[0];
+  it(".touch-action-btn bottom offset resolves through var(--safe-bottom)", () => {
+    const base = blocksFor(css, ".touch-action-btn")[0];
     expect(base).toMatch(/bottom:\s*calc\(7vh\s*\+\s*var\(--safe-bottom\)\)/);
   });
 });

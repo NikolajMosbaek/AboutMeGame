@@ -147,3 +147,25 @@ describe("buildGame discovery.consumeInteract seam", () => {
     engine.dispose();
   });
 });
+
+describe("buildGame input seam (mobile-controls upgrade)", () => {
+  it("game.input.pressInteract() queues the same edge discovery.consumeInteract() drains", () => {
+    const { engine, overlay } = makeEngineAndOverlay();
+    const game = buildGame(engine, overlay, undefined, undefined);
+
+    game.input.pressInteract();
+    expect(game.discovery.consumeInteract()).toBe(true);
+    expect(game.discovery.consumeInteract()).toBe(false);
+
+    engine.dispose();
+  });
+
+  it("game.input.touchActive mirrors the player input controller's live signal", () => {
+    const { engine, overlay } = makeEngineAndOverlay();
+    const game = buildGame(engine, overlay, undefined, undefined);
+
+    expect(game.input.touchActive).toBe(game.player.input.touchActive);
+
+    engine.dispose();
+  });
+});

@@ -49,13 +49,14 @@ describe("Onboarding", () => {
   it("lists the touch on-screen controls under the touch channel", () => {
     render(<Onboarding channel="touch" persistence={fakePersistence(false)} />);
 
-    // The four on-screen widgets a touch visitor actually has, each paired with
-    // its action in the adjacent <dd> (mirrors resolveControlScheme("touch")).
+    // The on-screen widgets a touch visitor actually has, each paired with its
+    // action in the adjacent <dd> (mirrors resolveControlScheme("touch")). No
+    // SPRINT/USE buttons: sprint is automatic and the action button already
+    // names the live action.
     const expected: ReadonlyArray<[string, string]> = [
-      ["Joystick", "Walk"],
+      ["Joystick", "Walk (push to the edge to sprint)"],
       ["Drag right side", "Look"],
-      ["SPRINT", "Sprint (hold)"],
-      ["USE", "Use / examine"],
+      ["Action button", "Do what the prompt says"],
     ];
     for (const [label, action] of expected) {
       expect(screen.getByText(label)).toBeInTheDocument();
@@ -78,12 +79,12 @@ describe("Onboarding", () => {
     const { container: touchContainer } = render(
       <Onboarding channel="touch" persistence={fakePersistence(false)} />,
     );
-    // Under the touch channel no label is a <kbd>: 'SPRINT' is a button name,
-    // not a key, so it renders as a plain leaf inside its <dt> with no key-cap
-    // chrome.
+    // Under the touch channel no label is a <kbd>: 'Action button' names an
+    // on-screen widget, not a key, so it renders as a plain leaf inside its
+    // <dt> with no key-cap chrome.
     expect(touchContainer.querySelector("dt kbd")).toBeNull();
-    const sprint = screen.getByText("SPRINT");
-    expect(sprint.closest("dt")).not.toBeNull();
+    const actionButton = screen.getByText("Action button");
+    expect(actionButton.closest("dt")).not.toBeNull();
   });
 
   // The channel seam must not regress the dialog's focus/dismiss behaviour under
