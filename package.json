@@ -26,7 +26,7 @@
     "@types/node": "^20.19.43",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
-    "@types/three": "^0.169.0",
+    "@types/three": "^0.185.1",
     "@vitejs/plugin-react": "^4.3.1",
     "eslint": "^9.39.4",
     "eslint-plugin-react-hooks": "^5.2.0",
@@ -40,8 +40,9 @@
     "vitest": "^2.0.2"
   },
   "dependencies": {
+    "postprocessing": "^6.39.2",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "three": "^0.169.0"
+    "three": "^0.185.1"
   }
 }

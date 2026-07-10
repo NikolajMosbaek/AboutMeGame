@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { RendererLike } from "./types.ts";
+import { configureBareRendererColor } from "./compositorColor.ts";
 
 export interface RendererConfig {
   canvas: HTMLCanvasElement;
@@ -33,9 +34,12 @@ export function createRenderer(config: RendererConfig): THREE.WebGLRenderer {
   renderer.setPixelRatio(ratio);
   renderer.shadowMap.enabled = config.shadows ?? true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-  // sRGB output + ACES tone-mapping so the world's lighting reads correctly.
-  renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  // sRGB output + AgX tone-mapping — the BARE path's colour ownership (see
+  // `configureBareRendererColor`). Low tier never builds a compositor, so the
+  // renderer here is the only stage and owns tone-mapping outright; AgX is the
+  // same tone-map the composited (medium/high) path applies via its
+  // `ToneMappingEffect`, so switching quality tiers never visibly re-grades.
+  configureBareRendererColor(renderer);
   renderer.toneMappingExposure = 1.0;
   return renderer as unknown as THREE.WebGLRenderer & RendererLike;
 }
