@@ -16,6 +16,10 @@ import { SurvivalSystem } from "./survival/SurvivalSystem.ts";
 import { buildForage } from "./forage/buildForage.ts";
 import { createForageStore, type ForageStore } from "./forage/forageStore.ts";
 import { ForageSystem } from "./forage/ForageSystem.ts";
+import { buildTreasure } from "./quest/buildTreasure.ts";
+import { createQuestStore, type QuestStore } from "./quest/questStore.ts";
+import { QuestSystem, type DiscoveredIds } from "./quest/QuestSystem.ts";
+import { POI_ANCHORS } from "./world/worldConfig.ts";
 import { SPAWN } from "./world/worldConfig.ts";
 import { AudioSystem } from "./audio/AudioSystem.ts";
 import { DiscoveryBurstSystem } from "./fx/DiscoveryBurstSystem.ts";
@@ -41,6 +45,8 @@ export interface Game {
   };
   /** Foraging (pivot slice E): pick-and-eat plants. */
   forage: { store: ForageStore };
+  /** The treasure quest (pivot slice G): the win condition. */
+  quest: { store: QuestStore };
   /** Toggle the sun's shadow casting live (#47), so a quality change in the menu
    *  re-applies shadows in BOTH directions — the renderer's shadowMap.enabled
    *  flag alone can't turn shadows back on once the caster was built without it. */
@@ -76,10 +82,12 @@ export function buildGame(
   ctxFactory: AudioContextFactory | undefined = defaultAudioContextFactory(),
 ): Game {
   const session = createSession();
-  // Survival store exists before the player so the explorer's sprint gate can
-  // read stamina without a circular seam (the system itself registers later,
-  // after discovery, because the two share the interact edge — clues first).
+  // Stores exist before the systems that write them: the explorer's sprint
+  // gate reads stamina, the quest mirrors deaths/eaten — all without circular
+  // seams (systems register later, in interact-key priority order).
   const survivalStore = createSurvivalStore();
+  const forageStoreEarly = createForageStore();
+  const questStore = createQuestStore(POI_ANCHORS.length);
   // Settings come first now: the world's beacon pulse reads `reducedMotion` from
   // it live (#49), so non-essential motion is gated by the in-game toggle too.
   const settings = createSettingsStore();
@@ -96,7 +104,31 @@ export function buildGame(
     settings,
     () => sprintGate(),
   );
+  // The treasure quest registers BEFORE discovery: once every page is read,
+  // the dig press outranks re-opening the fig's clue text. Its view of the
+  // read pages is late-bound to the discovery store built just after.
+  const treasure = buildTreasure(world.landmarks);
+  let discoveredIds: DiscoveredIds = () => [];
+  let sitePanelOpen: () => boolean = () => false;
+  const questSystem = new QuestSystem(
+    POI_ANCHORS.map((a) => a.poiId),
+    treasure.digPoint,
+    player.explorer,
+    player.input,
+    () => discoveredIds(),
+    () => sitePanelOpen(),
+    survivalStore,
+    forageStoreEarly,
+    questStore,
+    session,
+    treasure.reveal,
+    treasure.dispose,
+  );
+  engine.addSystem(questSystem);
+
   const discovery = buildDiscovery(engine, world, player, session);
+  discoveredIds = () => discovery.store.getSnapshot().discoveredIds;
+  sitePanelOpen = () => discovery.store.getSnapshot().open !== null;
 
   // Survival rules — AFTER discovery in the update order, so an interact press
   // near a clue site opens the clue and only a free press reaches food/drink.
@@ -115,7 +147,7 @@ export function buildGame(
   // terminal sink (so no press ever banks). Registration order = priority.
   const forage = buildForage(world.terrain, quality.propDensity);
   engine.scene.add(forage.group);
-  const forageStore = createForageStore();
+  const forageStore = forageStoreEarly;
   engine.addSystem(
     new ForageSystem(
       forage.plants,
@@ -199,6 +231,7 @@ export function buildGame(
       hurt: (amount: number) => survivalSystem.hurt(amount),
     },
     forage: { store: forageStore },
+    quest: { store: questStore },
     setShadowsEnabled(enabled) {
       world.sky.sun.castShadow = enabled;
     },

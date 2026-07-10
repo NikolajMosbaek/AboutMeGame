@@ -34,22 +34,14 @@
 // faint emissive accents); and the 6 site silhouettes are
 // DISTINCT (their structure-coverage / accent-hue signatures are not all alike).
 //
-// F1 completion-panel mode — verify the completion dialog's dismissal paths on
-// the running build:
-//
-//   node scripts/verify-game.mjs [url] [--completion-panel] [--out-dir dir]
-//
-// Seeds 5 of the 6 sites as already discovered, walks to the base camp beside
-// the spawn and interacts (the 6th find), closes the reveal so the completion panel
-// raises, and checks: the dialog shows all three CTAs in the decided order
-// (Replay, Share enabled, Keep exploring) with entry focus on Replay; Escape
-// dismisses the dialog and returns focus to the canvas container; and — after a
-// reload + re-raise, since the completion edge is single-shot — a backdrop
-// click dismisses and returns focus to the canvas container likewise.
+// --completion-panel is RETIRED (pivot slice G): completion became the
+// treasure dig, a full player journey no smoke run should fake. Passing the
+// flag refuses loudly; the win screen is pinned by src/ui/TreasurePanel.test.tsx
+// and src/engine/GameCanvas.test.tsx.
 //
 // Exits non-zero if the page errors, WebGL is unavailable, the engine never
-// reports a running state, or any day-cycle / landmark-tour / completion-panel
-// check fails — so it works as a verification gate, not just a screenshot tool.
+// reports a running state, or any day-cycle / landmark-tour check fails — so it
+// works as a verification gate, not just a screenshot tool.
 import { chromium } from "playwright";
 import { assessVerify } from "./verify/assess.mjs";
 
@@ -102,27 +94,6 @@ const MIN_STRUCTURE_COVERAGE = 0.02;
 // still catching a genuinely missing glow.
 const MIN_ACCENT_HUED_COVERAGE = 0.005;
 
-// --- F1 completion-panel constants (kept in sync with src/discovery/
-//     persistence.ts KEY, src/world/worldConfig.ts POI_ANCHORS and the
-//     CompletionPanel CTA row) ------------------------------------------------
-const DISCOVERY_STORAGE_KEY = "aboutmegame.discovered.v1";
-// The one site left undiscovered by the seed: the base camp is right at the
-// spawn (you wake beside it), so the explorer is already inside its 16-unit
-// interact radius — a short walk at most. Sites have no collision.
-const FINAL_POI = { id: "site-base-camp", x: -28, z: 126 };
-// The other 5 of the 6 site ids, seeded as already discovered.
-const SEEDED_POI_IDS = [
-  "site-wrecked-canoe",
-  "site-carved-overhang",
-  "site-last-camp",
-  "site-fallen-idol-ruin",
-  "site-ancient-fig",
-];
-// The decided, documented CTA order (F1 slice 3): DOM = visual = tab order.
-const COMPLETION_CTAS = ["Replay", "Share", "Keep exploring"];
-// Tap E a little inside DiscoverySystem's INTERACT_RADIUS (16) so the tap still
-// lands in range despite the craft's momentum between poll steps.
-const INTERACT_TAP_DIST = 14;
 
 
 const consoleErrors = [];
@@ -148,10 +119,17 @@ try {
   // An init script re-applies on every navigation, so the reload between the
   // two dismissal passes re-seeds the same 12/13 state.
   if (completionPanel) {
-    await page.addInitScript(
-      ([key, ids]) => localStorage.setItem(key, JSON.stringify(ids)),
-      [DISCOVERY_STORAGE_KEY, SEEDED_POI_IDS],
+    // Retired by pivot slice G: completion is no longer "all sites discovered"
+    // but the treasure dig at the fig — a full player journey no smoke run
+    // should fake. The win screen's behaviour (rising edge, reload guard,
+    // Escape/CTA paths) is pinned by src/ui/TreasurePanel.test.tsx and
+    // src/engine/GameCanvas.test.tsx instead. Refuse loudly rather than
+    // pretend to verify a flow that no longer exists.
+    console.error(
+      "verify-game: --completion-panel was retired by the treasure-quest slice (#184); " +
+        "see TreasurePanel tests for the win-screen coverage.",
     );
+    process.exit(1);
   }
 
   await page.goto(url, { waitUntil: "networkidle", timeout: 30_000 });
@@ -161,8 +139,6 @@ try {
     await verifyDayCycle(page);
   } else if (landmarkTour) {
     await verifyLandmarkTour(page);
-  } else if (completionPanel) {
-    await verifyCompletionPanel(page);
   } else {
     await smokeShot(page);
   }
@@ -631,184 +607,9 @@ async function enterWorld(page, start = true) {
   }
 }
 
-// --- F1 completion-panel verification ------------------------------------------
-async function verifyCompletionPanel(page) {
-  const problems = [];
 
-  // PASS 1 — raise the panel, check the CTA row, dismiss with Escape.
-  if (await raiseCompletionPanel(page, problems, "escape pass")) {
-    await page.screenshot({ path: `${outDir}/completion-panel.png` });
-    console.log(`SCREENSHOT: ${outDir}/completion-panel.png`);
-    await checkCtaRow(page, problems);
-    await page.keyboard.press("Escape");
-    await checkDismissed(page, problems, "Escape");
-  }
 
-  // PASS 2 — the raise is single-shot (the completion edge is consumed), so
-  // reload (the init script re-seeds 12/13), raise again, and dismiss with a
-  // click on the backdrop outside the panel.
-  await page.reload({ waitUntil: "networkidle", timeout: 30_000 });
-  await enterWorld(page);
-  if (await raiseCompletionPanel(page, problems, "backdrop pass")) {
-    await page
-      .locator(".completion-panel-backdrop")
-      .click({ position: { x: 12, y: 12 } });
-    await checkDismissed(page, problems, "backdrop click");
-  }
 
-  // Engine health after both passes: positive fps, the full 13 discovered, no
-  // WebGL/console errors.
-  const state = JSON.parse(
-    await page.evaluate(() =>
-      window.render_game_to_text ? window.render_game_to_text() : "null",
-    ),
-  );
-  if (!state) problems.push("render_game_to_text returned null");
-  else {
-    if (state.fps <= 0) problems.push(`fps not positive (${state.fps})`);
-    const discovered = state.systems?.discovery?.discovered;
-    if (discovered !== EXPECTED_LANDMARKS)
-      problems.push(
-        `discovered ${discovered} != ${EXPECTED_LANDMARKS} after the final find`,
-      );
-  }
-  // Inline copy pinned to WEBGL_ERROR_RE in scripts/verify/assess.mjs (G3/G4/F1 modes stay mode-local by contract).
-  const webglErr = consoleErrors.find((e) => /webgl|context|THREE/i.test(e));
-  if (webglErr) problems.push(`WebGL/three error: ${webglErr}`);
-  if (consoleErrors.length) {
-    console.log("CONSOLE ERRORS:\n" + consoleErrors.join("\n"));
-  }
-
-  report(problems);
-}
-
-// Raise the completion panel: drive from spawn to the Arrivals Gate (the one
-// unseeded landmark, dead ahead), tap E inside interact range to open its
-// reveal — the 6th find, which arms the completion latch — then tap E again to
-// close the reveal, which is what raises the panel. `label` names the pass in
-// problem reports. Returns false (with a problem pushed) if the panel never
-// raised, so the caller skips that pass's dismissal checks.
-async function raiseCompletionPanel(page, problems, label) {
-  const readState = async () =>
-    JSON.parse(
-      await page.evaluate(() =>
-        window.render_game_to_text ? window.render_game_to_text() : "null",
-      ),
-    );
-  const tapInteract = async () => {
-    await page.keyboard.down("e");
-    await page.evaluate(() => window.advanceTime(60));
-    await page.keyboard.up("e");
-    await page.evaluate(() => window.advanceTime(250));
-  };
-
-  // Approach with W held, stepping the sim in small slices and polling the
-  // vehicle position, so the E tap lands inside the 16-unit interact radius
-  // despite the craft's speed (driveMax 54 u/s). Once the reveal opens the sim
-  // pauses, so the still-held W stops mattering.
-  await page.keyboard.down("w");
-  let opened = false;
-  for (let i = 0; i < 80 && !opened; i++) {
-    await page.evaluate(() => window.advanceTime(150));
-    const state = await readState();
-    if (state?.systems?.discovery?.open === FINAL_POI.id) {
-      opened = true;
-      break;
-    }
-    const pos = state?.systems?.explorer?.pos;
-    const dist = Array.isArray(pos)
-      ? Math.hypot(pos[0] - FINAL_POI.x, pos[1] - FINAL_POI.z)
-      : Infinity;
-    if (dist <= INTERACT_TAP_DIST) {
-      await tapInteract();
-      const after = await readState();
-      opened = after?.systems?.discovery?.open === FINAL_POI.id;
-    }
-  }
-  await page.keyboard.up("w");
-
-  if (!opened) {
-    problems.push(`${label}: could not open the final reveal at ${FINAL_POI.id}`);
-    return false;
-  }
-  const discovered = (await readState())?.systems?.discovery?.discovered;
-  if (discovered !== EXPECTED_LANDMARKS)
-    problems.push(
-      `${label}: final reveal open but discovered ${discovered} != ${EXPECTED_LANDMARKS} (seed failed?)`,
-    );
-
-  // Close the reveal with a second interact — the panel raises only once the
-  // final reveal has closed (the armed completion latch).
-  await tapInteract();
-  try {
-    await page.waitForSelector(".completion-panel", { timeout: 5_000 });
-  } catch {
-    problems.push(
-      `${label}: completion panel did not raise after the final reveal closed`,
-    );
-    return false;
-  }
-  console.log(`COMPLETION PANEL raised (${label})`);
-  return true;
-}
-
-// The completion dialog's CTA row: the decided, documented order (DOM = visual
-// = tab order), the Share CTA present and enabled at rest, entry focus on the
-// Replay CTA.
-async function checkCtaRow(page, problems) {
-  const ctas = await page.$$eval(".completion-panel button", (btns) =>
-    btns.map((b) => ({ label: b.textContent?.trim(), disabled: b.disabled })),
-  );
-  const labels = ctas.map((c) => c.label);
-  if (JSON.stringify(labels) !== JSON.stringify(COMPLETION_CTAS))
-    problems.push(
-      `CTA row [${labels.join(", ")}] != [${COMPLETION_CTAS.join(", ")}]`,
-    );
-  const share = ctas.find((c) => c.label === "Share");
-  if (!share) problems.push("Share CTA missing from the completion panel");
-  else if (share.disabled)
-    problems.push("Share CTA disabled at rest (pending latch stuck?)");
-  const focused = await page.evaluate(
-    () => document.activeElement?.textContent?.trim() ?? null,
-  );
-  if (focused !== "Replay")
-    problems.push(`entry focus on ${JSON.stringify(focused)} — expected the Replay CTA`);
-  console.log(
-    `  CTA row: [${labels.join(", ")}]; Share disabled=${share?.disabled}; ` +
-      `entry focus=${JSON.stringify(focused)}`,
-  );
-}
-
-// A dismissal path must detach the dialog and land focus on the canvas
-// container (the panel has no opener element to restore focus to).
-async function checkDismissed(page, problems, label) {
-  try {
-    await page.waitForSelector(".completion-panel", {
-      state: "detached",
-      timeout: 5_000,
-    });
-  } catch {
-    problems.push(`${label}: completion panel still up after dismissal`);
-    return;
-  }
-  const focus = await page.evaluate(() => {
-    const el = document.activeElement;
-    return el
-      ? { tag: el.tagName.toLowerCase(), className: String(el.className) }
-      : null;
-  });
-  const onContainer =
-    !!focus && focus.className.split(" ").includes("game-canvas-container");
-  if (!onContainer)
-    problems.push(
-      `${label}: focus did not return to the canvas container — active element ` +
-        `is <${focus?.tag ?? "none"} class="${focus?.className ?? ""}">`,
-    );
-  console.log(
-    `  ${label}: dialog detached; focus -> ` +
-      `<${focus?.tag ?? "none"} class="${focus?.className ?? ""}">`,
-  );
-}
 
 function report(problems) {
   if (problems.length) {
