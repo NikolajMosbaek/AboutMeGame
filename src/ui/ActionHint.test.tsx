@@ -28,6 +28,8 @@ function snapshot(over: Partial<SurvivalSnapshot> = {}): SurvivalSnapshot {
     stamina: 100,
     hunger: 100,
     thirst: 100,
+    breath: 100,
+    submerged: false,
     alive: true,
     deaths: 0,
     canDrink: false,

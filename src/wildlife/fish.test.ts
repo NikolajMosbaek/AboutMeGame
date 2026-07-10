@@ -129,3 +129,30 @@ describe("FishSystem", () => {
     expect(scene.children.find((o) => o.name === "wildlife-fish")).toBeUndefined();
   });
 });
+
+describe("lagoon bias + colour variation (#184)", () => {
+  it("selectPools offers several pools inside the lagoon zone (the kelp beds), plus the river", () => {
+    const terrain = buildTerrain();
+    const waterDepthAt = (x: number, z: number) => 0 - terrain.heightAt(x, z);
+    const pools = selectPools(waterDepthAt);
+    const lagoonReach = LAGOON.radius + LAGOON.shoreRamp;
+    const inLagoon = pools.filter((p) => Math.hypot(p.x - LAGOON.x, p.z - LAGOON.z) < lagoonReach);
+    expect(inLagoon.length).toBeGreaterThanOrEqual(3); // the round-robin assignment favours the lagoon
+    expect(pools.length).toBeGreaterThan(inLagoon.length); // the river pools survive
+  });
+
+  it("gives fish subtle per-instance colour variation", () => {
+    const terrain = buildTerrain();
+    const scene = new THREE.Scene();
+    new FishSystem(scene, (x, z) => 0 - terrain.heightAt(x, z), player(0, 0), { paused: false });
+    const mesh = scene.children.find((o) => o.name === "wildlife-fish") as THREE.InstancedMesh;
+    expect(mesh.instanceColor).not.toBeNull();
+    const a = new THREE.Color().fromArray(mesh.instanceColor!.array, 0);
+    let varies = false;
+    for (let i = 1; i < mesh.count; i++) {
+      const b = new THREE.Color().fromArray(mesh.instanceColor!.array, i * 3);
+      if (!a.equals(b)) varies = true;
+    }
+    expect(varies).toBe(true);
+  });
+});

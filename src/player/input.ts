@@ -24,6 +24,9 @@ export interface MoveState {
   moveZ: number;
   /** Hold to sprint (stamina-gated by the survival slice later). */
   sprint: boolean;
+  /** Hold to rise while swimming (Space — level-triggered like sprint; on
+   *  land the explorer ignores it, there is no jump). */
+  rise: boolean;
 }
 
 /** Accumulated look rotation since the last consume, in radians. */
@@ -35,7 +38,7 @@ export interface LookDelta {
 }
 
 function zeroMove(): MoveState {
-  return { moveX: 0, moveZ: 0, sprint: false };
+  return { moveX: 0, moveZ: 0, sprint: false, rise: false };
 }
 
 /** What the explorer reads each frame. */
@@ -117,7 +120,7 @@ export function createPlayerInput(
 
   // Written in place by readKeyboard/readGamepad each poll — update() runs at
   // 60Hz, so these avoid two object allocations per frame.
-  const kb = { x: 0, z: 0, sprint: false };
+  const kb = { x: 0, z: 0, sprint: false, rise: false };
   const gp = { connected: false, x: 0, z: 0, sprint: false };
 
   const readKeyboard = () => {
@@ -128,6 +131,9 @@ export function createPlayerInput(
     if (keys.has("a") || keys.has("arrowleft")) kb.x -= 1;
     if (keys.has("d") || keys.has("arrowright")) kb.x += 1;
     kb.sprint = keys.has("shift");
+    // Space (already in MOVE_KEYS, so it never scrolls the page): rise while
+    // swimming — the one key set drives it, no new binding surface.
+    kb.rise = keys.has(" ");
   };
 
   // ---- Pointer-lock mouse look ----
@@ -225,6 +231,7 @@ export function createPlayerInput(
       state.moveX = clamp(x, -1, 1);
       state.moveZ = clamp(z, -1, 1);
       state.sprint = sprint;
+      state.rise = kb.rise;
     },
     consumeLook() {
       lookOut.dx = look.dx;
@@ -256,9 +263,9 @@ export function createPlayerInput(
   };
 }
 
-// Space stays here although nothing binds it: preventDefault keeps a habitual
-// press from re-activating a focused HUD button or page-scrolling the game
-// (the old climb key's guard, kept deliberately — review, slice B).
+// Space is a real binding now (rise while swimming, #184); its preventDefault
+// also keeps a habitual press from re-activating a focused HUD button or
+// page-scrolling the game (the old climb key's guard, kept since slice B).
 const MOVE_KEYS = new Set([
   "w", "a", "s", "d", "arrowup", "arrowdown", "arrowleft", "arrowright", " ",
 ]);

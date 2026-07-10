@@ -40,10 +40,14 @@ export class FirstPersonCameraSystem implements System {
     this.euler.set(s.pitch, cameraEulerYFromYaw(s.yaw), 0);
     this.engine.camera.quaternion.setFromEuler(this.euler);
 
+    // Swimming (#184): the eye rides just above the body (a surfaced head sits
+    // barely over the waterline), and the stride bob is off — there is no
+    // stride in the water, and a bobbing waterline reads as nausea, not sea.
+    const swimming = s.mode === "swim";
     const reduced = this.motion?.getSnapshot().reducedMotion ?? false;
     let bobY = 0;
     let sway = 0;
-    if (!reduced && s.speed > 0.1) {
+    if (!reduced && !swimming && s.speed > 0.1) {
       this.bobDistance += s.speed * ctx.dt;
       const phase = this.bobDistance * BOB_FREQ * Math.PI;
       const amp = BOB_AMP * Math.min(1.4, s.speed / TUNE.walkSpeed);
@@ -57,7 +61,8 @@ export class FirstPersonCameraSystem implements System {
     this.engine.camera.position
       .copy(s.position)
       .add(this.right.multiplyScalar(sway));
-    this.engine.camera.position.y = s.position.y + TUNE.eyeHeight + bobY;
+    this.engine.camera.position.y =
+      s.position.y + (swimming ? TUNE.swimEyeHeight : TUNE.eyeHeight) + bobY;
   }
 
   describe(): Record<string, unknown> {

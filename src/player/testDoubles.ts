@@ -22,7 +22,7 @@ export const FRAME: FrameContext = {
 
 /** A scripted input: tests write `state`/`look` directly, `interact` via press. */
 export function fakeInput() {
-  const state: MoveState = { moveX: 0, moveZ: 0, sprint: false };
+  const state: MoveState = { moveX: 0, moveZ: 0, sprint: false, rise: false };
   const look: LookDelta = { dx: 0, dy: 0 };
   let interact = false;
   const snap: PlayerInputSnapshot = {

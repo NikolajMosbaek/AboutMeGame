@@ -6,6 +6,7 @@ import { createPlayerInput, type PlayerInputController } from "./input.ts";
 import { ExplorerSystem } from "./explorer.ts";
 import { FirstPersonCameraSystem } from "./fpCamera.ts";
 import { SPAWN } from "../world/worldConfig.ts";
+import { createSwimZones } from "../world/waterZones.ts";
 
 export interface Player {
   input: PlayerInputController;
@@ -40,6 +41,8 @@ export function buildPlayer(
     { x: SPAWN.x, z: SPAWN.z, yaw: SPAWN.yaw },
     session,
     canSprint,
+    // Where deep water swims (the lagoon) vs grips (the river current, #184).
+    createSwimZones(),
   );
   engine.addSystem(explorer);
 

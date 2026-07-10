@@ -7,6 +7,8 @@ import { buildLandmarks, type Landmarks } from "./landmarks.ts";
 import { buildProps } from "./props.ts";
 import { WaterSystem } from "./waterSystem.ts";
 import { DayCycleSystem } from "./dayCycleSystem.ts";
+import { UnderwaterFxSystem } from "./underwaterFxSystem.ts";
+import { buildAquatic } from "./aquatic.ts";
 import { WORLD } from "./worldConfig.ts";
 import { QUALITY_TIERS, type QualityConfig } from "../perf/quality.ts";
 
@@ -75,6 +77,11 @@ export function buildWorld(
   const props = buildProps(terrain, quality.propDensity);
   scene.add(props.group);
 
+  // Aquatic life (#184): kelp beds + lily pads in the lagoon (2 draw calls,
+  // deterministic). The sway system registers below, gated by reduced motion.
+  const aquatic = buildAquatic(terrain);
+  scene.add(aquatic.group);
+
   // Constructed here (not inline in the `addSystem` call below) so `World.dayCycle`
   // can close over the live instance — the single production importer of
   // `./dayCycle` (the chain that wires the pure palette into the bundle) stays
@@ -94,6 +101,7 @@ export function buildWorld(
       boundaries.dispose();
       landmarks.dispose();
       props.dispose();
+      aquatic.dispose();
     },
   };
 
@@ -120,6 +128,16 @@ export function buildWorld(
   // individually (never the whole World/Sky), and the reduced-motion gate so it
   // pins to golden hour and holds when the player asks for less motion.
   engine.addSystem(dayCycleSystem);
+
+  // Underwater fog (#184) — AFTER the day cycle, which owns the fog colour:
+  // this layers the submerged teal + density on top and restores exactly on
+  // surfacing. Null-fog (low tier) makes it a no-op, like the day cycle's own
+  // fog write.
+  engine.addSystem(new UnderwaterFxSystem(sky.fog));
+
+  // Kelp sway (#184) — gentle and non-essential, so it holds still under the
+  // same live reduced-motion gate the water swell reads.
+  engine.addSystem(aquatic.sway(reducedMotion));
 
   return world;
 }

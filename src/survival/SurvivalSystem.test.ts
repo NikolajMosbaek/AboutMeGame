@@ -221,3 +221,157 @@ describe("SurvivalSystem (pivot slice D)", () => {
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// Swimming & breath (#184)
+
+/** A survival rig floating in deep lagoon water (depth 5 m everywhere). */
+function swimRig(zones?: import("../world/waterZones.ts").SwimZones) {
+  const input = fakeInput();
+  const session = createSession();
+  const terrain = fakeTerrain(-5);
+  const water: WaterDepthAt = (x, z) => 0 - terrain.heightAt(x, z);
+  const explorer = new ExplorerSystem(
+    input.snap,
+    terrain,
+    openBounds(),
+    water,
+    SPAWN,
+    session,
+    undefined,
+    zones ?? { inLagoon: () => true, riverFlowAt: () => null },
+  );
+  const store = createSurvivalStore();
+  const sys = new SurvivalSystem(
+    explorer,
+    input.snap,
+    water,
+    store,
+    { getSnapshot: () => ({ nearby: null }) },
+    session,
+    SPAWN,
+  );
+  return { input, session, explorer, store, sys };
+}
+
+function runSwim(r: ReturnType<typeof swimRig>, frames: number) {
+  for (let i = 0; i < frames; i++) {
+    r.explorer.update(FRAME);
+    r.sys.update(FRAME);
+  }
+}
+
+describe("SurvivalSystem breath (#184)", () => {
+  it("drains over ~30 s submerged, and drowning bites health at the tuned rate", () => {
+    const r = swimRig();
+    runSwim(r, 2);
+    expect(r.store.getSnapshot().submerged).toBe(false); // floating: head up
+    expect(r.store.getSnapshot().breath).toBe(FULL);
+
+    // Dive: nose down + forward.
+    r.input.look.dy = 1.2;
+    r.input.state.moveZ = 1;
+    runSwim(r, 2 * FPS);
+    expect(r.store.getSnapshot().submerged).toBe(true);
+
+    // ~half gone around the 15 s mark (give or take the dive-in frames)…
+    runSwim(r, 13 * FPS);
+    const half = r.store.getSnapshot().breath;
+    expect(half).toBeGreaterThan(40);
+    expect(half).toBeLessThan(60);
+
+    // …empty past 30 s, and health starts draining at drownDrainPerSec.
+    runSwim(r, 17 * FPS);
+    expect(r.store.getSnapshot().breath).toBe(0);
+    const h0 = r.store.getSnapshot().health;
+    runSwim(r, 5 * FPS);
+    const h1 = r.store.getSnapshot().health;
+    expect(h0 - h1).toBeGreaterThan(TUNE.drownDrainPerSec * 5 - 2);
+    expect(h0 - h1).toBeLessThan(TUNE.drownDrainPerSec * 5 + 2);
+  });
+
+  it("refills in ~3 s once surfaced (buoyancy floats an idle swimmer back up)", () => {
+    const r = swimRig();
+    r.input.look.dy = 1.2;
+    r.input.state.moveZ = 1;
+    runSwim(r, 12 * FPS); // ~10 s under: breath well below full
+    expect(r.store.getSnapshot().breath).toBeLessThan(75);
+
+    // Let go of everything: buoyancy brings the head back over the surface.
+    r.input.state.moveZ = 0;
+    runSwim(r, 20 * FPS);
+    expect(r.store.getSnapshot().submerged).toBe(false);
+    expect(r.store.getSnapshot().breath).toBe(FULL); // 3 s refill is long past
+  });
+
+  it("death by drowning follows the same death path", () => {
+    const r = swimRig();
+    r.input.look.dy = 1.2;
+    r.input.state.moveZ = 1;
+    // 30 s of breath + 100 health / 4 per s = 25 s → dead within ~60 s.
+    runSwim(r, 60 * FPS);
+    const s = r.store.getSnapshot();
+    expect(s.health).toBe(0);
+    expect(s.alive).toBe(false);
+    expect(r.session.isPaused("death")).toBe(true);
+  });
+});
+
+describe("SurvivalSystem stamina in the water (#184)", () => {
+  it("cruise swimming drains at ~1/8 of the sprint rate", () => {
+    const r = swimRig();
+    r.input.state.moveZ = 1;
+    runSwim(r, 12 * FPS);
+    const expected = FULL - TUNE.staminaDrainPerSec * TUNE.swimStaminaFactor * 12;
+    const got = r.store.getSnapshot().stamina;
+    expect(got).toBeGreaterThan(expected - 3);
+    expect(got).toBeLessThan(expected + 3);
+  });
+
+  it("sprint-swim drains at ~1/3 of the sprint rate", () => {
+    const r = swimRig();
+    r.input.state.moveZ = 1;
+    r.input.state.sprint = true;
+    runSwim(r, 6 * FPS);
+    const expected = FULL - TUNE.staminaDrainPerSec * TUNE.sprintSwimStaminaFactor * 6;
+    const got = r.store.getSnapshot().stamina;
+    expect(got).toBeGreaterThan(expected - 3);
+    expect(got).toBeLessThan(expected + 3);
+  });
+
+  it("the river's grip wrings stamina at the full sprint rate, even adrift", () => {
+    const flow = { x: 0, z: 1 };
+    const r = swimRig({ inLagoon: () => false, riverFlowAt: () => flow });
+    runSwim(r, 2);
+    expect(r.explorer.state.gripped).toBe(true);
+    runSwim(r, 3 * FPS); // no input at all — the grip itself is the exertion
+    const expected = FULL - TUNE.staminaDrainPerSec * 3;
+    const got = r.store.getSnapshot().stamina;
+    expect(got).toBeGreaterThan(expected - 3);
+    expect(got).toBeLessThan(expected + 3);
+  });
+
+  it("a still float rests: stamina recovers at the surface", () => {
+    const r = swimRig();
+    r.input.state.moveZ = 1;
+    runSwim(r, 20 * FPS); // spend some swimming
+    r.input.state.moveZ = 0;
+    const tired = r.store.getSnapshot().stamina;
+    runSwim(r, 5 * FPS);
+    expect(r.store.getSnapshot().stamina).toBeGreaterThan(tired);
+  });
+});
+
+describe("drinking while swimming (#184)", () => {
+  it("water at the body still counts as reachable: a press gulps", () => {
+    const r = swimRig();
+    runSwim(r, 60 * FPS); // get thirsty afloat
+    const before = r.store.getSnapshot().thirst;
+    expect(r.store.getSnapshot().canDrink).toBe(true);
+    r.input.press();
+    runSwim(r, 1);
+    expect(r.store.getSnapshot().thirst).toBe(
+      Math.min(FULL, Math.round(before + TUNE.drinkPerGulp)),
+    );
+  });
+});

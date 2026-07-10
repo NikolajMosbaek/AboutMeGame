@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import type { SurvivalStore } from "../survival/survivalStore.ts";
+import { FULL, type SurvivalStore } from "../survival/survivalStore.ts";
 
 export interface SurvivalMetersProps {
   survival: SurvivalStore;
@@ -25,11 +25,18 @@ export const LOW_METER = 25;
  */
 export function SurvivalMeters({ survival }: SurvivalMetersProps) {
   const s = useSyncExternalStore(survival.subscribe, survival.getSnapshot);
+  // Breath (#184) is situational: only while the head is under, or while the
+  // bar is still refilling after a dive — a permanent fifth bar would just be
+  // noise for the ~95% of play spent on land.
+  const showBreath = s.submerged || s.breath < FULL;
+  const meters = showBreath
+    ? [{ key: "breath", label: "Breath", icon: "🫧", className: "meter--breath" } as const, ...METERS]
+    : METERS;
 
   return (
     <>
       <div className="survival" aria-label="survival status">
-        {METERS.map((m) => {
+        {meters.map((m) => {
           const value = s[m.key];
           const low = value <= LOW_METER;
           return (

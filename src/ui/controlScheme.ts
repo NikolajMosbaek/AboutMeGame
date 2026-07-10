@@ -36,11 +36,16 @@ export interface ControlScheme {
   entries: ReadonlyArray<ControlEntry>;
 }
 
-// Keyboard hints for the first-person explorer (pivot slice B).
+// Keyboard hints for the first-person explorer (pivot slice B; Space returned
+// as a real binding with the swimming slice, #184).
 const KEYBOARD_ENTRIES: ReadonlyArray<ControlEntry> = Object.freeze([
   Object.freeze({ label: "W A S D", action: "Walk" }),
   Object.freeze({ label: "Mouse", action: "Look (click to grab)" }),
   Object.freeze({ label: "Shift", action: "Sprint" }),
+  Object.freeze({
+    label: "Space",
+    action: "Swim up — in the lagoon you swim where you look; the river's current is not your friend",
+  }),
   Object.freeze({ label: "E", action: "Use / examine" }),
   Object.freeze({ label: "Esc", action: "Menu" }),
 ]);
