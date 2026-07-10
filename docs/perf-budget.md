@@ -62,6 +62,8 @@ wins — only `"auto"` follows detection (`resolveQuality`'s contract).
 | `bloom` | **off** | on | on | Threshold post-processing pass that makes the emissive site accents (and later fireflies) glow; fill-rate spend, not draw/triangle; off on low to protect mobile fill rate. **Shipped** behind the renderer seam — pmndrs `postprocessing`'s mipmap-blur `BloomEffect`, merged with SMAA/vignette/tone-mapping into ONE `EffectPass` in `src/engine/createCompositor.ts` (visual-overhaul slice 1, replacing the earlier three-examples `UnrealBloomPass` chain); applies on reload. |
 | `envDynamic` | **off** | on | on | Whether the sky-driven PMREM environment light (`EnvLightSystem`, visual-overhaul slice 2) regenerates as the day cycle moves. Every tier gets the environment map itself (a real per-tier lighting upgrade, not gated); low bakes it ONCE at load (the golden-hour keyframe) and never touches it again — a free visual upgrade with zero steady-state cost. Applies on reload (bake-at-mount). |
 | `ao.qualityMode` | n/a (no compositor) | `"Performance"` | `"Medium"` | N8AO's sample-count preset (visual-overhaul slice 2) — medium/high only, inside the same lazy `postfx` chunk as bloom. `aoRadius`/`distanceFalloff`/`intensity`/`halfRes` are the SAME on both tiers (tuned once for this world's scale); only the preset differs. Applies on reload. |
+| `terrainDetail` | **"albedo"** | "full" | "full" | Visual-overhaul slice 3 (PBR terrain splatting): `"full"` compiles the 4-sample tangent-space normal-map blend into the terrain's `onBeforeCompile` patch (`src/world/terrainMaterialPatch.ts`); `"albedo"` (low) omits that block at BUILD TIME — the compiled program references no normal sampler at all, so low pays for 4 texture samples/fragment, never 8. Every tier gets the real splatted albedo (no tier renders flat vertex-colour-only terrain any more); this only gates the normal-map fill-rate spend. Applies on reload (bake-at-mount, like `shadowMapSize`). |
+| `terrainAnisotropy` | 4 | 4 | 8 | Anisotropic filtering level for the terrain's splat textures — three clamps to the device's real max at bind time, so this is always safe to request. A cheap fill-rate knob; only high spends the extra samples. |
 
 **Low tier vs the mobile budget.** Low is tuned to comfortably clear the
 mid-range-phone bar: pixelRatio 1 (no super-sampling), no real-time shadows, and
@@ -196,6 +198,94 @@ options are (in the team's own fill-rate/bytes-first order): drop `halfRes`
 tuning further, reconsider N8AO's inclusion on medium specifically, or accept
 the cost against a documented trade so the decision is visible here rather
 than silently exhausting the cap.
+
+**Visual-overhaul slice 3 (terrain, 2026-07-11)** replaced the flat-shaded,
+untextured-vertex-colour terrain with real PBR texture splatting: 4 CC0
+ambientCG ground textures (jungle floor / leaf litter / rock / sand,
+`public/assets/LICENSES.md`) blended per-vertex by slope/height/noise
+(`src/world/terrainSplat.ts`, a pure module) and applied via the terrain
+material's `onBeforeCompile` patch (`src/world/terrainMaterialPatch.ts`, the
+`waterPatch.ts` idiom — world-XZ planar UV, `TERRAIN_TILE_SIZE = 6` world
+units/repeat). The mesh is now smooth-shaded (`computeVertexNormals`, no more
+`flatShading`); the old elevation-band vertex colour survives unchanged as a
+macro tint (three's own `diffuseColor.rgb *= vColor` in `color_fragment` runs
+on the splatted albedo for free, by anchor ordering alone — no extra GLSL).
+Normal maps (medium/high, `quality.terrainDetail === "full"`) blend via a
+screen-space-derivative tangent frame (no precomputed UV tangents needed); low
+tier omits that block entirely at build time (`quality.terrainDetail ===
+"albedo"`) so it never pays for the extra 4 samples/fragment. Texture loading
+is async through the existing cached `loadTexture` seam: the terrain renders
+its (unchanged) vertex-colour look the instant `buildTerrain` returns and
+upgrades in place with ONE material recompile when the textures attach
+(`Terrain.texturesReady`) — verified visually (below), not just asserted in
+tests.
+
+*Draw calls / triangles.* Zero change — this patches the ONE existing terrain
+`MeshStandardMaterial` in place (`waterPatch.ts`'s discipline: no second mesh,
+no `ShaderMaterial`), so draw calls and triangle count are unaffected; the
+spend is entirely fill-rate (extra texture samples/fragment: 4 albedo every
+tier, +4 normal on medium/high) — the fill-rate-first mitigation order (cap
+DPR → draw calls → overdraw/shadows → triangles) still applies if a device
+struggles with the extra sampling.
+
+*Texture payload.* 8 WebP files (4 albedo @ q80, 4 normal @ q90, all resized to
+1024x1024 by `scripts/process-textures.mjs`), **2701.0 KB** total, counted at
+RAW bytes (already-compressed binary, `docs/perf-budget.md`'s conservative
+convention) toward the 6 MB initial-download cap:
+
+| File | Bytes (KB) |
+|---|---|
+| jungle-floor-albedo.webp | 213.7 |
+| jungle-floor-normal.webp | 541.6 |
+| leaf-litter-albedo.webp | 427.5 |
+| leaf-litter-normal.webp | 593.2 |
+| rock-albedo.webp | 155.9 |
+| rock-normal.webp | 163.5 |
+| sand-albedo.webp | 213.4 |
+| sand-normal.webp | 392.2 |
+
+Measured `vite build` (gzip) + `npm run check:bundle`, same method as slices
+1-2 (branch vs the slice-2 baseline: entry 92.51 KB, `three` 133.26 KB,
+`postfx` 151.72 KB, CSS 4.54 KB, summed JS gzip 376.7 KB, total download
+417.9 KB):
+
+- **Entry chunk:** 92.51 → 94.71 KB (**+2.2 KB** — the new pure modules
+  `terrainSplat.ts`/`terrainMaterialPatch.ts`, the texture-attach path in
+  `terrain.ts`, and the two new `QualityConfig` fields, all pulled in eagerly
+  via `buildWorld` on every tier).
+- **`three` vendor chunk (eager):** 133.26 → 134.04 KB (+0.78 KB — three's own
+  version is unchanged, `^0.185.1`; this is within normal terser/rollup
+  measurement noise across builds, not attributable to new imports from this
+  slice — `THREE.RepeatWrapping`/`THREE.NoColorSpace` are pre-existing enum
+  exports, not new surface).
+- **`postfx` chunk (lazy, medium/high only):** 151.72 → 151.07 KB (-0.65 KB,
+  untouched by this slice — build noise).
+- **CSS:** unchanged, 4.54 KB.
+- **Summed JS gzip (`check:bundle`):** 376.7 → **379.7 KB**, **20.3 KB** of the
+  400 KB cap left free (was 23.3 KB after slice 2 — the splat patch fit inside
+  the ~20 KB the design flagged as remaining, at +3.0 KB actual). **Total
+  download:** 417.9 KB → **3187.6 KB** (the +2701 KB texture payload plus the
+  small JS delta), **2812.4 KB** of the 6 MB cap still free.
+
+Both caps hold (`npm run check:bundle` EXIT=0), but JS-gzip headroom is now
+**very** thin (20.3 KB) — the next slice that adds meaningful JS (water normal
+maps, flora GLB decoding) should budget against this number, not slice 2's.
+
+**Quality-tier verification.** `npm run verify`'s render gate runs on software
+WebGL (`docs/perf-budget.md`'s own software-renderer override), which forces
+the LOW tier — so the automated gate exercises the `terrainDetail: "albedo"`
+path, not medium/high. Medium/high (`terrainDetail: "full"`, normal maps) were
+verified manually: a real Chromium `vite preview` session with
+`localStorage`-forced `quality: "low"` vs the default (auto → high on this
+machine) confirmed both paths render correctly — the low-tier screenshots are
+visually near-indistinguishable from high at this scale (expected: the
+difference is a subtle normal-map lighting nuance, not a colour/texture
+change), confirming the low path never regressed to a slower OR a worse-looking
+result. This is the honest limitation the design doc anticipated: no
+in-repo tooling exists to force a quality tier through the *official*
+`npm run verify` orchestrator (`scripts/verify-game.mjs` takes no such flag),
+so the medium/high confirmation is a manual spot-check, not a repeatable CI
+assertion.
 
 ## How it is enforced
 
