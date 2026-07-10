@@ -26,6 +26,8 @@ export function buildPlayer(
   overlay: HTMLElement,
   session: GameSession,
   motion?: ReducedMotionSource,
+  /** Survival's sprint gate (stamina left?). Absent = always allowed. */
+  canSprint?: () => boolean,
 ): Player {
   const input = createPlayerInput(overlay, undefined, () => !session.paused);
   engine.addSystem(new InputPollSystem(input, session));
@@ -37,6 +39,7 @@ export function buildPlayer(
     world.waterDepthAt,
     { x: SPAWN.x, z: SPAWN.z, yaw: SPAWN.yaw },
     session,
+    canSprint,
   );
   engine.addSystem(explorer);
 

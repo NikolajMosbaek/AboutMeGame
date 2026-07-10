@@ -122,9 +122,21 @@ export class ExplorerSystem implements System {
     private readonly waterDepthAt: WaterDepthAt,
     spawn: { x: number; z: number; yaw?: number } = { x: 0, z: 0 },
     private readonly session?: GameSession,
+    /** Survival's sprint gate (stamina left?). Absent = always allowed. */
+    private readonly canSprint?: () => boolean,
   ) {
     this.yaw = spawn.yaw ?? 0;
     this.pos.set(spawn.x, terrain.heightAt(spawn.x, spawn.z), spawn.z);
+  }
+
+  /** Teleport back to a spawn point (death → wake at camp). Zeroes motion and
+   *  levels the view so waking reads as waking, not as mid-stride whiplash. */
+  respawn(spawn: { x: number; z: number; yaw?: number }): void {
+    this.pos.set(spawn.x, this.terrain.heightAt(spawn.x, spawn.z), spawn.z);
+    this.yaw = spawn.yaw ?? this.yaw;
+    this.pitch = 0;
+    this.speed = 0;
+    this.sprinting = false;
   }
 
   get state(): ExplorerState {
@@ -159,7 +171,7 @@ export class ExplorerSystem implements System {
 
     const c = this.input.state;
     const moving = Math.abs(c.moveX) > 0.01 || Math.abs(c.moveZ) > 0.01;
-    this.sprinting = moving && c.sprint;
+    this.sprinting = moving && c.sprint && (this.canSprint?.() ?? true);
 
     // Wish direction in the ground plane: forward·moveZ + screen-right·moveX.
     const fwd = forwardXZFromYaw(this.yaw);

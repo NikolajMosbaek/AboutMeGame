@@ -317,6 +317,112 @@ body {
   color: var(--color-accent-fg);
 }
 
+
+/* ----- Survival meters (pivot slice D) ----- */
+.survival {
+  position: fixed;
+  left: max(var(--space-2), var(--safe-left));
+  bottom: calc(3.2rem + var(--safe-bottom));
+  display: grid;
+  gap: 0.35rem;
+  z-index: 12;
+  pointer-events: none;
+}
+
+.meter {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.meter__icon {
+  width: 1.2rem;
+  text-align: center;
+  font-size: 0.85rem;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.7));
+}
+
+.meter__track {
+  width: 130px;
+  height: 7px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  overflow: hidden;
+  display: block;
+}
+
+.meter__fill {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  transition: width 300ms ease;
+}
+
+.meter--health .meter__fill { background: #e05656; }
+.meter--stamina .meter__fill { background: #e8c94e; }
+.meter--hunger .meter__fill { background: #c78b4e; }
+.meter--thirst .meter__fill { background: #58a6d6; }
+
+/* Low-meter attention flash — non-essential motion, so both reduced-motion
+   gates suppress it (the colour + width still carry the state). */
+.meter--low .meter__fill {
+  animation: meter-flash 1s ease-in-out infinite;
+}
+@keyframes meter-flash {
+  50% { opacity: 0.35; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .meter--low .meter__fill { animation: none; }
+}
+:root[data-reduced-motion="true"] .meter--low .meter__fill { animation: none; }
+
+/* The drink hint mirrors the reveal prompt's placement language. */
+.drink-hint {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(4.6rem + var(--safe-bottom));
+  margin: 0;
+  padding: 0.35rem 0.9rem;
+  border-radius: 999px;
+  background: rgba(10, 20, 30, 0.72);
+  color: #bfe3ff;
+  font: 600 0.85rem var(--font-ui);
+  z-index: 12;
+  pointer-events: none;
+}
+
+/* ----- Death overlay (pivot slice D) ----- */
+.death-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  background: rgba(5, 8, 6, 0.82);
+}
+
+.death-overlay__card {
+  max-width: 26rem;
+  margin: 1rem;
+  padding: 1.6rem 1.8rem;
+  border-radius: 12px;
+  background: #141a14;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  text-align: center;
+}
+
+.death-overlay__card h2 {
+  margin: 0 0 0.6rem;
+  font: 700 1.25rem var(--font-ui);
+}
+
+.death-overlay__card p {
+  margin: 0 0 1.2rem;
+  opacity: 0.85;
+}
+
 /* ----- Discovery UI (#38) ----- */
 .discovery-progress {
   position: fixed;
