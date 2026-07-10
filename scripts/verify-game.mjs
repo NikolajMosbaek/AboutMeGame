@@ -13,7 +13,7 @@
 // Steps the simulation to the NOON (frac 0.25), GOLDEN (0.5) and dim EVENING
 // (0.75) keyframes of the ~180s loop, screenshots each, and checks: the engine
 // stays running with positive fps and no WebGL/console errors at every stop; all
-// 13 landmarks stay present (sites.poiCount and discovery.total both 6); the
+// 6 sites stay present (sites.poiCount and discovery.total both 6); the
 // SKY visibly changes between the three keyframes (the loop is actually
 // animating, not frozen on the construction-time noon); and stepping a FULL
 // period back to the start rejoins the dawn look with no seam jump.
@@ -31,7 +31,7 @@
 // throughout; each frame shows a built STRUCTURE (a body of non-grass, non-sky
 // pixels in the centre, not an empty meadow); each shows the landmark's
 // signature-hued ACCENT GLOW (bright pixels matching the anchor colour, the
-// emissive accent + beacon the G2 bloom catches); and the 8 silhouettes are
+// faint emissive accents); and the 6 site silhouettes are
 // DISTINCT (their structure-coverage / accent-hue signatures are not all alike).
 //
 // F1 completion-panel mode — verify the completion dialog's dismissal paths on
@@ -96,7 +96,7 @@ const TOUR_ARCHETYPES = LANDMARK_ANCHORS.length; // 6 distinct silhouettes
 // it, the frame is an empty meadow (the landmark didn't render / wasn't framed).
 const MIN_STRUCTURE_COVERAGE = 0.02;
 // Each landmark must show at least this fraction of bright pixels whose HUE
-// matches the anchor's signature colour — the emissive accent + beacon the G2
+// matches the anchor's signature colour — the faint emissive accent the G2
 // bloom catches. Below it, the signature-hued wayfinding glow is absent. The
 // measured floor across the 8 is ~1.3% (ring/tower); 0.5% leaves headroom while
 // still catching a genuinely missing glow.
@@ -305,14 +305,14 @@ async function verifyDayCycle(page) {
         problems.push(`${name}: drawCalls ${state.drawCalls} over budget (150)`);
       if (state.triangles > 500_000)
         problems.push(`${name}: triangles ${state.triangles} over budget (500000)`);
-      // All 13 landmarks must stay present/legible at every loop point. The
-      // beacon-pulse system reports the placed landmark count; discovery reports
+      // All 6 sites must stay present/legible at every loop point. The
+      // sites census reports the placed landmark count; discovery reports
       // the total. Both must read 13 — a dropped landmark would show as a lower
       // count, and "present" is the legibility floor a text snapshot can assert.
-      const beaconCount = state.systems?.sites?.poiCount;
+      const siteCount = state.systems?.sites?.poiCount;
       const discoveryTotal = state.systems?.discovery?.total;
-      if (beaconCount !== EXPECTED_LANDMARKS)
-        problems.push(`${name}: sites.poiCount ${beaconCount} != ${EXPECTED_LANDMARKS}`);
+      if (siteCount !== EXPECTED_LANDMARKS)
+        problems.push(`${name}: sites.poiCount ${siteCount} != ${EXPECTED_LANDMARKS}`);
       if (discoveryTotal !== EXPECTED_LANDMARKS)
         problems.push(`${name}: discovery.total ${discoveryTotal} != ${EXPECTED_LANDMARKS}`);
     }
@@ -376,7 +376,7 @@ async function verifyDayCycle(page) {
     console.log(
       `  ${s.name}: sky≈[${s.sky.map((v) => v.toFixed(0)).join(",")}] ` +
         `fps=${s.state?.fps} draws=${s.state?.drawCalls} tris=${s.state?.triangles} ` +
-        `landmarks(beacons=${s.state?.systems?.sites?.poiCount}, discovery=${s.state?.systems?.discovery?.total}) ` +
+        `sites(census=${s.state?.systems?.sites?.poiCount}, discovery=${s.state?.systems?.discovery?.total}) ` +
         `-> ${s.file}`,
     );
   }
@@ -473,7 +473,7 @@ async function verifyLandmarkTour(page) {
             const lum = 0.299 * r + 0.587 * g + 0.114 * b;
             const h = hueOf(r, g, b);
 
-            // Accent glow, two reads over the whole frame (the beacon plume rises
+            // Accent glow, two reads over the whole frame (site accents sit low
             // out of the centre band): `hued` = a bright pixel whose hue matches
             // the anchor's signature colour (the assertable signature glow);
             // `brightCore` = a bloom-blown near-white halo (reported, not gated,
@@ -540,10 +540,10 @@ async function verifyLandmarkTour(page) {
       // fault. The health signals that still hold are a positive fps read-out
       // (an EMA, untouched by the halt) and the full 13-landmark count.
       if (state.fps <= 0) problems.push(`${a.archetype}: fps not positive (${state.fps})`);
-      const beaconCount = state.systems?.sites?.poiCount;
+      const siteCount = state.systems?.sites?.poiCount;
       const discoveryTotal = state.systems?.discovery?.total;
-      if (beaconCount !== EXPECTED_LANDMARKS)
-        problems.push(`${a.archetype}: sites.poiCount ${beaconCount} != ${EXPECTED_LANDMARKS}`);
+      if (siteCount !== EXPECTED_LANDMARKS)
+        problems.push(`${a.archetype}: sites.poiCount ${siteCount} != ${EXPECTED_LANDMARKS}`);
       if (discoveryTotal !== EXPECTED_LANDMARKS)
         problems.push(`${a.archetype}: discovery.total ${discoveryTotal} != ${EXPECTED_LANDMARKS}`);
     }
@@ -684,7 +684,7 @@ async function verifyCompletionPanel(page) {
 
 // Raise the completion panel: drive from spawn to the Arrivals Gate (the one
 // unseeded landmark, dead ahead), tap E inside interact range to open its
-// reveal — the 13th find, which arms the completion latch — then tap E again to
+// reveal — the 6th find, which arms the completion latch — then tap E again to
 // close the reveal, which is what raises the panel. `label` names the pass in
 // problem reports. Returns false (with a problem pushed) if the panel never
 // raised, so the caller skips that pass's dismissal checks.

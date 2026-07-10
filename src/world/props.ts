@@ -472,7 +472,10 @@ function buildPalmTrunk(): PalmCurve {
     seg.rotateZ(angle); // tilt around that base
     seg.translate(cursor.x, cursor.y, cursor.z); // attach to the previous tip
     segs.push(seg);
-    cursor.x += Math.sin(angle) * segHeight;
+    // rotateZ maps the segment's local tip (0, h, 0) to (-h·sinθ, h·cosθ, 0) —
+    // the X term is NEGATIVE sine (review caught the mirror: fronds floated on
+    // the wrong side of the lean on every palm).
+    cursor.x -= Math.sin(angle) * segHeight;
     cursor.y += Math.cos(angle) * segHeight;
     angle += bendStep;
   }

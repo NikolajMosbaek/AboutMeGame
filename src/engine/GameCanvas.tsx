@@ -126,7 +126,7 @@ export function GameCanvas({
 
     // Bloom is a bake-at-mount knob (like waterDisplacement): build the
     // post-processing compositor ONCE here, only on the medium/high tiers where
-    // `quality.bloom` is true, so the two emissive sources (beacons + tower lamp)
+    // `quality.bloom` is true, so the emissive site accents (and, later, fireflies)
     // glow. On low (`bloom: false`) we construct nothing and inject no delegate,
     // so the Engine presents via the bare `renderer.render` — zero composer bytes,
     // zero post-processing fill cost. The scene + camera are created here so they

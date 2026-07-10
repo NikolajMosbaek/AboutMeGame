@@ -32,7 +32,7 @@ const SOIL = 0x46341f;
 const CHARCOAL = 0x2b2b2b;
 const FIG_BARK = 0x5d4a33;
 const FIG_LEAF = 0x2e4f26;
-const PAGE = 0xf2ecd8;
+const PAGE = 0xfaf6ea;
 const EYE = 0xd8c07a;
 
 /**
@@ -66,12 +66,16 @@ export function buildLandmarks(terrain: Terrain): Landmarks {
     roughness: 0.85,
     vertexColors: true,
   });
+  // The accents are the scene's genuine bloom sources now that the beacons and
+  // tower lamp are gone: at intensity 1.0 the pale page/eye hues clear the
+  // compositor's 0.85 threshold as faint, focused glints on each site's
+  // interactable focus (dusk fireflies join them in the wildlife slice).
   const accent = new THREE.MeshStandardMaterial({
     flatShading: true,
     roughness: 0.55,
     vertexColors: true,
     emissive: 0xffffff,
-    emissiveIntensity: 0.5,
+    emissiveIntensity: 1.0,
   });
   disposables.push(stone, accent);
 

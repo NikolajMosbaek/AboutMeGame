@@ -42,7 +42,11 @@ export class DiscoverySystem implements System {
     private readonly persist: DiscoveryPersistence,
     private readonly session: GameSession,
   ) {
-    this.discovered = persist.load();
+    // Keep only ids that exist in THIS world's poi set: a save written by an
+    // older content set must never inflate discoveredCount (the HUD shows
+    // count/total and completion compares them — see the slice-C review).
+    const known = new Set(pois.map((p) => p.id));
+    this.discovered = new Set([...persist.load()].filter((id) => known.has(id)));
     this.store.setDiscovered([...this.discovered]);
   }
 

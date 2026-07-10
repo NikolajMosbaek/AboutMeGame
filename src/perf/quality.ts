@@ -31,7 +31,7 @@ export interface QualityConfig {
    *  the subdivided, animated full-screen water plane off mobile fill rate. */
   waterDisplacement: boolean;
   /** Whether the bloom post-processing pass runs, so emissive landmarks
-   *  (beacons, the tower lamp, snow caps) visibly glow. A FILL-RATE knob — a
+   *  (the site accents — journal page, statue eyes — and later fireflies) visibly glow. A FILL-RATE knob — a
    *  full-screen threshold + blur pass over the framebuffer, NOT a
    *  draw-call/triangle knob — so it is off on low to protect mobile fill rate.
    *  The actual EffectComposer pass lives behind the renderer seam, wired in a

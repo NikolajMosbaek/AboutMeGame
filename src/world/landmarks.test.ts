@@ -63,6 +63,32 @@ describe("expedition sites (buildLandmarks)", () => {
     expect(materials.size).toBe(2);
   });
 
+  it("keeps a genuine bloom source: the shared accent material emits ≥ the compositor threshold", () => {
+    // The beacons/tower-lamp that used to clear the 0.85 bloom threshold died
+    // with the pivot; the site accents (page, carvings, eyes) are the scene's
+    // emissive sources now. Pin material intensity × the palest accent hue
+    // above the threshold so bloom can never silently become a paid no-op.
+    const { landmarks } = build();
+    let accentMat: THREE.MeshStandardMaterial | null = null;
+    let maxLuma = 0;
+    landmarks.group.traverse((o) => {
+      if (!(o instanceof THREE.Mesh)) return;
+      const m = o.material as THREE.MeshStandardMaterial;
+      if (m.emissiveIntensity > 0 && m.emissive.getHex() === 0xffffff) {
+        accentMat = m;
+        const colors = (o.geometry as THREE.BufferGeometry).getAttribute("color");
+        for (let i = 0; i < colors.count; i++) {
+          const luma =
+            0.2126 * colors.getX(i) + 0.7152 * colors.getY(i) + 0.0722 * colors.getZ(i);
+          maxLuma = Math.max(maxLuma, luma);
+        }
+      }
+    });
+    expect(accentMat).not.toBeNull();
+    // Emissive contribution = vertex colour luma × emissiveIntensity.
+    expect(maxLuma * accentMat!.emissiveIntensity).toBeGreaterThan(0.85);
+  });
+
   it("aims the ruin's gaze at the fig (clue 5's 'sight along the eyes' is true)", () => {
     const { landmarks } = build();
     const ruinAnchor = POI_ANCHORS.find((a) => a.archetype === "ruin")!;

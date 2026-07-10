@@ -37,7 +37,11 @@ const TOUCH_HINT = "Drag to drive · tap FLY to fly · tap USE to reveal";
 /** Read persisted progress without spinning up the engine — the title screen
  *  needs only the count and the landmark total to decide Continue vs Drive in. */
 function readProgress(): TitleProgress {
-  return { discovered: createPersistence().load().size, total: POI_ANCHORS.length };
+  // Count only ids that exist in the current site set — a save from an older
+  // content set must not read as progress (same rule as DiscoverySystem).
+  const known = new Set(POI_ANCHORS.map((a) => a.poiId));
+  const discovered = [...createPersistence().load()].filter((id) => known.has(id)).length;
+  return { discovered, total: POI_ANCHORS.length };
 }
 
 /**
