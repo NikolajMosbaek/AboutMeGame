@@ -3,6 +3,8 @@ import * as THREE from "three";
 import { Engine } from "./Engine.ts";
 import { createRenderer, applyRendererQuality } from "./createRenderer.ts";
 import type { createBloomCompositor, Compositor } from "./createCompositor.ts";
+import { EnvLightSystem } from "../world/envLightSystem.ts";
+import type { DayCycleSystem } from "../world/dayCycleSystem.ts";
 import { buildGame } from "../buildGame.ts";
 import { detectDeviceTier } from "../perf/deviceCapability.ts";
 import { resolveQuality, type QualityConfig } from "../perf/quality.ts";
@@ -65,6 +67,12 @@ export interface GameHandle {
    *  edge the E key does, and `touchActive` gates mounting TouchActionButton.
    *  Optional so a minimal preview/test build without it still mounts. */
   input?: { pressInteract(): void; touchActive: boolean };
+  /** The day-cycle palette accessor (visual-overhaul slice 2) — when present,
+   *  GameCanvas builds `EnvLightSystem` directly against it (mirroring how it
+   *  owns the compositor: `PMREMGenerator` needs the real renderer, which
+   *  `buildWorld`/`buildGame` never touch, keeping them headless-testable).
+   *  Optional so a minimal preview/test build without it still mounts. */
+  dayCycle?: Pick<DayCycleSystem, "getPhase" | "getPalette">;
 }
 
 /** Loader for the post-processing module — the code-splitting seam. The default
@@ -200,6 +208,21 @@ export function GameCanvas({
     }
     const built = build(eng, container, quality);
     if (built) setGame(built);
+
+    // The sky-driven IBL environment light (visual-overhaul slice 2) — built
+    // directly here, like the compositor, because `PMREMGenerator` needs the
+    // real renderer `buildWorld`/`buildGame` never touch (keeping those
+    // headless-testable). Unlike the compositor this needs no lazy chunk
+    // (`PMREMGenerator` is core `three`, already eagerly loaded) and runs on
+    // EVERY tier (`quality.envDynamic` only gates whether it regenerates), so
+    // it is constructed synchronously here rather than behind a dynamic
+    // import. `eng.dispose()` on unmount disposes it along with every other
+    // registered system — no separate teardown needed.
+    if (built?.dayCycle) {
+      eng.addSystem(
+        new EnvLightSystem(renderer, scene, built.dayCycle, { dynamic: quality.envDynamic }),
+      );
+    }
 
     const resize = () => {
       const { clientWidth, clientHeight } = container;

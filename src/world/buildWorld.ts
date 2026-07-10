@@ -44,10 +44,14 @@ export interface World {
    *  the foam bake uses. Movement (wading/blocking), and later drinking,
    *  audio and FX all ask here, so a reshaped river changes one function. */
   waterDepthAt(x: number, z: number): number;
-  /** The living-sky loop's current phase (pivot slice F wildlife seam) — see
-   *  `DayCycleSystem.getPhase()`. Exposed as the narrow accessor, never the
-   *  System itself, so a consumer can't reach into the sky/dome/fog handles. */
-  dayCycle: { getPhase(): number };
+  /** The living-sky loop's current phase (pivot slice F wildlife seam) and
+   *  current palette (visual-overhaul slice 2's `EnvLightSystem` seam) — see
+   *  `DayCycleSystem.getPhase()`/`getPalette()`. Exposed as this narrow
+   *  accessor, never the System itself, so a consumer can't reach into the
+   *  sky/dome/fog handles. `EnvLightSystem` is built OUTSIDE `buildWorld` (by
+   *  `GameCanvas`, which owns the real renderer `PMREMGenerator` needs) and
+   *  reads this same accessor. */
+  dayCycle: Pick<DayCycleSystem, "getPhase" | "getPalette">;
   dispose(): void;
 }
 
@@ -106,7 +110,10 @@ export function buildWorld(
     boundaries,
     landmarks,
     waterDepthAt: (x, z) => WORLD.seaLevel - terrain.heightAt(x, z),
-    dayCycle: { getPhase: () => dayCycleSystem.getPhase() },
+    dayCycle: {
+      getPhase: () => dayCycleSystem.getPhase(),
+      getPalette: () => dayCycleSystem.getPalette(),
+    },
     dispose() {
       terrain.dispose();
       sky.dispose();

@@ -24,7 +24,7 @@
 import * as THREE from "three";
 import type { FrameContext, System } from "../engine/types.ts";
 import type { ReducedMotionSource } from "./buildWorld.ts";
-import { dayPalette, GOLDEN_T } from "./dayCycle.ts";
+import { dayPalette, GOLDEN_T, type DayPalette } from "./dayCycle.ts";
 import { WORLD } from "./worldConfig.ts";
 
 /**
@@ -129,5 +129,29 @@ export class DayCycleSystem implements System {
   getPhase(): number {
     if (this.reducedMotion?.getSnapshot().reducedMotion) return GOLDEN_T;
     return this.t / PERIOD_SECONDS;
+  }
+
+  /**
+   * The palette this instance is CURRENTLY painting — exactly what `update()`
+   * last wrote to the sun/dome/fog (pinned to `GOLDEN_T` under reduced
+   * motion, same as {@link getPhase}). Recomputed from `getPhase()` on every
+   * call rather than cached, so it can never drift from what's actually on
+   * screen. Read by `EnvLightSystem` (visual-overhaul slice 2) to know what
+   * to bake into the sky-driven IBL environment map, without that module
+   * importing `./dayCycle` directly — keeping this file the ONE production
+   * importer (the tree-shaking guard at `dayCycle.test.ts`).
+   */
+  getPalette(): DayPalette {
+    return dayPalette(this.getPhase());
+  }
+
+  /**
+   * The fixed golden-hour keyframe (`GOLDEN_T`), exposed as a static so a
+   * caller that wants a ONE-TIME "golden hour" bake — the low-tier static
+   * environment light, which never regenerates and so needs no live instance
+   * — can reach it without importing `./dayCycle` itself.
+   */
+  static goldenPalette(): DayPalette {
+    return dayPalette(GOLDEN_T);
   }
 }
