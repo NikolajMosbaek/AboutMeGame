@@ -16,12 +16,13 @@ import { Onboarding } from "../ui/Onboarding.tsx";
 import { SettingsMenu } from "../ui/SettingsMenu.tsx";
 import { JournalPanel } from "../ui/JournalPanel.tsx";
 import { DiscoveryAnnouncer } from "../ui/DiscoveryAnnouncer.tsx";
-import { CompletionPanel } from "../ui/CompletionPanel.tsx";
+import { TreasurePanel } from "../ui/TreasurePanel.tsx";
 import { SurvivalMeters } from "../ui/SurvivalMeters.tsx";
 import { DeathOverlay } from "../ui/DeathOverlay.tsx";
 import { ActionHint } from "../ui/ActionHint.tsx";
 import type { SurvivalStore } from "../survival/survivalStore.ts";
 import type { ForageStore } from "../forage/forageStore.ts";
+import type { QuestStore } from "../quest/questStore.ts";
 import type { DiscoveryStore } from "../discovery/discoveryStore.ts";
 import type { JournalPoi } from "../content/discoverablePois.ts";
 import type { HudStore } from "../ui/hudStore.ts";
@@ -54,6 +55,8 @@ export interface GameHandle {
   survival?: { store: SurvivalStore; respawn(): void };
   /** Foraging (pivot slice E) — the pick hint reads it. */
   forage?: { store: ForageStore };
+  /** The treasure quest (pivot slice G) — dig prompt + win screen. */
+  quest?: { store: QuestStore };
   /** Toggle shadow casting live when graphics quality changes (#47). */
   setShadowsEnabled?: (enabled: boolean) => void;
 }
@@ -100,7 +103,7 @@ export function GameCanvas({
   const [menuOpen, setMenuOpen] = useState(false);
   const [journalOpen, setJournalOpen] = useState(false);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
-  const [completionOpen, setCompletionOpen] = useState(false);
+  const [treasureOpen, setTreasureOpen] = useState(false);
   const [webglError, setWebglError] = useState(false);
 
   // Resolve the device tier once for this mount — `detectDeviceTier` reads real
@@ -270,7 +273,7 @@ export function GameCanvas({
 
   // The single keyboard opener. Escape opens the menu and J opens the journal,
   // each only when no other modal owns the foreground — so two modals never
-  // stack (RevealPanel/SettingsMenu/CompletionPanel/Onboarding/journal each own
+  // stack (RevealPanel/SettingsMenu/TreasurePanel/Onboarding/journal each own
   // their own keys while up). The journal owns Escape while topmost.
   useEffect(() => {
     if (!game) return;
@@ -285,7 +288,7 @@ export function GameCanvas({
         if (journalOpen) return; // JournalPanel handles closing while topmost.
         if (menuOpen) return; // SettingsMenu handles closing.
         if (onboardingOpen) return; // don't open a hidden menu behind onboarding.
-        if (completionOpen) return; // CompletionPanel owns Escape while it's up.
+        if (treasureOpen) return; // TreasurePanel owns Escape while it's up.
         if (game.discovery.store.getSnapshot().open) return; // RevealPanel owns it.
         setMenuOpen(true);
         return;
@@ -294,18 +297,38 @@ export function GameCanvas({
         if (journalOpen) return; // already open.
         if (menuOpen) return; // a modal is up.
         if (onboardingOpen) return;
-        if (completionOpen) return;
+        if (treasureOpen) return;
         if (game.discovery.store.getSnapshot().open) return; // reveal is up.
         setJournalOpen(true);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [game, menuOpen, journalOpen, onboardingOpen, completionOpen]);
+  }, [game, menuOpen, journalOpen, onboardingOpen, treasureOpen]);
 
   const closeMenu = useCallback(() => setMenuOpen(false), []);
   const closeJournal = useCallback(() => setJournalOpen(false), []);
   const resetProgress = useCallback(() => game?.discovery.reset(), [game]);
+
+  // Replay = a fresh expedition: wipe the saved pages and reload — the world,
+  // survival meters, plants, wildlife and quest all rebuild from zero. A reload
+  // is the one honest full reset now that five systems carry session state.
+  const replayExpedition = useCallback(() => {
+    game?.discovery.reset();
+    window.location.reload();
+  }, [game]);
+
+  // Track the treasure panel's visibility for the Escape/J precedence guards
+  // (its rising edge comes from the quest store; "keep exploring" clears it).
+  useEffect(() => {
+    const store = game?.quest?.store;
+    if (!store) return;
+    const baseline = store.getSnapshot().treasureFound;
+    const onChange = () => {
+      if (!baseline && store.getSnapshot().treasureFound) setTreasureOpen(true);
+    };
+    return store.subscribe(onChange);
+  }, [game]);
 
   if (webglError) {
     return (
@@ -348,19 +371,24 @@ export function GameCanvas({
                 survival={game.survival.store}
                 forage={game.forage?.store}
                 discovery={game.discovery.store}
+                quest={game.quest?.store}
               />
             </>
           )}
           <DiscoveryAnnouncer store={game.discovery.store} />
           <NavMarkers nav={game.nav} />
-          <RevealPanel store={game.discovery.store} pois={game.discovery.pois} />
-          <CompletionPanel
-            store={game.discovery.store}
-            pois={game.discovery.pois}
-            onReplay={resetProgress}
-            containerRef={containerRef}
-            onOpenChange={setCompletionOpen}
-          />
+          <RevealPanel store={game.discovery.store} pois={game.discovery.pois} quest={game.quest?.store} />
+          {game.quest && (
+            <TreasurePanel
+              quest={game.quest.store}
+              onKeepExploring={() => {
+                game.session.setPaused("treasure", false);
+                setTreasureOpen(false);
+                containerRef.current?.focus();
+              }}
+              onReplay={replayExpedition}
+            />
+          )}
           <Onboarding onOpenChange={setOnboardingOpen} />
           {journalOpen && (
             <JournalPanel
