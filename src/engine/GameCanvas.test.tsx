@@ -7,6 +7,7 @@ import { createHudStore } from "../ui/hudStore.ts";
 import { createNavStore } from "../ui/navStore.ts";
 import { createSession } from "../gameSession.ts";
 import { createSettingsStore } from "../settings/settingsStore.ts";
+import { createQuestStore } from "../quest/questStore.ts";
 import { nextUndiscovered } from "../discovery/nextUndiscovered.ts";
 import type { RevealPanelProps } from "../ui/RevealPanel.tsx";
 
@@ -98,19 +99,27 @@ function makeHandle(): { handle: GameHandle; store: DiscoveryStore; resetCalls: 
     nav: createNavStore(),
     settings: createSettingsStore(),
     session: createSession(),
+    quest: { store: createQuestStore(POIS.length) },
   };
   return { handle, store, resetCalls: () => resetCalls };
 }
 
-/** Discover every landmark with the final reveal open, then close it — the latch
- *  arms on the 13th find (open != null) and raises the panel on close. */
-function driveToCompletion(store: DiscoveryStore) {
-  act(() => {
-    store.openPoi({ id: "c", order: 3, title: "Gamma", body: "…" });
-    store.setDiscovered(["a", "b", "c"]);
-  });
-  act(() => store.closePoi());
+/** Flip the quest store to won — the TreasurePanel's rising edge. */
+function driveToTreasure(handle: GameHandle) {
+  act(() =>
+    handle.quest!.store.set({
+      cluesFound: 3,
+      cluesTotal: 3,
+      digOwnsKey: false,
+      digProgress: null,
+      treasureFound: true,
+      playSeconds: 100,
+      deaths: 0,
+      fruitEaten: 4,
+    }),
+  );
 }
+
 
 describe("GameCanvas — handle seam shape (T13)", () => {
   it("exposes a position-free journalPois sibling and a consumeInteract drain", () => {
@@ -167,7 +176,7 @@ describe("GameCanvas — verifier camera-framing hook (__frameView__)", () => {
   });
 });
 
-describe("GameCanvas — CompletionPanel wiring (T7)", () => {
+describe("GameCanvas — TreasurePanel wiring (pivot slice G)", () => {
   beforeEach(() => {
     vi.stubGlobal("ResizeObserver", StubResizeObserver);
   });
@@ -176,53 +185,37 @@ describe("GameCanvas — CompletionPanel wiring (T7)", () => {
     vi.clearAllMocks();
   });
 
-  it("mounts the completion panel with game.discovery.pois once the final reveal closes", () => {
-    const { handle, store } = makeHandle();
+  it("raises the win dialog on the quest store's treasureFound rising edge", () => {
+    const { handle } = makeHandle();
     render(<GameCanvas build={() => handle} showStats={false} />);
 
-    // Nothing while the world is fresh.
-    expect(screen.queryByRole("dialog", { name: /you found everything/i })).toBeNull();
-
-    driveToCompletion(store);
-
-    const panel = screen.getByRole("dialog", { name: /you found everything/i });
-    expect(panel).toBeInTheDocument();
-    // The ordered pois prop is what populated the list.
-    for (const p of POIS) {
-      expect(screen.getByText(p.title)).toBeInTheDocument();
-    }
+    expect(screen.queryByRole("dialog", { name: /emerald idol/i })).toBeNull();
+    driveToTreasure(handle);
+    expect(screen.getByRole("dialog", { name: /emerald idol/i })).toBeInTheDocument();
   });
 
-  it("dismisses the panel with one Escape and does NOT open the SettingsMenu", () => {
-    const { handle, store } = makeHandle();
+  it("keep exploring lifts the treasure pause and dismisses without opening the menu", () => {
+    const { handle } = makeHandle();
     render(<GameCanvas build={() => handle} showStats={false} />);
-    driveToCompletion(store);
-    expect(screen.getByRole("dialog", { name: /you found everything/i })).toBeInTheDocument();
+    driveToTreasure(handle);
+    act(() => handle.session.setPaused("treasure", true));
 
-    act(() => {
-      fireEvent.keyDown(window, { key: "Escape" });
-    });
-
-    // The completion panel is gone…
-    expect(screen.queryByRole("dialog", { name: /you found everything/i })).toBeNull();
-    // …and that single Escape did NOT also pop the pause/settings menu.
-    expect(screen.queryByRole("dialog", { name: /paused/i })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Keep exploring" }));
+    expect(screen.queryByRole("dialog", { name: /emerald idol/i })).toBeNull();
+    expect(handle.session.isPaused("treasure")).toBe(false);
+    expect(screen.queryByRole("dialog", { name: /settings/i })).toBeNull();
   });
 
-  it("routes the panel's Replay CTA to game.discovery.reset()", () => {
-    const { handle, store, resetCalls } = makeHandle();
+  it("one Escape dismisses the panel and does NOT open the SettingsMenu", () => {
+    const { handle } = makeHandle();
     render(<GameCanvas build={() => handle} showStats={false} />);
-    driveToCompletion(store);
+    driveToTreasure(handle);
+    expect(screen.getByRole("dialog", { name: /emerald idol/i })).toBeInTheDocument();
 
-    act(() => {
-      screen.getByRole("button", { name: /replay/i }).click();
-    });
-
-    expect(resetCalls()).toBe(1);
-    // reset() drops to 0/3, so completion is no longer true.
-    expect(store.getSnapshot().completed).toBe(false);
-    // The panel lowered on Replay (it does not linger a frame).
-    expect(screen.queryByRole("dialog", { name: /you found everything/i })).toBeNull();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: /emerald idol/i })).toBeNull();
+    // The capture-phase Escape never reached the menu opener.
+    expect(screen.queryByRole("button", { name: /resume/i })).toBeNull();
   });
 });
 

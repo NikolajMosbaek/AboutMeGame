@@ -2,6 +2,7 @@ import { useSyncExternalStore } from "react";
 import type { SurvivalStore } from "../survival/survivalStore.ts";
 import type { ForageStore, FruitKind } from "../forage/forageStore.ts";
 import type { DiscoveryStore } from "../discovery/discoveryStore.ts";
+import type { QuestStore } from "../quest/questStore.ts";
 
 export interface ActionHintProps {
   survival: SurvivalStore;
@@ -9,6 +10,8 @@ export interface ActionHintProps {
    *  drink hint (the fields are independently optional on GameHandle). */
   forage?: ForageStore;
   discovery: DiscoveryStore;
+  /** Optional: the dig prompt (quest slice) outranks every other hint. */
+  quest?: QuestStore;
 }
 
 const FRUIT_LABEL: Record<FruitKind, string> = {
@@ -25,16 +28,50 @@ const FRUIT_LABEL: Record<FruitKind, string> = {
  * Dead players get no hints — the death overlay owns the screen.
  */
 const NO_FORAGE = { nearby: null, eaten: 0 } as const;
+import type { QuestSnapshot } from "../quest/questStore.ts";
 
-export function ActionHint({ survival, forage, discovery }: ActionHintProps) {
+const NO_QUEST: QuestSnapshot = {
+  cluesFound: 0,
+  cluesTotal: 0,
+  digOwnsKey: false,
+  digProgress: null,
+  treasureFound: false,
+  playSeconds: 0,
+  deaths: 0,
+  fruitEaten: 0,
+};
+
+export function ActionHint({ survival, forage, discovery, quest }: ActionHintProps) {
   const s = useSyncExternalStore(survival.subscribe, survival.getSnapshot);
   const f = useSyncExternalStore(
     forage?.subscribe ?? (() => () => {}),
     forage?.getSnapshot ?? (() => NO_FORAGE),
   );
   const d = useSyncExternalStore(discovery.subscribe, discovery.getSnapshot);
+  const q = useSyncExternalStore(
+    quest?.subscribe ?? (() => () => {}),
+    quest?.getSnapshot ?? (() => NO_QUEST),
+  );
 
   if (!s.alive) return null;
+
+  // The dig is the game's climax: while it owns the key (or is running) it
+  // outranks the clue card and every other hint.
+  if (q.digProgress !== null) {
+    return (
+      <p className="drink-hint drink-hint--dig" role="status">
+        Digging… hold your ground
+      </p>
+    );
+  }
+  if (q.digOwnsKey) {
+    return (
+      <p className="drink-hint drink-hint--dig" role="status">
+        Press E · or USE to dig
+      </p>
+    );
+  }
+
   if (d.nearby?.inRange) return null; // the reveal prompt owns the key
 
   const label = f.nearby

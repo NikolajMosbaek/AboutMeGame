@@ -6,6 +6,13 @@ import type { PoiInteraction } from "../content/contentModel.ts";
 
 export interface RevealPanelProps {
   store: DiscoveryStore;
+  /** Optional (quest slice): while the dig owns the interact key at the fig,
+   *  the approach card would advertise "press E to reveal" — a lie. It hides;
+   *  the ActionHint's dig prompt is the one truth for the key. */
+  quest?: {
+    getSnapshot(): { digOwnsKey: boolean };
+    subscribe(listener: () => void): () => void;
+  };
   /**
    * The full ordered POI projection (id/order/title), injected at the
    * GameCanvas seam from `game.discovery.pois`. It is the candidate set for the
@@ -29,8 +36,12 @@ export interface RevealPanelProps {
  * calls `store.answerGuess(index)` with the option's array position — the UI
  * makes no correctness judgement (the `correct` flag is inert this slice).
  */
-export function RevealPanel({ store, pois }: RevealPanelProps) {
+export function RevealPanel({ store, pois, quest }: RevealPanelProps) {
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const digOwnsKey = useSyncExternalStore(
+    quest?.subscribe ?? (() => () => {}),
+    () => quest?.getSnapshot().digOwnsKey ?? false,
+  );
   const closeRef = useRef<HTMLButtonElement>(null);
   const firstOptionRef = useRef<HTMLButtonElement>(null);
 
@@ -57,7 +68,7 @@ export function RevealPanel({ store, pois }: RevealPanelProps) {
 
   return (
     <>
-      {!open && snap.nearby && (
+      {!open && snap.nearby && !digOwnsKey && (
         <div className="reveal-prompt" role="status">
           <span className="reveal-prompt__title">{snap.nearby.title}</span>
           <span className="reveal-prompt__teaser">{snap.nearby.teaser}</span>
