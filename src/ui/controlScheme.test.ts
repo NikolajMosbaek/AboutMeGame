@@ -34,17 +34,22 @@ describe("resolveControlScheme", () => {
     expect(labels).not.toContain("Space");
   });
 
-  it("returns the on-screen touch controls (joystick / look drag / SPRINT / USE) and never 'W A S D'", () => {
+  it("returns the on-screen touch controls (joystick / look drag / action button) and never 'W A S D'", () => {
     const scheme = resolveControlScheme("touch");
     expect(scheme.channel).toBe("touch");
 
     const labels = scheme.entries.map((e) => e.label);
-    expect(labels).toContain("SPRINT");
-    expect(labels).toContain("USE");
+    expect(labels).toContain("Action button");
     expect(labels).not.toContain("FLY");
     expect(labels).not.toContain("▲");
+    // There is no SPRINT/USE button any more — sprint is automatic, and the
+    // action button already names the live action.
+    expect(labels).not.toContain("SPRINT");
+    expect(labels).not.toContain("USE");
     // The drive control is the on-screen joystick, named by its action, not WASD.
     expect(scheme.entries.some((e) => /joystick/i.test(text(e)))).toBe(true);
+    // Sprint is taught as a property of the joystick, not a separate button.
+    expect(scheme.entries.some((e) => /joystick/i.test(e.label) && /sprint/i.test(e.action))).toBe(true);
 
     // No touch entry leaks the keyboard 'W A S D' token anywhere.
     for (const entry of scheme.entries) {

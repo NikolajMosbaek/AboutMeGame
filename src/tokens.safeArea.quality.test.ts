@@ -16,8 +16,9 @@ import { describe, expect, it } from "vitest";
  * by source order on the small/short iPhone the P0 targets — cannot silently
  * pass while a base-rule-only test stays green.
  *
- * This file is the quality lens on AC2: the .touch-use offset, the reveal/
- * win-screen max-heights, the backdrop home-indicator padding, and the
+ * This file is the quality lens on AC2: the .touch-action-btn offset (the
+ * mobile-controls upgrade's context-action button, formerly .touch-use), the
+ * reveal/win-screen max-heights, the backdrop home-indicator padding, and the
  * in-media offset migration (D2e) — i.e. that NO raw bottom-vh or static-vh
  * max-height survives in any in-scope rule, portrait OR landscape.
  */
@@ -68,25 +69,25 @@ function bottomValues(block: string): string[] {
   return [...block.matchAll(/bottom:\s*([^;}]+)/g)].map((m) => m[1].trim());
 }
 
-describe("tokens.css — AC2 quality: USE->reveal path consumes safe-area/dvh tokens (MOB1 #148 T3)", () => {
-  // ---- .touch-use: the core verb's button must clear the home indicator ----
+describe("tokens.css — AC2 quality: action-button->reveal path consumes safe-area/dvh tokens (MOB1 #148 T3)", () => {
+  // ---- .touch-action-btn: the core verb's button must clear the home indicator ----
 
-  it("base .touch-use bottom adds var(--safe-bottom) to its vh offset, no raw bottom vh", () => {
-    const base = blocksFor(css, ".touch-use")[0];
-    expect(base, ".touch-use base rule must exist").toBeTruthy();
+  it("base .touch-action-btn bottom adds var(--safe-bottom) to its vh offset, no raw bottom vh", () => {
+    const base = blocksFor(css, ".touch-action-btn")[0];
+    expect(base, ".touch-action-btn base rule must exist").toBeTruthy();
     expect(base).toMatch(/bottom:\s*calc\(\s*7vh\s*\+\s*var\(--safe-bottom\)\s*\)/);
     // No bottom declaration that is a bare vh (the regression we are guarding).
     for (const v of bottomValues(base)) {
-      expect(v, `.touch-use base bottom "${v}" must not be raw vh`).not.toMatch(/^\d+vh$/);
+      expect(v, `.touch-action-btn base bottom "${v}" must not be raw vh`).not.toMatch(/^\d+vh$/);
     }
   });
 
-  it("the landscape .touch-sprint, .touch-use bottom also adds var(--safe-bottom) (D2e, in-media)", () => {
-    // @media (max-height: 480px) re-declares the offsets; the migration must
+  it("the landscape .touch-action-btn bottom also adds var(--safe-bottom) (D2e, in-media)", () => {
+    // @media (max-height: 480px) re-declares the offset; the migration must
     // reach INSIDE the media query or a notch clips the button in landscape.
     const body = mediaBody("max-height: 480px");
-    const grouped = blocksFor(body, ".touch-sprint, .touch-use");
-    expect(grouped.length, "landscape .touch-sprint, .touch-use rule must exist").toBeGreaterThan(0);
+    const grouped = blocksFor(body, ".touch-action-btn");
+    expect(grouped.length, "landscape .touch-action-btn rule must exist").toBeGreaterThan(0);
     const joined = grouped.join("\n");
     expect(joined).toMatch(/bottom:\s*calc\(\s*4vh\s*\+\s*var\(--safe-bottom\)\s*\)/);
     for (const v of bottomValues(joined)) {
@@ -174,9 +175,12 @@ describe("tokens.css — AC2 quality: USE->reveal path consumes safe-area/dvh to
 
   it("no in-scope bottom-pinned rule (portrait OR landscape) leaves a raw bottom vh", () => {
     // The exhaustive D2 invariant across base + both media blocks. Every place a
-    // .touch-* / .reveal-prompt declares `bottom`, it must be a calc() carrying
-    // var(--safe-bottom), never a bare vh that a notch could clip under.
-    const inScope = [".touch-joystick", ".touch-sprint", ".touch-use", ".reveal-prompt"];
+    // .touch-action-btn / .reveal-prompt declares `bottom`, it must be a calc()
+    // carrying var(--safe-bottom), never a bare vh that a notch could clip
+    // under. (.touch-joystick no longer declares `bottom` at all — it floats to
+    // the touch point, positioned inline by input.ts — so it stays out of scope
+    // here rather than trivially passing on an absent declaration.)
+    const inScope = [".touch-action-btn", ".reveal-prompt"];
     const sources = [
       css,
       mediaBody("max-width: 480px"),
@@ -189,12 +193,6 @@ describe("tokens.css — AC2 quality: USE->reveal path consumes safe-area/dvh to
           for (const v of bottomValues(block)) {
             if (/^\d+(\.\d+)?vh$/.test(v)) offenders.push(`${sel} { bottom: ${v} }`);
           }
-        }
-      }
-      // The grouped landscape rule ".touch-fly, .touch-use" too.
-      for (const block of blocksFor(src, ".touch-fly, .touch-use")) {
-        for (const v of bottomValues(block)) {
-          if (/^\d+(\.\d+)?vh$/.test(v)) offenders.push(`.touch-fly, .touch-use { bottom: ${v} }`);
         }
       }
     }

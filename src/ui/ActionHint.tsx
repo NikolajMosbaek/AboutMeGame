@@ -2,7 +2,8 @@ import { useSyncExternalStore } from "react";
 import type { SurvivalStore } from "../survival/survivalStore.ts";
 import type { ForageStore, FruitKind } from "../forage/forageStore.ts";
 import type { DiscoveryStore } from "../discovery/discoveryStore.ts";
-import type { QuestStore } from "../quest/questStore.ts";
+import type { QuestStore, QuestSnapshot } from "../quest/questStore.ts";
+import { resolveActionPriority } from "./actionPriority.ts";
 
 export interface ActionHintProps {
   survival: SurvivalStore;
@@ -12,6 +13,10 @@ export interface ActionHintProps {
   discovery: DiscoveryStore;
   /** Optional: the dig prompt (quest slice) outranks every other hint. */
   quest?: QuestStore;
+  /** True while touch controls are active — TouchActionButton is then the one
+   *  on-screen truth for the interact key, so this text hint stays hidden
+   *  rather than duplicate (and risk disagreeing with) the button. */
+  touchActive?: boolean;
 }
 
 const FRUIT_LABEL: Record<FruitKind, string> = {
@@ -20,15 +25,7 @@ const FRUIT_LABEL: Record<FruitKind, string> = {
   mango: "pick & eat a mango",
 };
 
-/**
- * The one contextual action hint (pivot slice E — replaces the slice-D drink
- * hint). Exactly one meaning for the interact key is ever shown, in the same
- * priority order the systems consume it: a clue site in range shows its own
- * reveal prompt (so this renders nothing), then foraging, then drinking.
- * Dead players get no hints — the death overlay owns the screen.
- */
 const NO_FORAGE = { nearby: null, eaten: 0 } as const;
-import type { QuestSnapshot } from "../quest/questStore.ts";
 
 const NO_QUEST: QuestSnapshot = {
   cluesFound: 0,
@@ -41,7 +38,17 @@ const NO_QUEST: QuestSnapshot = {
   fruitEaten: 0,
 };
 
-export function ActionHint({ survival, forage, discovery, quest }: ActionHintProps) {
+/**
+ * The one contextual action hint (pivot slice E; re-plumbed onto the shared
+ * `resolveActionPriority` ladder for the mobile-controls upgrade). Exactly one
+ * meaning for the interact key is ever shown, in the same priority order the
+ * systems consume it: the dig, then a clue site in range (its own reveal
+ * prompt owns that one — this renders nothing), then foraging, then drinking.
+ * Dead players get no hints — the death overlay owns the screen. Hides
+ * entirely while touch controls are active: TouchActionButton is the single
+ * on-screen truth then (never two surfaces naming the same key differently).
+ */
+export function ActionHint({ survival, forage, discovery, quest, touchActive }: ActionHintProps) {
   const s = useSyncExternalStore(survival.subscribe, survival.getSnapshot);
   const f = useSyncExternalStore(
     forage?.subscribe ?? (() => () => {}),
@@ -53,37 +60,38 @@ export function ActionHint({ survival, forage, discovery, quest }: ActionHintPro
     quest?.getSnapshot ?? (() => NO_QUEST),
   );
 
-  if (!s.alive) return null;
+  if (touchActive) return null;
 
-  // The dig is the game's climax: while it owns the key (or is running) it
-  // outranks the clue card and every other hint.
-  if (q.digProgress !== null) {
+  const priority = resolveActionPriority({
+    alive: s.alive,
+    digProgress: q.digProgress,
+    digOwnsKey: q.digOwnsKey,
+    siteInRange: d.nearby?.inRange ?? false,
+    forageFruit: f.nearby?.kind ?? null,
+    canDrink: s.canDrink,
+  });
+  if (!priority) return null;
+  if (priority.kind === "read") return null; // the reveal prompt owns the key
+
+  if (priority.kind === "dig-progress") {
     return (
       <p className="drink-hint drink-hint--dig" role="status">
         Digging… hold your ground
       </p>
     );
   }
-  if (q.digOwnsKey) {
+  if (priority.kind === "dig") {
     return (
       <p className="drink-hint drink-hint--dig" role="status">
-        Press E · or USE to dig
+        Press E to dig
       </p>
     );
   }
 
-  if (d.nearby?.inRange) return null; // the reveal prompt owns the key
-
-  const label = f.nearby
-    ? FRUIT_LABEL[f.nearby.kind]
-    : s.canDrink
-      ? "drink"
-      : null;
-  if (!label) return null;
-
+  const label = priority.kind === "forage" ? FRUIT_LABEL[priority.fruit!] : "drink";
   return (
     <p className="drink-hint" role="status">
-      Press E · or USE to {label}
+      Press E to {label}
     </p>
   );
 }

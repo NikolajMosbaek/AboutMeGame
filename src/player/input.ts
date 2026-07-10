@@ -1,4 +1,6 @@
-// First-person input layer (pivot slice B — replaces src/movement/input.ts).
+// First-person input layer (pivot slice B — replaces src/movement/input.ts;
+// mobile-controls upgrade — floating joystick + sprint-on-push + a React
+// context-action button replace the old fixed joystick and SPRINT/USE buttons).
 //
 // All sources (keyboard, touch, gamepad, pointer-lock mouse) write into one
 // normalised control surface; the explorer reads only that, so it never knows
@@ -48,8 +50,13 @@ export interface PlayerInputSnapshot {
 export interface PlayerInputController extends PlayerInputSnapshot {
   /** Poll per-frame sources (gamepad). Call once per frame, with the frame's
    *  dt, before reading — stick-look integrates over it, so aim speed doesn't
-   *  scale with the display's refresh rate. */
+   *  scale with the display's refresh rate; the floating joystick's
+   *  sprint-on-push hold timer also integrates over it. */
   update(dt?: number): void;
+  /** Queue the same interact edge the E key / gamepad A button do. The
+   *  TouchActionButton React component calls this on tap — it is the ONE
+   *  place `interactQueued` is armed from outside this module. */
+  pressInteract(): void;
   /** Whether touch controls are active (so the HUD can adapt). */
   readonly touchActive: boolean;
   /** Release the pointer lock iff THIS controller's overlay holds it. Every
@@ -71,10 +78,10 @@ const PAD_LOOK_RATE = 3.4;
  * Build the first-person input controller. `overlay` is the canvas container:
  * touch controls mount into it, and a mouse/pen click on it requests pointer
  * lock (the standard desktop FP idiom — Esc releases). When `touchCapable`
- * (coarse pointer / touch points), the on-screen controls mount eagerly at
- * construction so the very first tap lands on a real button (the iOS fix the
- * old layer carried, #148); a `touchstart` fallback covers devices that report
- * neither signal. Pointer lock is never requested for touch pointers.
+ * (coarse pointer / touch points), the on-screen controls activate eagerly at
+ * construction so the very first touch lands on a live control surface (the
+ * iOS fix the old layer carried, #148); a `touchstart` fallback covers devices
+ * that report neither signal. Pointer lock is never requested for touch pointers.
  */
 export function createPlayerInput(
   overlay: HTMLElement,
@@ -154,11 +161,10 @@ export function createPlayerInput(
   overlay.addEventListener("pointerup", onPointerUp);
   window.addEventListener("mousemove", onMouseMove);
 
-  // ---- Touch: left joystick (move) + right-half drag (look) + buttons ----
+  // ---- Touch: floating joystick (move, left 45%) + right-side drag (look) ----
   const touch = createTouchControls(
     overlay,
     {
-      onInteract: () => (interactQueued = true),
       onActive: () => (touchActive = true),
       onLook: (dx, dy) => {
         look.dx += dx * TOUCH_SENS;
@@ -206,6 +212,7 @@ export function createPlayerInput(
     update(dt = 1 / 60) {
       readKeyboard();
       readGamepad(dt);
+      touch.update(dt);
       const tc = touch.read();
       let x = kb.x + (gp.connected ? gp.x : 0);
       let z = kb.z + (gp.connected ? gp.z : 0);
@@ -230,6 +237,9 @@ export function createPlayerInput(
       const v = interactQueued;
       interactQueued = false;
       return v;
+    },
+    pressInteract() {
+      interactQueued = true;
     },
     releasePointerLock() {
       if (document.pointerLockElement === overlay) document.exitPointerLock?.();
@@ -265,9 +275,8 @@ function deadzone(v: number): number {
 // ---------------------------------------------------------------------------
 
 interface TouchHandlers {
-  onInteract: () => void;
   onActive: () => void;
-  /** Raw pixel deltas from a look drag on the right half of the screen. */
+  /** Raw pixel deltas from a look drag on the right side of the screen. */
   onLook: (dx: number, dy: number) => void;
 }
 
@@ -278,108 +287,132 @@ interface TouchReadout {
   sprint: boolean;
 }
 
+/** Joystick knob's max deflection radius, in px (research-backed floating
+ *  joysticks — e.g. Minecraft Bedrock's — use a ~50-60px throw). */
+const JOYSTICK_MAX_RADIUS = 56;
+/** Sprint-on-push (Minecraft Bedrock's "Sprint on Movement"): hold the stick at
+ *  ≥90% deflection for this long to engage sprint automatically. */
+const SPRINT_ENGAGE_DEFLECTION = 0.9;
+const SPRINT_ENGAGE_MS = 250;
+/** Once engaged, sprint keeps running until deflection drops below this — a
+ *  wider band than the engage threshold so a light ease-off doesn't chatter. */
+const SPRINT_SUSTAIN_DEFLECTION = 0.75;
+/** The joystick spawns only in the left share of the overlay; the rest is the
+ *  look-drag surface. */
+const JOYSTICK_ZONE_FRACTION = 0.45;
+
 /**
- * On-screen controls for touch: a left virtual joystick (move/strafe), a
- * drag-to-look surface on the right half of the overlay, and SPRINT (hold) +
- * USE buttons. Mounted eagerly when `touchCapable` (see createPlayerInput);
- * `build()` is guarded so the `touchstart` fallback can never mount twice.
+ * On-screen controls for touch: a FLOATING joystick (move/strafe) that spawns
+ * wherever a touch starts in the left 45% of the overlay, plus a drag-to-look
+ * surface over the rest. Both are tracked entirely through `overlay`'s own
+ * pointer events (no per-element listeners, no `setPointerCapture`) — a touch
+ * that starts on the joystick's spawn zone or the look zone keeps driving that
+ * one control for its whole lifetime purely by matching `pointerId`, so a
+ * finger sliding off the visual joystick never drops the drag. Mounted eagerly
+ * when `touchCapable` (see createPlayerInput); `build()` is guarded so the
+ * `touchstart` fallback can never mount twice.
  */
 function createTouchControls(overlay: HTMLElement, h: TouchHandlers, touchCapable: boolean) {
   let built = false;
   const readout: TouchReadout = { active: false, moveX: 0, moveZ: 0, sprint: false };
-  let stick: HTMLDivElement | null = null;
-  let knob: HTMLDivElement | null = null;
+  let stickEl: HTMLDivElement | null = null;
+  let knobEl: HTMLDivElement | null = null;
   let stickId: number | null = null;
   let origin = { x: 0, y: 0 };
+  let deflection = 0; // 0..1, radial magnitude of the current drag
+  let sprintHoldMs = 0;
+  let sprintOn = false;
   let lookId: number | null = null;
   let lookLast = { x: 0, y: 0 };
   const els: HTMLElement[] = [];
+
+  const ensureStick = () => {
+    if (stickEl) return;
+    stickEl = div("touch-joystick");
+    knobEl = div("touch-knob");
+    stickEl.appendChild(knobEl);
+    overlay.appendChild(stickEl);
+    els.push(stickEl);
+  };
+
+  const spawnStick = (x: number, y: number) => {
+    ensureStick();
+    origin = { x, y };
+    stickEl!.style.left = `${x}px`;
+    stickEl!.style.top = `${y}px`;
+    stickEl!.classList.add("touch-joystick--visible");
+    knobEl!.style.transform = "translate(0, 0)";
+  };
+
+  const hideStick = () => {
+    stickEl?.classList.remove("touch-joystick--visible");
+    knobEl?.classList.remove("touch-knob--sprint");
+    knobEl?.style.setProperty("transform", "translate(0, 0)");
+  };
 
   const build = () => {
     if (built) return;
     built = true;
     h.onActive();
 
-    stick = div("touch-joystick");
-    knob = div("touch-knob");
-    stick.appendChild(knob);
-    const sprintBtn = button("touch-btn touch-sprint", "SPRINT");
-    const useBtn = button("touch-btn touch-use", "USE");
-    for (const el of [stick, sprintBtn, useBtn]) {
-      overlay.appendChild(el);
-      els.push(el);
-    }
-
-    // Joystick drag → move/strafe.
-    stick.addEventListener("pointerdown", (e) => {
-      stickId = e.pointerId;
-      const r = stick!.getBoundingClientRect();
-      origin = { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-      stick!.setPointerCapture(e.pointerId);
-    });
-    stick.addEventListener("pointermove", (e) => {
-      if (e.pointerId !== stickId) return;
-      const max = 48;
-      const nx = clamp((e.clientX - origin.x) / max, -1, 1);
-      const ny = clamp((e.clientY - origin.y) / max, -1, 1);
-      readout.moveX = nx;
-      readout.moveZ = -ny;
-      readout.active = true;
-      knob!.style.transform = `translate(${nx * max}px, ${ny * max}px)`;
-    });
-    const endStick = (e: PointerEvent) => {
-      if (e.pointerId !== stickId) return;
-      stickId = null;
-      readout.moveX = 0;
-      readout.moveZ = 0;
-      knob!.style.transform = "translate(0,0)";
-    };
-    stick.addEventListener("pointerup", endStick);
-    stick.addEventListener("pointercancel", endStick);
-
-    // Look drag: any touch that starts on the overlay's right half and not on a
-    // control. The overlay (not window) hosts the handlers, so page UI outside
-    // the game never feeds the camera.
-    overlay.addEventListener("pointerdown", onLookStart);
-    overlay.addEventListener("pointermove", onLookMove);
-    overlay.addEventListener("pointerup", onLookEnd);
-    overlay.addEventListener("pointercancel", onLookEnd);
-
-    // SPRINT is hold-to-sprint (level-triggered, like Shift).
-    sprintBtn.addEventListener("pointerdown", (e) => {
-      e.preventDefault();
-      readout.sprint = true;
-      readout.active = true;
-    });
-    const endSprint = () => (readout.sprint = false);
-    sprintBtn.addEventListener("pointerup", endSprint);
-    sprintBtn.addEventListener("pointercancel", endSprint);
-
-    useBtn.addEventListener("pointerdown", (e) => {
-      e.preventDefault();
-      h.onInteract();
-    });
+    overlay.addEventListener("pointerdown", onOverlayPointerDown);
+    overlay.addEventListener("pointermove", onOverlayPointerMove);
+    overlay.addEventListener("pointerup", onOverlayPointerEnd);
+    overlay.addEventListener("pointercancel", onOverlayPointerEnd);
   };
 
-  const onLookStart = (e: PointerEvent) => {
-    if (e.pointerType !== "touch" || lookId !== null) return;
-    // Structural hit test: any touch that isn't on one of OUR controls drives
-    // the look — never a foreign class-name check that a GameCanvas restyle
-    // could silently break (review, slice B).
+  // A single overlay-level pointerdown decides which control a touch drives:
+  // the left 45% spawns/claims the joystick (if one isn't already tracking),
+  // everything else drives look — mirroring the old fixed-joystick's zone
+  // split, just measured from the overlay edge instead of a button hit test.
+  const onOverlayPointerDown = (e: PointerEvent) => {
+    if (e.pointerType !== "touch") return;
     const target = e.target as HTMLElement | null;
-    if (target?.closest?.(".touch-btn, .touch-joystick")) return;
+    if (target?.closest?.("button")) return; // real HUD controls, never hijacked
     const r = overlay.getBoundingClientRect();
-    if (e.clientX - r.left < r.width * 0.4) return; // left zone belongs to the stick
+    const inJoystickZone = e.clientX - r.left < r.width * JOYSTICK_ZONE_FRACTION;
+    if (inJoystickZone) {
+      if (stickId !== null) return; // one drag at a time
+      stickId = e.pointerId;
+      spawnStick(e.clientX, e.clientY);
+      readout.active = true;
+      return;
+    }
+    if (lookId !== null) return;
     lookId = e.pointerId;
     lookLast = { x: e.clientX, y: e.clientY };
     readout.active = true;
   };
-  const onLookMove = (e: PointerEvent) => {
-    if (e.pointerId !== lookId) return;
-    h.onLook(e.clientX - lookLast.x, e.clientY - lookLast.y);
-    lookLast = { x: e.clientX, y: e.clientY };
+
+  const onOverlayPointerMove = (e: PointerEvent) => {
+    if (e.pointerId === stickId) {
+      const dx = e.clientX - origin.x;
+      const dy = e.clientY - origin.y;
+      const mag = Math.hypot(dx, dy);
+      const scale = mag > JOYSTICK_MAX_RADIUS && mag > 0 ? JOYSTICK_MAX_RADIUS / mag : 1;
+      const kx = dx * scale;
+      const ky = dy * scale;
+      deflection = Math.min(mag, JOYSTICK_MAX_RADIUS) / JOYSTICK_MAX_RADIUS;
+      readout.moveX = kx / JOYSTICK_MAX_RADIUS;
+      readout.moveZ = -(ky / JOYSTICK_MAX_RADIUS);
+      knobEl!.style.transform = `translate(${kx}px, ${ky}px)`;
+      return;
+    }
+    if (e.pointerId === lookId) {
+      h.onLook(e.clientX - lookLast.x, e.clientY - lookLast.y);
+      lookLast = { x: e.clientX, y: e.clientY };
+    }
   };
-  const onLookEnd = (e: PointerEvent) => {
+
+  const onOverlayPointerEnd = (e: PointerEvent) => {
+    if (e.pointerId === stickId) {
+      stickId = null;
+      deflection = 0;
+      readout.moveX = 0;
+      readout.moveZ = 0;
+      hideStick();
+      return;
+    }
     if (e.pointerId === lookId) lookId = null;
   };
 
@@ -389,12 +422,33 @@ function createTouchControls(overlay: HTMLElement, h: TouchHandlers, touchCapabl
 
   return {
     read: () => readout,
+    /** Advance the sprint-on-push timer over the frame's dt (Minecraft
+     *  Bedrock's "Sprint on Movement"): ≥90% deflection sustained for ≥250ms
+     *  engages sprint; it holds while deflection stays ≥75%, and drops the
+     *  instant it doesn't (releasing the stick zeroes deflection immediately,
+     *  so lifting the thumb always disengages sprint on the very same frame). */
+    update(dt: number) {
+      const ms = dt * 1000;
+      if (deflection >= SPRINT_ENGAGE_DEFLECTION) {
+        sprintHoldMs += ms;
+      } else {
+        sprintHoldMs = 0;
+      }
+      if (!sprintOn && sprintHoldMs >= SPRINT_ENGAGE_MS) {
+        sprintOn = true;
+      } else if (sprintOn && deflection < SPRINT_SUSTAIN_DEFLECTION) {
+        sprintOn = false;
+        sprintHoldMs = 0;
+      }
+      readout.sprint = sprintOn;
+      knobEl?.classList.toggle("touch-knob--sprint", sprintOn);
+    },
     dispose() {
       overlay.removeEventListener("touchstart", onFirstTouch);
-      overlay.removeEventListener("pointerdown", onLookStart);
-      overlay.removeEventListener("pointermove", onLookMove);
-      overlay.removeEventListener("pointerup", onLookEnd);
-      overlay.removeEventListener("pointercancel", onLookEnd);
+      overlay.removeEventListener("pointerdown", onOverlayPointerDown);
+      overlay.removeEventListener("pointermove", onOverlayPointerMove);
+      overlay.removeEventListener("pointerup", onOverlayPointerEnd);
+      overlay.removeEventListener("pointercancel", onOverlayPointerEnd);
       for (const el of els) el.remove();
     },
   };
@@ -403,12 +457,5 @@ function createTouchControls(overlay: HTMLElement, h: TouchHandlers, touchCapabl
 function div(className: string): HTMLDivElement {
   const el = document.createElement("div");
   el.className = className;
-  return el;
-}
-function button(className: string, label: string): HTMLButtonElement {
-  const el = document.createElement("button");
-  el.className = className;
-  el.textContent = label;
-  el.type = "button";
   return el;
 }

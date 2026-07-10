@@ -51,6 +51,11 @@ export interface Game {
    *  re-applies shadows in BOTH directions — the renderer's shadowMap.enabled
    *  flag alone can't turn shadows back on once the caster was built without it. */
   setShadowsEnabled(enabled: boolean): void;
+  /** Touch surface for the shell: `pressInteract` queues the same edge the E
+   *  key does (TouchActionButton calls it on tap), and `touchActive` mirrors
+   *  the input layer's live signal so GameCanvas knows when to mount the
+   *  button at all (mobile-controls upgrade). */
+  input: { pressInteract(): void; touchActive: boolean };
 }
 
 /**
@@ -249,6 +254,12 @@ export function buildGame(
     quest: { store: questStore },
     setShadowsEnabled(enabled) {
       world.sky.sun.castShadow = enabled;
+    },
+    input: {
+      pressInteract: () => player.input.pressInteract(),
+      get touchActive() {
+        return player.input.touchActive;
+      },
     },
   };
 }

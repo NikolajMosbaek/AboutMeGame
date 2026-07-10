@@ -267,11 +267,15 @@ body {
   color: #ff5c5c;
 }
 
-/* ----- Touch controls — created by player/input.ts (eager on touch devices) ----- */
+/* ----- Touch controls — created by player/input.ts (eager on touch devices).
+   The joystick FLOATS: it spawns at the touch point (left/top set inline by
+   input.ts) rather than at a fixed corner, so `left`/`top`/`bottom` are NOT
+   declared here — only the fixed size/shape and the opacity transition for
+   spawn/fade. `transform: translate(-50%, -50%)` centres it on that point. ---- */
 .touch-joystick {
   position: fixed;
-  left: calc(5vw + var(--safe-left));
-  bottom: calc(6vh + var(--safe-bottom));
+  left: 0;
+  top: 0;
   width: 120px;
   height: 120px;
   border-radius: 50%;
@@ -281,6 +285,14 @@ body {
   z-index: 20;
   display: grid;
   place-items: center;
+  transform: translate(-50%, -50%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.touch-joystick--visible {
+  opacity: 1;
 }
 
 .touch-knob {
@@ -289,32 +301,54 @@ body {
   border-radius: 50%;
   background: rgba(255, 203, 71, 0.85);
   pointer-events: none;
+  transition: background 120ms ease, box-shadow 120ms ease;
 }
 
-.touch-btn {
+/* Sprint-on-push cue: a brighter ring while sprint is engaged, so the thumb
+   feels the state change without reading text. */
+.touch-knob--sprint {
+  background: rgba(255, 235, 130, 0.95);
+  box-shadow: 0 0 0 4px rgba(255, 235, 130, 0.4);
+}
+
+/* ----- The one context-action button (mobile-controls upgrade) — replaces the
+   old fixed SPRINT/USE buttons. TouchActionButton mounts it only while touch
+   controls are active, and only while an action is available. ----- */
+.touch-action-btn {
   position: fixed;
+  right: calc(6vw + var(--safe-right));
+  bottom: calc(7vh + var(--safe-bottom));
   z-index: 20;
+  display: grid;
+  place-items: center;
+  gap: 0.1rem;
+  min-width: 64px;
+  min-height: 64px;
+  padding: 0.4rem 0.6rem;
   border: 2px solid rgba(255, 255, 255, 0.35);
-  background: rgba(0, 0, 0, 0.4);
-  color: var(--color-fg);
-  font: 700 0.85rem var(--font-ui);
-  border-radius: 50%;
-  width: 72px;
-  height: 72px;
+  border-radius: 18px;
+  background: rgba(255, 203, 71, 0.85);
+  color: var(--color-accent-fg);
+  font: 700 0.75rem var(--font-ui);
   touch-action: none;
   -webkit-user-select: none;
   user-select: none;
+  transition: transform 80ms ease, filter 80ms ease;
 }
 
-.touch-sprint {
-  right: calc(22vw + var(--safe-right));
-  bottom: calc(7vh + var(--safe-bottom));
+.touch-action-btn__icon {
+  font-size: 1.4rem;
+  line-height: 1;
 }
-.touch-use {
-  right: calc(6vw + var(--safe-right));
-  bottom: calc(7vh + var(--safe-bottom));
-  background: rgba(255, 203, 71, 0.85);
-  color: var(--color-accent-fg);
+
+.touch-action-btn__label {
+  white-space: nowrap;
+}
+
+/* Touch-down press feedback: a quick scale + brightness pop. */
+.touch-action-btn:active {
+  transform: scale(0.92);
+  filter: brightness(1.15);
 }
 
 
@@ -511,6 +545,11 @@ body {
   font: 500 0.85rem var(--font-ui);
   opacity: 0.8;
 }
+
+
+/* Device-aware hint text: exactly one of the pair renders. The touch variant
+   wins on coarse pointers (where the keyboard line would be a lie). */
+.hint-touch { display: none; }
 
 /* ----- Discovery UI (#38) ----- */
 .discovery-progress {
@@ -1275,16 +1314,15 @@ body {
     padding: var(--space-3) var(--space-2);
   }
 
-  /* In landscape the thumbs sit at the lower corners — pull the touch controls
-     in toward the bottom edge so they don't ride up over the HUD, and move the
-     reveal prompt above them. */
+  /* In landscape the thumbs sit at the lower corners — the floating joystick
+     shrinks a little so it doesn't ride up over the HUD (its position stays
+     wherever the touch spawned it, set inline by input.ts), the action button
+     pulls in toward the bottom edge, and the reveal prompt moves above them. */
   .touch-joystick {
     width: 96px;
     height: 96px;
-    bottom: calc(4vh + var(--safe-bottom));
   }
-  .touch-sprint,
-  .touch-use {
+  .touch-action-btn {
     bottom: calc(4vh + var(--safe-bottom));
   }
   .reveal-prompt {
@@ -1292,8 +1330,19 @@ body {
   }
 }
 
-/* ----- Coarse pointer (touch): guarantee the ≥44px tap target everywhere ----- */
+/* ----- Coarse pointer (touch): guarantee the ≥44px tap target everywhere, and
+   size the survival meters + drink hint for a thumb's-length viewing distance
+   rather than a mouse's ----- */
 @media (pointer: coarse) {
+  .hint-kbd { display: none; }
+  .hint-touch { display: inline; }
+  /* The keyboard controls reminder has no meaning on a phone. */
+  .hud-controls { display: none; }
+
+  /* Device-aware hints: touch text wins; the keyboard reminder is a lie here. */
+  .hint-kbd { display: none; }
+  .hint-touch { display: inline; }
+  .hud-controls { display: none; }
   .cta,
   .menu__toggle,
   .menu__seg,
@@ -1304,12 +1353,19 @@ body {
     min-height: var(--tap-min);
     min-width: var(--tap-min);
   }
-  /* The on-screen joystick + buttons are already large (≥72px); the USE and
-     SPRINT buttons sit at the screen edges, clear of the centred prompt and the
-     top HUD, so they never overlap the markers or telemetry. */
-  .touch-btn {
+  /* The action button is already ≥64px and sits at the screen edge, clear of
+     the centred prompt and the top HUD, so it never overlaps the markers or
+     telemetry; this only guarantees the platform's own tap-size floor too. */
+  .touch-action-btn {
     min-width: var(--tap-min);
     min-height: var(--tap-min);
+  }
+  .meter__track {
+    width: 160px;
+    height: 10px;
+  }
+  .drink-hint {
+    font-size: 1rem;
   }
 }
 

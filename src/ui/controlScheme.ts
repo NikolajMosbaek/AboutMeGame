@@ -45,13 +45,16 @@ const KEYBOARD_ENTRIES: ReadonlyArray<ControlEntry> = Object.freeze([
   Object.freeze({ label: "Esc", action: "Menu" }),
 ]);
 
-// Touch hints, mirroring the on-screen controls built by `createTouchControls`
-// in src/player/input.ts (the joystick, look drag, "SPRINT", "USE").
+// Touch hints, mirroring the mobile-controls upgrade: the floating joystick
+// (src/player/input.ts), the right-side look drag, and TouchActionButton (the
+// one context action button, driven by src/ui/actionPriority.ts). There is no
+// SPRINT button any more — sprint is automatic (push the stick to the edge and
+// hold it) — and no fixed USE button — the action button already names the
+// live action, so this entry can only ever honestly say to follow it.
 const TOUCH_ENTRIES: ReadonlyArray<ControlEntry> = Object.freeze([
-  Object.freeze({ label: "Joystick", action: "Walk" }),
+  Object.freeze({ label: "Joystick", action: "Walk (push to the edge to sprint)" }),
   Object.freeze({ label: "Drag right side", action: "Look" }),
-  Object.freeze({ label: "SPRINT", action: "Sprint (hold)" }),
-  Object.freeze({ label: "USE", action: "Use / examine" }),
+  Object.freeze({ label: "Action button", action: "Do what the prompt says" }),
 ]);
 
 const SCHEMES: Readonly<Record<ControlChannel, ControlScheme>> = Object.freeze({

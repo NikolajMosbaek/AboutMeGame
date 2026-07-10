@@ -20,6 +20,7 @@ import { TreasurePanel } from "../ui/TreasurePanel.tsx";
 import { SurvivalMeters } from "../ui/SurvivalMeters.tsx";
 import { DeathOverlay } from "../ui/DeathOverlay.tsx";
 import { ActionHint } from "../ui/ActionHint.tsx";
+import { TouchActionButton } from "../ui/TouchActionButton.tsx";
 import type { SurvivalStore } from "../survival/survivalStore.ts";
 import type { ForageStore } from "../forage/forageStore.ts";
 import type { QuestStore } from "../quest/questStore.ts";
@@ -59,6 +60,10 @@ export interface GameHandle {
   quest?: { store: QuestStore };
   /** Toggle shadow casting live when graphics quality changes (#47). */
   setShadowsEnabled?: (enabled: boolean) => void;
+  /** Touch surface (mobile-controls upgrade): `pressInteract` queues the same
+   *  edge the E key does, and `touchActive` gates mounting TouchActionButton.
+   *  Optional so a minimal preview/test build without it still mounts. */
+  input?: { pressInteract(): void; touchActive: boolean };
 }
 
 export interface GameCanvasProps {
@@ -373,7 +378,17 @@ export function GameCanvas({
                 forage={game.forage?.store}
                 discovery={game.discovery.store}
                 quest={game.quest?.store}
+                touchActive={game.input?.touchActive}
               />
+              {game.input?.touchActive && (
+                <TouchActionButton
+                  survival={game.survival.store}
+                  forage={game.forage?.store}
+                  discovery={game.discovery.store}
+                  quest={game.quest?.store}
+                  onPress={() => game.input?.pressInteract()}
+                />
+              )}
             </>
           )}
           <DiscoveryAnnouncer store={game.discovery.store} />

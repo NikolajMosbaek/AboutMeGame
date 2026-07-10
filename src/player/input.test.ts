@@ -84,53 +84,149 @@ describe("createPlayerInput (pivot slice B)", () => {
   });
 });
 
-describe("createPlayerInput on a touch device", () => {
-  it("mounts joystick + SPRINT + USE eagerly so the first tap lands on a real control", () => {
-    const overlay = document.createElement("div");
-    document.body.appendChild(overlay);
-    const input = createPlayerInput(overlay, true);
+/** A synthetic pointer event — jsdom has no real `PointerEvent` constructor
+ *  wired to layout, so a plain `Event` carrying the same fields the handlers
+ *  read (`pointerId`, `pointerType`, `clientX/Y`) is the simplest fake that
+ *  needs no polyfill. */
+function pointerEvent(
+  type: "pointerdown" | "pointermove" | "pointerup" | "pointercancel",
+  props: { pointerId: number; clientX: number; clientY: number; pointerType?: string },
+): Event {
+  const e = new Event(type, { bubbles: true });
+  Object.assign(e, { pointerType: "touch", ...props });
+  return e;
+}
 
-    expect(overlay.querySelector(".touch-joystick")).not.toBeNull();
-    const labels = [...overlay.querySelectorAll("button")].map((b) => b.textContent);
-    expect(labels).toContain("SPRINT");
-    expect(labels).toContain("USE");
-    // No FLY, no thrust pad — those died with the vehicle.
-    expect(labels).not.toContain("FLY");
-    expect(labels).not.toContain("▲");
+describe("createPlayerInput on a touch device — floating joystick + sprint-on-push", () => {
+  let overlay: HTMLElement;
+  let input: PlayerInputController;
+
+  beforeEach(() => {
+    overlay = document.createElement("div");
+    document.body.appendChild(overlay);
+    // Fixed layout so the left-45%/right-55% zone split is deterministic.
+    overlay.getBoundingClientRect = () =>
+      ({ left: 0, top: 0, width: 400, height: 800, right: 400, bottom: 800, x: 0, y: 0, toJSON() {} }) as DOMRect;
+    input = createPlayerInput(overlay, true);
+  });
+
+  afterEach(() => {
+    input.dispose();
+    overlay.remove();
+  });
+
+  it("mounts eagerly so the first touch lands on a live control surface (no SPRINT/USE buttons)", () => {
+    expect(overlay.querySelectorAll("button").length).toBe(0);
+    expect(input.touchActive).toBe(true);
 
     input.dispose();
     expect(overlay.querySelector(".touch-joystick")).toBeNull(); // cleaned up
-    overlay.remove();
   });
 
-  it("USE taps queue the same interact edge the keyboard uses", () => {
-    const overlay = document.createElement("div");
-    document.body.appendChild(overlay);
-    const input = createPlayerInput(overlay, true);
+  it("a touch starting in the left 45% spawns the joystick base at the touch point", () => {
+    overlay.dispatchEvent(pointerEvent("pointerdown", { pointerId: 1, clientX: 50, clientY: 120 }));
 
-    const useBtn = [...overlay.querySelectorAll("button")].find((b) => b.textContent === "USE")!;
-    useBtn.dispatchEvent(new Event("pointerdown", { bubbles: true }));
-    expect(input.consumeInteract()).toBe(true);
-
-    input.dispose();
-    overlay.remove();
+    const stick = overlay.querySelector<HTMLDivElement>(".touch-joystick");
+    expect(stick).not.toBeNull();
+    expect(stick!.classList.contains("touch-joystick--visible")).toBe(true);
+    expect(stick!.style.left).toBe("50px");
+    expect(stick!.style.top).toBe("120px");
   });
 
-  it("SPRINT is hold-to-sprint (down = on, up = off)", () => {
-    const overlay = document.createElement("div");
-    document.body.appendChild(overlay);
-    const input = createPlayerInput(overlay, true);
+  it("a touch starting in the right 55% does NOT spawn the joystick (it drives look instead)", () => {
+    overlay.dispatchEvent(pointerEvent("pointerdown", { pointerId: 1, clientX: 300, clientY: 120 }));
+    expect(overlay.querySelector(".touch-joystick")).toBeNull();
+  });
 
-    const sprintBtn = [...overlay.querySelectorAll("button")].find((b) => b.textContent === "SPRINT")!;
-    sprintBtn.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+  it("dragging deflects the knob and writes moveX/moveZ, clamped to the max radius (~56px)", () => {
+    overlay.dispatchEvent(pointerEvent("pointerdown", { pointerId: 1, clientX: 50, clientY: 120 }));
+    // Drag far past the max radius, straight right: full deflection, no forward/back.
+    overlay.dispatchEvent(pointerEvent("pointermove", { pointerId: 1, clientX: 250, clientY: 120 }));
     input.update();
+    expect(input.state.moveX).toBeCloseTo(1, 5);
+    expect(input.state.moveZ).toBeCloseTo(0, 5);
+
+    const knob = overlay.querySelector<HTMLDivElement>(".touch-knob")!;
+    const m = knob.style.transform.match(/^translate\(([-\d.]+)px, ([-\d.]+)px\)$/);
+    expect(m).not.toBeNull();
+    expect(Number(m![1])).toBeCloseTo(56, 5);
+    expect(Number(m![2])).toBeCloseTo(0, 5);
+  });
+
+  it("release hides the joystick and zeroes the move axes", () => {
+    overlay.dispatchEvent(pointerEvent("pointerdown", { pointerId: 1, clientX: 50, clientY: 120 }));
+    overlay.dispatchEvent(pointerEvent("pointermove", { pointerId: 1, clientX: 250, clientY: 120 }));
+    overlay.dispatchEvent(pointerEvent("pointerup", { pointerId: 1, clientX: 250, clientY: 120 }));
+    input.update();
+
+    expect(input.state.moveX).toBe(0);
+    expect(input.state.moveZ).toBe(0);
+    const stick = overlay.querySelector<HTMLDivElement>(".touch-joystick")!;
+    expect(stick.classList.contains("touch-joystick--visible")).toBe(false);
+  });
+
+  it("sprint engages after ≥250ms held at ≥90% deflection", () => {
+    overlay.dispatchEvent(pointerEvent("pointerdown", { pointerId: 1, clientX: 50, clientY: 120 }));
+    overlay.dispatchEvent(pointerEvent("pointermove", { pointerId: 1, clientX: 150, clientY: 120 })); // full deflection
+
+    input.update(0.1); // 100ms — not yet
+    expect(input.state.sprint).toBe(false);
+    input.update(0.1); // 200ms — not yet
+    expect(input.state.sprint).toBe(false);
+    input.update(0.1); // 300ms — engaged
+    expect(input.state.sprint).toBe(true);
+  });
+
+  it("never engages while deflection stays below the 90% threshold", () => {
+    overlay.dispatchEvent(pointerEvent("pointerdown", { pointerId: 1, clientX: 50, clientY: 120 }));
+    // 28px of 56px max = 50% deflection.
+    overlay.dispatchEvent(pointerEvent("pointermove", { pointerId: 1, clientX: 78, clientY: 120 }));
+
+    input.update(0.3);
+    input.update(0.3);
+    expect(input.state.sprint).toBe(false);
+  });
+
+  it("disengages once deflection drops below the 75% sustain threshold", () => {
+    overlay.dispatchEvent(pointerEvent("pointerdown", { pointerId: 1, clientX: 50, clientY: 120 }));
+    overlay.dispatchEvent(pointerEvent("pointermove", { pointerId: 1, clientX: 150, clientY: 120 })); // full
+    input.update(0.3);
     expect(input.state.sprint).toBe(true);
 
-    sprintBtn.dispatchEvent(new Event("pointerup", { bubbles: true }));
-    input.update();
+    // Ease off to 50% — below the 75% sustain band.
+    overlay.dispatchEvent(pointerEvent("pointermove", { pointerId: 1, clientX: 78, clientY: 120 }));
+    input.update(0.016);
     expect(input.state.sprint).toBe(false);
+  });
 
-    input.dispose();
-    overlay.remove();
+  it("releasing the stick disengages sprint on the very same frame", () => {
+    overlay.dispatchEvent(pointerEvent("pointerdown", { pointerId: 1, clientX: 50, clientY: 120 }));
+    overlay.dispatchEvent(pointerEvent("pointermove", { pointerId: 1, clientX: 150, clientY: 120 }));
+    input.update(0.3);
+    expect(input.state.sprint).toBe(true);
+
+    overlay.dispatchEvent(pointerEvent("pointerup", { pointerId: 1, clientX: 150, clientY: 120 }));
+    input.update(0.016);
+    expect(input.state.sprint).toBe(false);
+  });
+
+  it("pressInteract() queues the same edge consumeInteract() drains", () => {
+    input.pressInteract();
+    expect(input.consumeInteract()).toBe(true);
+    expect(input.consumeInteract()).toBe(false); // consumed
+  });
+
+  it("simultaneous move (joystick) + look (right-side drag) both work — two independent pointer ids", () => {
+    overlay.dispatchEvent(pointerEvent("pointerdown", { pointerId: 1, clientX: 50, clientY: 120 })); // joystick
+    overlay.dispatchEvent(pointerEvent("pointerdown", { pointerId: 2, clientX: 300, clientY: 120 })); // look
+
+    overlay.dispatchEvent(pointerEvent("pointermove", { pointerId: 1, clientX: 150, clientY: 120 }));
+    overlay.dispatchEvent(pointerEvent("pointermove", { pointerId: 2, clientX: 320, clientY: 100 }));
+    input.update();
+
+    expect(input.state.moveX).toBeCloseTo(1, 5); // the joystick drag still landed
+    const look = input.consumeLook();
+    expect(look.dx).toBeGreaterThan(0); // the look drag also landed, independently
+    expect(look.dy).toBeLessThan(0);
   });
 });
