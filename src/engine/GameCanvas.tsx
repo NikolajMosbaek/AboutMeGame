@@ -19,7 +19,9 @@ import { DiscoveryAnnouncer } from "../ui/DiscoveryAnnouncer.tsx";
 import { CompletionPanel } from "../ui/CompletionPanel.tsx";
 import { SurvivalMeters } from "../ui/SurvivalMeters.tsx";
 import { DeathOverlay } from "../ui/DeathOverlay.tsx";
+import { ActionHint } from "../ui/ActionHint.tsx";
 import type { SurvivalStore } from "../survival/survivalStore.ts";
+import type { ForageStore } from "../forage/forageStore.ts";
 import type { DiscoveryStore } from "../discovery/discoveryStore.ts";
 import type { JournalPoi } from "../content/discoverablePois.ts";
 import type { HudStore } from "../ui/hudStore.ts";
@@ -50,6 +52,8 @@ export interface GameHandle {
   /** Survival meters + the death→respawn action (pivot slice D). Optional so a
    *  minimal preview/test build without survival still mounts. */
   survival?: { store: SurvivalStore; respawn(): void };
+  /** Foraging (pivot slice E) — the pick hint reads it. */
+  forage?: { store: ForageStore };
   /** Toggle shadow casting live when graphics quality changes (#47). */
   setShadowsEnabled?: (enabled: boolean) => void;
 }
@@ -338,8 +342,13 @@ export function GameCanvas({
           />
           {game.survival && (
             <>
-              <SurvivalMeters survival={game.survival.store} discovery={game.discovery.store} />
+              <SurvivalMeters survival={game.survival.store} />
               <DeathOverlay survival={game.survival.store} onRespawn={game.survival.respawn} />
+              <ActionHint
+                survival={game.survival.store}
+                forage={game.forage?.store}
+                discovery={game.discovery.store}
+              />
             </>
           )}
           <DiscoveryAnnouncer store={game.discovery.store} />
