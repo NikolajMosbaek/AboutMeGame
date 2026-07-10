@@ -441,6 +441,11 @@ body {
 
 .treasure-panel__card {
   max-width: 30rem;
+  /* MOB2 reachability: the win card must fit the DYNAMIC viewport (URL bar
+     collapsed or not) with its CTAs reachable — same cap the reveal panel
+     carries. */
+  max-height: calc(var(--vh-dynamic) * 0.86);
+  overflow-y: auto;
   margin: 1rem;
   padding: 1.8rem 2rem;
   border-radius: 14px;

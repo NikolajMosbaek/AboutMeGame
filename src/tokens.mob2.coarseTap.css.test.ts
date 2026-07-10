@@ -199,7 +199,7 @@ describe("tokens.css — MOB2 #155 Group C (the four dvh caps + .text-view negat
    */
 
   it("the two base panels cap via calc(var(--vh-dynamic) * 0.86), and .text-view carries the additive safe-bottom pad with NO max-height", () => {
-    // .reveal-panel base (~:418) and .completion-panel base (~:545) are centred
+    // .reveal-panel base (~:418) and .treasure-panel__card base (~:545) are centred
     // dialogs, so they cap their height off the dvh-aware token. .text-view (~:889)
     // is a full-bleed scrolling PAGE — it floors its end-of-document dismiss
     // control above the home indicator with an ADDITIVE bottom pad and, being no
@@ -209,9 +209,9 @@ describe("tokens.css — MOB2 #155 Group C (the four dvh caps + .text-view negat
     expect(blocksFor(css, ".reveal-panel").length).toBeGreaterThan(0);
     expect(reveal).toMatch(/max-height:\s*calc\(var\(--vh-dynamic\)\s*\*\s*0\.86\)/);
 
-    const completion = blocksFor(css, ".completion-panel")[0];
-    expect(completion, ".completion-panel base rule must exist").toBeTruthy();
-    expect(blocksFor(css, ".completion-panel").length).toBeGreaterThan(0);
+    const completion = blocksFor(css, ".treasure-panel__card")[0];
+    expect(completion, ".treasure-panel__card base rule must exist").toBeTruthy();
+    expect(blocksFor(css, ".treasure-panel__card").length).toBeGreaterThan(0);
     expect(completion).toMatch(/max-height:\s*calc\(var\(--vh-dynamic\)\s*\*\s*0\.86\)/);
 
     const textView = blocksFor(css, ".text-view")[0];
