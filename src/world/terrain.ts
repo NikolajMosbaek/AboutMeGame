@@ -1,29 +1,96 @@
 import * as THREE from "three";
 import { makeNoise2D } from "./noise.ts";
 import { WORLD, RIVER, LAGOON, SPAWN } from "./worldConfig.ts";
+import { loadTexture } from "../engine/assets.ts";
+import {
+  SPLAT_CHANNELS,
+  computeSplatWeights,
+  packSplatWeights,
+  slopeFromNormalY,
+  type SplatChannel,
+} from "./terrainSplat.ts";
+import { makeTerrainMaterialPatch } from "./terrainMaterialPatch.ts";
+import { QUALITY_TIERS, type QualityConfig } from "../perf/quality.ts";
 
 export interface Terrain {
-  /** The renderable mesh (flat-shaded, vertex-coloured low-poly). */
+  /** The renderable mesh (smooth-shaded, PBR-splatted with a surviving
+   *  vertex-colour macro tint — visual-overhaul slice 3). */
   mesh: THREE.Mesh;
   /** Ground height at any world (x,z). Pure — movement follows it and
    *  props/sites sit on it. Below sea level means underwater. */
   heightAt(x: number, z: number): number;
+  /** Resolves once the async ground-texture load has settled (attached on
+   *  success, logged-and-skipped on failure) — never rejects. Tests/verifiers
+   *  can await it for a deterministic "textures are in" point; production
+   *  code never needs to (the terrain renders its vertex-colour look the
+   *  instant `buildTerrain` returns, and upgrades in place with one material
+   *  recompile when this settles — see `attachTerrainTextures`'s doc). */
+  texturesReady: Promise<void>;
   dispose(): void;
 }
 
+/** Injectable texture loader — defaults to the cached, `assetUrl`-resolving
+ *  `loadTexture` (`src/engine/assets.ts`). Matches its signature exactly so
+ *  tests can substitute a stub that never touches the network/jsdom `Image`
+ *  loading path. */
+export type TerrainTextureLoader = (path: string) => Promise<THREE.Texture>;
+
+const TEXTURE_DIR = "assets/textures/terrain/";
+
+/** kebab-case file stems per splat channel — the one place the on-disk names
+ *  (`scripts/process-textures.mjs`'s output, `public/assets/textures/terrain/`)
+ *  are spelled out. */
+const TEXTURE_STEM: Record<SplatChannel, string> = {
+  jungleFloor: "jungle-floor",
+  leafLitter: "leaf-litter",
+  rock: "rock",
+  sand: "sand",
+};
+
+function albedoPath(channel: SplatChannel): string {
+  return `${TEXTURE_DIR}${TEXTURE_STEM[channel]}-albedo.webp`;
+}
+function normalPath(channel: SplatChannel): string {
+  return `${TEXTURE_DIR}${TEXTURE_STEM[channel]}-normal.webp`;
+}
+function uniformSuffix(channel: SplatChannel): string {
+  return channel.charAt(0).toUpperCase() + channel.slice(1);
+}
+
 /**
- * Build the island terrain for The Lost Idol (pivot slice C).
+ * Build the island terrain for The Lost Idol (pivot slice C; PBR splatting,
+ * visual-overhaul slice 3).
  *
  * `heightAt` is the contract: a continuous height field combining fractal noise
  * with a radial island falloff (coastline), a **northern highland** (the river's
  * source country), a **river channel** carved along `RIVER.points` and a
  * **lagoon** basin at the south shore — both carved below sea level so the
  * single water plane fills them — plus a cleared, flattened pad at the camp.
- * The mesh just samples it on a grid. Vertex colours band the surface river-mud
- * → jungle floor → deep jungle → highland rock by elevation; `flatShading`
- * keeps the faceted look and the zero-texture terrain budget.
+ * The mesh just samples it on a grid. **Unchanged by this slice** — every
+ * gameplay-relevant sample (movement, props, sites, wildlife) reads the exact
+ * same height field as before.
+ *
+ * What DOES change is the surface: vertex colours still band the surface
+ * river-mud → jungle floor → deep jungle → highland rock by elevation (the
+ * same `colorForHeight`), but they now serve as a MACRO TINT over 4 real CC0
+ * ground textures (jungle floor / leaf litter / rock / sand,
+ * `public/assets/LICENSES.md`), splatted by a per-vertex blend
+ * (`terrainSplat.ts`) driven by the same height bands plus slope (steep
+ * ground reads as rock regardless of elevation) and noise (mottling the
+ * jungle-floor/leaf-litter split, same idiom as the old lightness mottle). The
+ * mesh is smooth-shaded (`computeVertexNormals`, no more `flatShading`) so the
+ * normal-mapped detail (medium/high) has a continuous surface to perturb.
+ *
+ * Texture loading is ASYNC: `buildTerrain` returns immediately with the
+ * vertex-colour look rendering (today's look, unchanged) while the 4 (+4
+ * normal, medium/high) textures load in the background; `texturesReady`
+ * resolves once they attach (or the load fails and is logged) — see
+ * `attachTerrainTextures`.
  */
-export function buildTerrain(): Terrain {
+export function buildTerrain(
+  quality: Pick<QualityConfig, "terrainDetail" | "terrainAnisotropy"> = QUALITY_TIERS.high,
+  loadTerrainTexture: TerrainTextureLoader = loadTexture,
+): Terrain {
   const noise = makeNoise2D(WORLD.seed);
   const { coastRadius, islandRadius, maxHeight, landBase, shoreDrop, highlandBoost, campClearRadius } =
     WORLD;
@@ -104,9 +171,32 @@ export function buildTerrain(): Terrain {
   geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
   geo.computeVertexNormals();
 
+  // Splat weights (visual-overhaul slice 3): a second pass, now that per-vertex
+  // normals exist (smooth shading — no more `flatShading`), packs the
+  // CPU-computed texture-blend weights (`terrainSplat.ts`) into a vec4
+  // attribute; the material patch's fragment shader interpolates it and blends
+  // 4 albedo (+4 normal, medium/high) samples by it. Reads the SAME detail
+  // noise sample `colorForHeight`'s mottle does (`fbm(x*0.05+7, z*0.05-3, 2)`)
+  // so the texture read and the surviving vertex-colour tint mottle together
+  // rather than fighting each other.
+  const normalAttr = geo.attributes.normal as THREE.BufferAttribute;
+  const splat = new Float32Array(pos.count * 4);
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const z = pos.getZ(i);
+    const y = pos.getY(i);
+    const slope = slopeFromNormalY(normalAttr.getY(i));
+    const detailNoise = noise.fbm(x * 0.05 + 7, z * 0.05 - 3, 2);
+    const [r, g, b, a] = packSplatWeights(computeSplatWeights(y, slope, detailNoise));
+    splat[i * 4] = r;
+    splat[i * 4 + 1] = g;
+    splat[i * 4 + 2] = b;
+    splat[i * 4 + 3] = a;
+  }
+  geo.setAttribute("splatWeight", new THREE.BufferAttribute(splat, 4));
+
   const mat = new THREE.MeshStandardMaterial({
     vertexColors: true,
-    flatShading: true,
     roughness: 0.96,
     metalness: 0,
   });
@@ -114,14 +204,82 @@ export function buildTerrain(): Terrain {
   mesh.receiveShadow = true;
   mesh.name = "terrain";
 
+  let disposed = false;
+  const texturesReady = attachTerrainTextures(mat, quality, loadTerrainTexture, () => disposed);
+
   return {
     mesh,
     heightAt,
+    texturesReady,
     dispose() {
+      disposed = true;
       geo.dispose();
       mat.dispose();
     },
   };
+}
+
+/**
+ * Load the 4 albedo (+4 normal, `terrainDetail === "full"`) ground textures and
+ * attach them to the terrain material in ONE atomic step: builds the uniform
+ * bag, wires `mat.onBeforeCompile`/`customProgramCacheKey` from
+ * `makeTerrainMaterialPatch`, and flips `mat.needsUpdate` — the single
+ * recompile the design accepts happening once, at load. Never rejects: a
+ * failed load is logged and the vertex-colour look simply never upgrades
+ * (same degrade-quietly idiom `GameCanvas`'s lazy compositor load follows).
+ *
+ * `isDisposed` guards the unmount race: if `Terrain.dispose()` ran while the
+ * load was in flight, the just-uploaded textures are disposed instead of
+ * attached to a dead material — no GPU leak from a fast mount/unmount.
+ */
+function attachTerrainTextures(
+  mat: THREE.MeshStandardMaterial,
+  quality: Pick<QualityConfig, "terrainDetail" | "terrainAnisotropy">,
+  loadTerrainTexture: TerrainTextureLoader,
+  isDisposed: () => boolean,
+): Promise<void> {
+  const hasNormalMaps = quality.terrainDetail === "full";
+
+  return Promise.all([
+    Promise.all(SPLAT_CHANNELS.map((ch) => loadTerrainTexture(albedoPath(ch)))),
+    hasNormalMaps
+      ? Promise.all(SPLAT_CHANNELS.map((ch) => loadTerrainTexture(normalPath(ch))))
+      : Promise.resolve<THREE.Texture[]>([]),
+  ])
+    .then(([albedoTextures, normalTextures]) => {
+      if (isDisposed()) {
+        for (const tex of [...albedoTextures, ...normalTextures]) tex.dispose();
+        return;
+      }
+
+      const uniforms: Record<string, { value: unknown }> = {};
+      SPLAT_CHANNELS.forEach((ch, i) => {
+        const tex = albedoTextures[i];
+        tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+        tex.anisotropy = quality.terrainAnisotropy;
+        uniforms[`uAlbedo${uniformSuffix(ch)}`] = { value: tex };
+      });
+      if (hasNormalMaps) {
+        SPLAT_CHANNELS.forEach((ch, i) => {
+          const tex = normalTextures[i];
+          tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+          tex.anisotropy = quality.terrainAnisotropy;
+          // Normal-map data is NOT perceptual colour — it must never go
+          // through an sRGB decode, so override `loadTexture`'s colour-map
+          // default (docs/asset-pipeline.md's sRGB-tagging is for albedo).
+          tex.colorSpace = THREE.NoColorSpace;
+          uniforms[`uNormal${uniformSuffix(ch)}`] = { value: tex };
+        });
+      }
+
+      const patch = makeTerrainMaterialPatch({ hasNormalMaps, uniforms });
+      mat.onBeforeCompile = patch.onBeforeCompile;
+      mat.customProgramCacheKey = patch.customProgramCacheKey;
+      mat.needsUpdate = true;
+    })
+    .catch((err: unknown) => {
+      console.error("terrain textures failed to load — keeping the vertex-colour fallback:", err);
+    });
 }
 
 /** Horizontal distance from (x,z) to the river polyline (min over segments). */
@@ -153,7 +311,10 @@ function smooth(t: number): number {
 }
 
 /** Elevation → jungle colour band, with a little noise-driven mottling so the
- *  floor doesn't read as one flat green sheet. Mutates and returns `out`. */
+ *  floor doesn't read as one flat green sheet. Mutates and returns `out`.
+ *  Survives PBR splatting as the macro tint the splatted albedo is multiplied
+ *  by (`terrainMaterialPatch.ts`'s ordering: our albedo write lands before
+ *  three's own `diffuseColor.rgb *= vColor`) — unchanged by this slice. */
 function colorForHeight(
   y: number,
   x: number,

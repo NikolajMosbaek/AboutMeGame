@@ -71,6 +71,21 @@ export interface QualityConfig {
   envDynamic: boolean;
   /** N8AO ambient-occlusion tuning (medium/high only — see {@link AOQualityConfig}). */
   ao: AOQualityConfig;
+  /** Terrain PBR splat detail (visual-overhaul slice 3): `"full"` compiles the
+   *  4-sample tangent-space normal-map blend into the terrain's
+   *  `onBeforeCompile` patch (`terrainMaterialPatch.ts`); `"albedo"` (low)
+   *  omits that block entirely at BUILD TIME — the compiled program
+   *  references no normal sampler at all, not just an unused branch — so the
+   *  low tier pays for 4 texture samples/fragment, never 8. A bake-at-mount
+   *  knob (it changes `customProgramCacheKey`), so it applies on reload like
+   *  `shadowMapSize`/`fog`. */
+  terrainDetail: "albedo" | "full";
+  /** Anisotropic filtering level for the terrain's 4 splat textures (both
+   *  albedo and, on `"full"`, normal maps) — a cheap fill-rate knob (three
+   *  clamps it to the device's real max at bind time, so requesting more than
+   *  the GPU supports is always safe). 4 on low/medium, 8 on high where the
+   *  extra samples are affordable. */
+  terrainAnisotropy: number;
 }
 
 /**
@@ -97,6 +112,8 @@ export const QUALITY_TIERS: Record<DeviceTier, QualityConfig> = {
     // Never reached (no compositor is built on low), kept a valid, sane value.
     envDynamic: false,
     ao: { ...AO_LOOK, qualityMode: "Performance", halfRes: true },
+    terrainDetail: "albedo",
+    terrainAnisotropy: 4,
   },
   medium: {
     tier: "medium",
@@ -109,6 +126,8 @@ export const QUALITY_TIERS: Record<DeviceTier, QualityConfig> = {
     bloom: true,
     envDynamic: true,
     ao: { ...AO_LOOK, qualityMode: "Performance", halfRes: true },
+    terrainDetail: "full",
+    terrainAnisotropy: 4,
   },
   high: {
     tier: "high",
@@ -121,6 +140,8 @@ export const QUALITY_TIERS: Record<DeviceTier, QualityConfig> = {
     bloom: true,
     envDynamic: true,
     ao: { ...AO_LOOK, qualityMode: "Medium", halfRes: true },
+    terrainDetail: "full",
+    terrainAnisotropy: 8,
   },
 };
 

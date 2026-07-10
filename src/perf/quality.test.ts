@@ -24,6 +24,9 @@ describe("resolveQuality", () => {
     expect(low.bloom).toBe(false);
     // Low still gets the env-light IBL (all tiers), just never regenerates.
     expect(low.envDynamic).toBe(false);
+    // Low still gets textured (splatted) terrain — just albedo-only, no
+    // normal-map blend (visual-overhaul slice 3).
+    expect(low.terrainDetail).toBe("albedo");
   });
 
   it("the medium tier turns shadows on at a smaller map and caps DPR", () => {
@@ -40,6 +43,9 @@ describe("resolveQuality", () => {
     expect(med.envDynamic).toBe(true);
     // Medium runs N8AO at its cheapest preset.
     expect(med.ao.qualityMode).toBe("Performance");
+    // Medium gets full terrain detail (normal maps) at a modest anisotropy.
+    expect(med.terrainDetail).toBe("full");
+    expect(med.terrainAnisotropy).toBe(4);
   });
 
   it("the high tier is full quality", () => {
@@ -53,6 +59,9 @@ describe("resolveQuality", () => {
     expect(high.envDynamic).toBe(true);
     // High runs a sharper N8AO preset than medium.
     expect(high.ao.qualityMode).toBe("Medium");
+    // High gets full terrain detail at the sharpest anisotropy.
+    expect(high.terrainDetail).toBe("full");
+    expect(high.terrainAnisotropy).toBe(8);
   });
 
   it("monotonically scales every cost knob across the tiers", () => {
@@ -84,6 +93,13 @@ describe("resolveQuality", () => {
     expect(QUALITY_TIERS.low.envDynamic).toBe(false);
     expect(QUALITY_TIERS.medium.envDynamic).toBe(true);
     expect(QUALITY_TIERS.high.envDynamic).toBe(true);
+    // Terrain normal-map detail is off only at the bottom tier; anisotropy
+    // scales monotonically too.
+    expect(QUALITY_TIERS.low.terrainDetail).toBe("albedo");
+    expect(QUALITY_TIERS.medium.terrainDetail).toBe("full");
+    expect(QUALITY_TIERS.high.terrainDetail).toBe("full");
+    expect(order[1].terrainAnisotropy).toBeGreaterThanOrEqual(order[0].terrainAnisotropy);
+    expect(order[2].terrainAnisotropy).toBeGreaterThanOrEqual(order[1].terrainAnisotropy);
   });
 
   it("N8AO's artistic look (radius/falloff/intensity) is identical on medium and high", () => {

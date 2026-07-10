@@ -74,7 +74,7 @@ export function buildWorld(
 ): World {
   const { scene } = engine;
 
-  const terrain = buildTerrain();
+  const terrain = buildTerrain(quality);
   scene.add(terrain.mesh);
 
   const sky = buildSky(scene, {
