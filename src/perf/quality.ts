@@ -97,6 +97,16 @@ export interface QualityConfig {
    *  `waterDisplacement` to also be on (`boundaries.ts`/`waterPatch.ts` AND
    *  the two together defensively); every tier that has one has the other. */
   waterDetail: "none" | "full";
+  /** Cloud layer detail (visual-overhaul slice 5): `"full"` (medium/high)
+   *  constructs the drifting-cloud `InstancedMesh` (`src/world/clouds.ts`,
+   *  `CloudSystem`) — one extra draw call, ~7 cheap billboard quads. `"none"`
+   *  (low) never constructs it at all: zero extra draw call, zero extra
+   *  triangles, following the `terrainDetail`/`waterDetail` precedent (a
+   *  bake-at-mount knob, so it "applies on reload" like those). The sky dome's
+   *  own atmosphere upgrade and the starfield are NOT gated by this — they run
+   *  on every tier (a single shared dome shader patch and one cheap `Points`
+   *  draw call respectively). */
+  cloudDetail: "none" | "full";
   /** Anisotropic filtering level for every repeating-UV surface texture: the
    *  terrain's 4 splat textures (both albedo and, on `"full"`, normal maps)
    *  AND the water's ripple-normal detail map (visual-overhaul slice 4) — a
@@ -135,6 +145,7 @@ export const QUALITY_TIERS: Record<DeviceTier, QualityConfig> = {
     ao: { ...AO_LOOK, qualityMode: "Performance", halfRes: true },
     terrainDetail: "none",
     waterDetail: "none",
+    cloudDetail: "none",
     textureAnisotropy: 4,
   },
   medium: {
@@ -150,6 +161,7 @@ export const QUALITY_TIERS: Record<DeviceTier, QualityConfig> = {
     ao: { ...AO_LOOK, qualityMode: "Performance", halfRes: true },
     terrainDetail: "full",
     waterDetail: "full",
+    cloudDetail: "full",
     textureAnisotropy: 4,
   },
   high: {
@@ -165,6 +177,7 @@ export const QUALITY_TIERS: Record<DeviceTier, QualityConfig> = {
     ao: { ...AO_LOOK, qualityMode: "Medium", halfRes: true },
     terrainDetail: "full",
     waterDetail: "full",
+    cloudDetail: "full",
     textureAnisotropy: 8,
   },
 };

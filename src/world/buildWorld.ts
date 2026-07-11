@@ -10,6 +10,8 @@ import { DayCycleSystem } from "./dayCycleSystem.ts";
 import { UnderwaterFxSystem } from "./underwaterFxSystem.ts";
 import { buildAquatic } from "./aquatic.ts";
 import { ShadowFrustumSystem } from "./shadowFrustumSystem.ts";
+import { StarfieldSystem } from "./starfield.ts";
+import { CloudSystem } from "./clouds.ts";
 import { WORLD } from "./worldConfig.ts";
 import { QUALITY_TIERS, type QualityConfig } from "../perf/quality.ts";
 
@@ -44,14 +46,16 @@ export interface World {
    *  the foam bake uses. Movement (wading/blocking), and later drinking,
    *  audio and FX all ask here, so a reshaped river changes one function. */
   waterDepthAt(x: number, z: number): number;
-  /** The living-sky loop's current phase (pivot slice F wildlife seam) and
-   *  current palette (visual-overhaul slice 2's `EnvLightSystem` seam) — see
-   *  `DayCycleSystem.getPhase()`/`getPalette()`. Exposed as this narrow
-   *  accessor, never the System itself, so a consumer can't reach into the
-   *  sky/dome/fog handles. `EnvLightSystem` is built OUTSIDE `buildWorld` (by
-   *  `GameCanvas`, which owns the real renderer `PMREMGenerator` needs) and
-   *  reads this same accessor. */
-  dayCycle: Pick<DayCycleSystem, "getPhase" | "getPalette">;
+  /** The living-sky loop's current phase (pivot slice F wildlife seam),
+   *  current palette (visual-overhaul slice 2's `EnvLightSystem` seam), and
+   *  live sun direction (visual-overhaul slice 5's god-rays seam) — see
+   *  `DayCycleSystem.getPhase()`/`getPalette()`/`getSunDirection()`. Exposed
+   *  as this narrow accessor, never the System itself, so a consumer can't
+   *  reach into the sky/dome/fog handles. `EnvLightSystem` and the
+   *  post-processing compositor's god rays are both built OUTSIDE `buildWorld`
+   *  (by `GameCanvas`, which owns the real renderer they each need) and read
+   *  this same accessor. */
+  dayCycle: Pick<DayCycleSystem, "getPhase" | "getPalette" | "getSunDirection">;
   dispose(): void;
 }
 
@@ -118,6 +122,7 @@ export function buildWorld(
     dayCycle: {
       getPhase: () => dayCycleSystem.getPhase(),
       getPalette: () => dayCycleSystem.getPalette(),
+      getSunDirection: () => dayCycleSystem.getSunDirection(),
     },
     dispose() {
       terrain.dispose();
@@ -179,6 +184,20 @@ export function buildWorld(
   // Kelp sway (#184) — gentle and non-essential, so it holds still under the
   // same live reduced-motion gate the water swell reads.
   engine.addSystem(aquatic.sway(reducedMotion));
+
+  // Starfield (visual-overhaul slice 5) — ONE cheap Points draw call, every
+  // tier (it's too cheap to gate). Reads the day cycle's sun direction (its
+  // own accessor, not `./dayCycle`) to fade in as the sun gets low and holds
+  // its twinkle/rotation still under reduced motion, mirroring the aquatic
+  // sway's gate.
+  engine.addSystem(new StarfieldSystem(scene, dayCycleSystem, reducedMotion));
+
+  // Drifting clouds (visual-overhaul slice 5) — ONE InstancedMesh draw call,
+  // medium/high only (`quality.cloudDetail`): a bake-at-mount knob, like
+  // `terrainDetail`/`waterDetail`, so it "applies on reload".
+  if (quality.cloudDetail === "full") {
+    engine.addSystem(new CloudSystem(scene, dayCycleSystem, reducedMotion));
+  }
 
   return world;
 }

@@ -32,6 +32,10 @@ describe("resolveQuality", () => {
     // Low ships byte-identical water to before this slice: no ripple normal
     // maps, no depth absorption, no foam breakup (visual-overhaul slice 4).
     expect(low.waterDetail).toBe("none");
+    // Low gets no cloud layer at all — zero extra draw call (visual-overhaul
+    // slice 5). The sky dome atmosphere + starfield are NOT gated, so they're
+    // not asserted here (every tier gets them).
+    expect(low.cloudDetail).toBe("none");
   });
 
   it("the medium tier turns shadows on at a smaller map and caps DPR", () => {
@@ -54,6 +58,8 @@ describe("resolveQuality", () => {
     // Medium also gets the water ripple/depth-absorption detail (needs
     // waterDisplacement, which is also on here).
     expect(med.waterDetail).toBe("full");
+    // Medium gets the drifting cloud layer (visual-overhaul slice 5).
+    expect(med.cloudDetail).toBe("full");
   });
 
   it("the high tier is full quality", () => {
@@ -71,6 +77,7 @@ describe("resolveQuality", () => {
     expect(high.terrainDetail).toBe("full");
     expect(high.textureAnisotropy).toBe(8);
     expect(high.waterDetail).toBe("full");
+    expect(high.cloudDetail).toBe("full");
   });
 
   it("monotonically scales every cost knob across the tiers", () => {
@@ -119,6 +126,11 @@ describe("resolveQuality", () => {
     for (const cfg of order) {
       if (cfg.waterDetail === "full") expect(cfg.waterDisplacement).toBe(true);
     }
+    // Cloud layer detail (visual-overhaul slice 5) is off only at the bottom
+    // tier, same shape as terrainDetail/waterDetail.
+    expect(QUALITY_TIERS.low.cloudDetail).toBe("none");
+    expect(QUALITY_TIERS.medium.cloudDetail).toBe("full");
+    expect(QUALITY_TIERS.high.cloudDetail).toBe("full");
   });
 
   it("N8AO's artistic look (radius/falloff/intensity) is identical on medium and high", () => {
