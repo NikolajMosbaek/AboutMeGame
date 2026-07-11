@@ -13,6 +13,7 @@ import { ShadowFrustumSystem } from "./shadowFrustumSystem.ts";
 import { StarfieldSystem } from "./starfield.ts";
 import { CloudSystem } from "./clouds.ts";
 import { WindSystem, type WindUniforms } from "./windSystem.ts";
+import { AmbientMotesSystem } from "../fx/AmbientMotesSystem.ts";
 import type { FloraUpgradeHandle } from "./floraUpgrade.ts";
 import { WORLD } from "./worldConfig.ts";
 import { QUALITY_TIERS, type QualityConfig } from "../perf/quality.ts";
@@ -229,6 +230,14 @@ export function buildWorld(
   // `terrainDetail`/`waterDetail`, so it "applies on reload".
   if (quality.cloudDetail === "full") {
     engine.addSystem(new CloudSystem(scene, dayCycleSystem, reducedMotion));
+  }
+
+  // Ambient jungle motes (visual-overhaul slice 7, polish) — 2 more `Points`
+  // draw calls (dust/pollen + falling leaves), medium/high only
+  // (`quality.ambientParticles`): a bake-at-mount knob, like `cloudDetail`, so
+  // it "applies on reload".
+  if (quality.ambientParticles === "full") {
+    engine.addSystem(new AmbientMotesSystem(scene, terrain.heightAt, reducedMotion));
   }
 
   return world;

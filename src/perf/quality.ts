@@ -130,6 +130,15 @@ export interface QualityConfig {
    *  knob (constructing the upgrade at all is the cost), so it "applies on
    *  reload" like those. */
   floraDetail: "none" | "full";
+  /** Ambient particles (visual-overhaul slice 7, polish): `"full"` (medium/
+   *  high) constructs `AmbientMotesSystem` (`src/fx/AmbientMotesSystem.ts`) —
+   *  2 extra `Points` draw calls, ~250 total points, no triangles. `"none"`
+   *  (low) never constructs it: zero extra draw calls, following the exact
+   *  `cloudDetail`/`floraDetail` precedent (a bake-at-mount knob, "applies on
+   *  reload"). Cheap enough that medium and high share the same value — there
+   *  is no cost lever left to differ between them, unlike `shadowMapSize` or
+   *  `ao.qualityMode`. */
+  ambientParticles: "none" | "full";
 }
 
 /**
@@ -161,6 +170,7 @@ export const QUALITY_TIERS: Record<DeviceTier, QualityConfig> = {
     cloudDetail: "none",
     textureAnisotropy: 4,
     floraDetail: "none",
+    ambientParticles: "none",
   },
   medium: {
     tier: "medium",
@@ -178,6 +188,7 @@ export const QUALITY_TIERS: Record<DeviceTier, QualityConfig> = {
     cloudDetail: "full",
     textureAnisotropy: 4,
     floraDetail: "full",
+    ambientParticles: "full",
   },
   high: {
     tier: "high",
@@ -195,6 +206,7 @@ export const QUALITY_TIERS: Record<DeviceTier, QualityConfig> = {
     cloudDetail: "full",
     textureAnisotropy: 8,
     floraDetail: "full",
+    ambientParticles: "full",
   },
 };
 
