@@ -33,15 +33,16 @@ function stubRenderer(): RendererLike {
 describe("buildWorld → boundaries heightAt seam (#116, T8)", () => {
   afterEach(() => buildBoundaries.mockClear());
 
-  it("calls buildBoundaries with (terrain.heightAt, quality.waterDisplacement, quality.waterDetail === \"full\")", () => {
+  it("calls buildBoundaries with (terrain.heightAt, quality.waterDisplacement, quality.waterDetail === \"full\", quality.textureAnisotropy)", () => {
     const engine = new Engine({ renderer: stubRenderer() });
     const world = buildWorld(engine);
 
     expect(buildBoundaries).toHaveBeenCalledTimes(1);
-    const [heightArg, dispArg, detailArg, ...rest] = buildBoundaries.mock.calls[0];
-    // Visual-overhaul slice 4 added a THIRD positional arg (the resolved
-    // ripple-detail flag) alongside the slice-3 pair — still plain function
-    // args, not folded into an options object.
+    const [heightArg, dispArg, detailArg, anisoArg, ...rest] = buildBoundaries.mock.calls[0];
+    // Visual-overhaul slice 4 (review fix) added a FOURTH positional arg (the
+    // resolved texture-anisotropy tier value, shared with terrain.ts's own
+    // wiring) alongside the slice-3/4 trio — still plain function args, not
+    // folded into an options object.
     expect(rest).toHaveLength(0);
     expect(typeof heightArg).toBe("function");
     // The exact function the terrain exposes, not a copy — so the baked
@@ -50,6 +51,7 @@ describe("buildWorld → boundaries heightAt seam (#116, T8)", () => {
     // The default quality is high, which animates the water and gets ripple detail.
     expect(dispArg).toBe(true);
     expect(detailArg).toBe(true);
+    expect(anisoArg).toBe(8);
 
     world.dispose();
     engine.dispose();

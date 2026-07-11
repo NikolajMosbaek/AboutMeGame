@@ -520,6 +520,28 @@ describe("makeWaterPatch — detail variant (visual-overhaul slice 4: ripple nor
     expect(fresnelIdx).toBeGreaterThan(detailNormalIdx);
   });
 
+  it("scales the detail-normal perturbation by faceDirection (DoubleSide back-face mirror)", () => {
+    // The water material is `side: THREE.DoubleSide` (swimming/looking-up-at-
+    // the-surface). Three's `normal_fragment_begin` flips the BASE `normal` by
+    // `faceDirection` under `#ifdef DOUBLE_SIDED` before this block runs; the
+    // ADDED ripple perturbation must mirror that flip too, or the glint stays
+    // sign-locked to the front face while the base normal flips underneath it.
+    const shader = freshShader();
+    makeWaterPatch({ hasFoam: true, uniforms: {}, displacement: true, detail: true }).onBeforeCompile(
+      shader as unknown as THREE.WebGLProgramParametersWithUniforms,
+    );
+    const fs = stripGlslComments(shader.fragmentShader);
+    expect(fs).toMatch(
+      /normal\s*=\s*normalize\s*\(\s*normal\s*\+\s*faceDirection\s*\*\s*\(\s*normalMatrix\s*\*\s*vec3\s*\(\s*-microGrad\.x\s*,\s*0\.0\s*,\s*-microGrad\.y\s*\)\s*\)\s*\)/,
+    );
+    // The patch itself declares NO `faceDirection` — it only references the
+    // variable three's own `normal_fragment_begin` chunk declares (that chunk
+    // is still an un-expanded `#include` token at this string-patching stage,
+    // resolved later by three's real compile step), so this must not
+    // introduce a second, colliding declaration.
+    expect(fs).not.toMatch(/float\s+faceDirection\s*=/);
+  });
+
   it("the detail-tier ramp combines fresnel and depth absorption via max(), replacing the plain ramp", () => {
     const shader = freshShader();
     makeWaterPatch({ hasFoam: true, uniforms: {}, displacement: true, detail: true }).onBeforeCompile(

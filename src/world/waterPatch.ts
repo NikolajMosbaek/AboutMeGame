@@ -234,6 +234,18 @@ export function makeWaterPatch(options: WaterPatchOptions): WaterPatch {
   // the macro wave tilt and the micro ripple slope are small perturbations
   // from +Y by construction (`waveHeight`'s amplitudes, and a normal map's
   // near-flat neutral texel).
+  //
+  // `faceDirection` (three's `normal_fragment_begin`, unconditionally declared
+  // as `gl_FrontFacing ? 1.0 : -1.0` — confirmed against three 0.185's real
+  // source, ahead of any `#ifdef DOUBLE_SIDED` branch — so it is always in
+  // scope here regardless of the compiled variant) scales the perturbation:
+  // the water material is `side: THREE.DoubleSide` (swimming/looking-up-at-
+  // the-surface is a supported view), and that SAME chunk already flips the
+  // base `normal` by `faceDirection` on the back face before this block runs.
+  // Without mirroring the perturbation too, the ripple tilt would keep its
+  // surface-up sign while the base normal flips — pointing the glint away
+  // from where the flipped base normal says it should be. Multiplying the
+  // added term by `faceDirection` keeps the two consistent on both faces.
   const detailNormalBody = wantDetail
     ? "#ifdef HAS_DETAIL\n" +
       "\t\tvec2 rUV1 = rippleUV( vWorldXZ, uTime, RIPPLE_TILE_1, RIPPLE_HEADING_1_COS, RIPPLE_HEADING_1_SIN, RIPPLE_SPEED_1 );\n" +
@@ -243,7 +255,7 @@ export function makeWaterPatch(options: WaterPatchOptions): WaterPatch {
       "\t\tvec2 micro1 = rippleWorldSlope( rTex1.xy, RIPPLE_HEADING_1_COS, RIPPLE_HEADING_1_SIN );\n" +
       "\t\tvec2 micro2 = rippleWorldSlope( rTex2.xy, RIPPLE_HEADING_2_COS, RIPPLE_HEADING_2_SIN );\n" +
       "\t\tvec2 microGrad = ( micro1 + micro2 ) * RIPPLE_NORMAL_STRENGTH;\n" +
-      "\t\tnormal = normalize( normal + normalMatrix * vec3( -microGrad.x, 0.0, -microGrad.y ) );\n" +
+      "\t\tnormal = normalize( normal + faceDirection * ( normalMatrix * vec3( -microGrad.x, 0.0, -microGrad.y ) ) );\n" +
       "#endif\n"
     : "";
 

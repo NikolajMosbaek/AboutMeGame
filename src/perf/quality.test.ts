@@ -50,7 +50,7 @@ describe("resolveQuality", () => {
     expect(med.ao.qualityMode).toBe("Performance");
     // Medium gets full terrain detail (normal maps) at a modest anisotropy.
     expect(med.terrainDetail).toBe("full");
-    expect(med.terrainAnisotropy).toBe(4);
+    expect(med.textureAnisotropy).toBe(4);
     // Medium also gets the water ripple/depth-absorption detail (needs
     // waterDisplacement, which is also on here).
     expect(med.waterDetail).toBe("full");
@@ -69,7 +69,7 @@ describe("resolveQuality", () => {
     expect(high.ao.qualityMode).toBe("Medium");
     // High gets full terrain detail at the sharpest anisotropy.
     expect(high.terrainDetail).toBe("full");
-    expect(high.terrainAnisotropy).toBe(8);
+    expect(high.textureAnisotropy).toBe(8);
     expect(high.waterDetail).toBe("full");
   });
 
@@ -107,8 +107,8 @@ describe("resolveQuality", () => {
     expect(QUALITY_TIERS.low.terrainDetail).toBe("none");
     expect(QUALITY_TIERS.medium.terrainDetail).toBe("full");
     expect(QUALITY_TIERS.high.terrainDetail).toBe("full");
-    expect(order[1].terrainAnisotropy).toBeGreaterThanOrEqual(order[0].terrainAnisotropy);
-    expect(order[2].terrainAnisotropy).toBeGreaterThanOrEqual(order[1].terrainAnisotropy);
+    expect(order[1].textureAnisotropy).toBeGreaterThanOrEqual(order[0].textureAnisotropy);
+    expect(order[2].textureAnisotropy).toBeGreaterThanOrEqual(order[1].textureAnisotropy);
     // Water ripple/depth-absorption detail (visual-overhaul slice 4) is off
     // only at the bottom tier, same shape as terrainDetail.
     expect(QUALITY_TIERS.low.waterDetail).toBe("none");

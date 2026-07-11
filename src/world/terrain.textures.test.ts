@@ -22,7 +22,7 @@ function stubLoader(): { load: TerrainTextureLoader; calls: string[] } {
 describe("buildTerrain — splatWeight geometry attribute", () => {
   it("packs a vec4 splatWeight attribute, one per vertex, summing to ~1", () => {
     const { calls, load } = stubLoader();
-    const terrain = buildTerrain({ terrainDetail: "full", terrainAnisotropy: 4 }, load);
+    const terrain = buildTerrain({ terrainDetail: "full", textureAnisotropy: 4 }, load);
     void calls;
     const geo = terrain.mesh.geometry;
     const splat = geo.getAttribute("splatWeight");
@@ -50,7 +50,7 @@ describe("buildTerrain — splatWeight geometry attribute", () => {
 describe("buildTerrain — material (smooth-shaded, vertex-colour macro tint)", () => {
   it("drops flatShading and keeps vertexColors on", () => {
     const { load } = stubLoader();
-    const terrain = buildTerrain({ terrainDetail: "full", terrainAnisotropy: 4 }, load);
+    const terrain = buildTerrain({ terrainDetail: "full", textureAnisotropy: 4 }, load);
     const mat = terrain.mesh.material as THREE.MeshStandardMaterial;
     expect(mat.flatShading).toBe(false);
     expect(mat.vertexColors).toBe(true);
@@ -59,7 +59,7 @@ describe("buildTerrain — material (smooth-shaded, vertex-colour macro tint)", 
 
   it("renders the vertex-colour fallback the instant buildTerrain returns (no onBeforeCompile yet)", () => {
     const { load } = stubLoader();
-    const terrain = buildTerrain({ terrainDetail: "full", terrainAnisotropy: 4 }, load);
+    const terrain = buildTerrain({ terrainDetail: "full", textureAnisotropy: 4 }, load);
     const mat = terrain.mesh.material as THREE.MeshStandardMaterial;
     // Three's own default no-op, not yet replaced by the splat patch.
     expect(mat.onBeforeCompile).toBe(THREE.Material.prototype.onBeforeCompile);
@@ -70,7 +70,7 @@ describe("buildTerrain — material (smooth-shaded, vertex-colour macro tint)", 
 describe("buildTerrain — no terrain textures on the low tier (terrainDetail: \"none\")", () => {
   it("never fetches any texture and leaves the material untouched", async () => {
     const { load, calls } = stubLoader();
-    const terrain = buildTerrain({ terrainDetail: "none", terrainAnisotropy: 4 }, load);
+    const terrain = buildTerrain({ terrainDetail: "none", textureAnisotropy: 4 }, load);
     const mat = terrain.mesh.material as THREE.MeshStandardMaterial;
     const beforeCompile = mat.onBeforeCompile;
 
@@ -88,7 +88,7 @@ describe("buildTerrain — no terrain textures on the low tier (terrainDetail: \
 describe("buildTerrain — async texture attach (upgrade in place)", () => {
   it("loads 4 albedo + 4 normal textures on the full tier, tagging normals NoColorSpace and setting anisotropy/repeat wrap", async () => {
     const { load, calls } = stubLoader();
-    const terrain = buildTerrain({ terrainDetail: "full", terrainAnisotropy: 8 }, load);
+    const terrain = buildTerrain({ terrainDetail: "full", textureAnisotropy: 8 }, load);
 
     await terrain.texturesReady;
 
@@ -131,7 +131,7 @@ describe("buildTerrain — async texture attach (upgrade in place)", () => {
       return tex;
     };
 
-    const terrain = buildTerrain({ terrainDetail: "full", terrainAnisotropy: 4 }, load);
+    const terrain = buildTerrain({ terrainDetail: "full", textureAnisotropy: 4 }, load);
     const mat = terrain.mesh.material as THREE.MeshStandardMaterial;
     const beforeCompile = mat.onBeforeCompile;
 
@@ -157,7 +157,7 @@ describe("buildTerrain — async texture attach (upgrade in place)", () => {
       return tex;
     };
 
-    const terrain = buildTerrain({ terrainDetail: "full", terrainAnisotropy: 4 }, load);
+    const terrain = buildTerrain({ terrainDetail: "full", textureAnisotropy: 4 }, load);
     await terrain.texturesReady;
 
     expect(loaded).toHaveLength(8); // 4 albedo + 4 normal, attached (not disposed yet)
@@ -175,7 +175,7 @@ describe("buildTerrain — async texture attach (upgrade in place)", () => {
     const load: TerrainTextureLoader = async () => {
       throw new Error("404");
     };
-    const terrain = buildTerrain({ terrainDetail: "full", terrainAnisotropy: 4 }, load);
+    const terrain = buildTerrain({ terrainDetail: "full", textureAnisotropy: 4 }, load);
     const mat = terrain.mesh.material as THREE.MeshStandardMaterial;
     const beforeCompile = mat.onBeforeCompile;
 

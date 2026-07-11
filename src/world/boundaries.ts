@@ -115,11 +115,19 @@ export interface Boundaries {
  * EITHER way the water stays exactly one geometry / one mesh / ONE draw call at
  * `seaLevel - 0.05`, the triangle count is fixed at mount and far under the 500k
  * budget, and the bounds maths is unchanged.
+ *
+ * `anisotropy` (defaults 8, the high-tier value) sets the ripple-normal
+ * texture's `tex.anisotropy` once it attaches — the water is viewed at grazing
+ * angles almost the entire session (swimming, the follow camera skimming the
+ * shore), the worst case for the aniso=1 default (shimmer/blur), so this
+ * mirrors `terrain.ts`'s `quality.textureAnisotropy` exactly (same shared
+ * quality knob, not a per-feature duplicate). Only reached when `detail` is on.
  */
 export function buildBoundaries(
   heightAt?: (x: number, z: number) => number,
   displacement = true,
   detail = false,
+  anisotropy = 8,
   loadWaterTexture: WaterTextureLoader = loadTexture,
 ): Boundaries {
   const group = new THREE.Group();
@@ -222,7 +230,16 @@ export function buildBoundaries(
   // explicit-texture-dispose convention `terrain.ts`/`props.ts` follow.
   const attachedTextures: THREE.Texture[] = [];
   const texturesReady = wantDetail
-    ? attachWaterDetail(waterMat, uniforms, hasFoam, displacement, loadWaterTexture, () => disposed, attachedTextures)
+    ? attachWaterDetail(
+        waterMat,
+        uniforms,
+        hasFoam,
+        displacement,
+        anisotropy,
+        loadWaterTexture,
+        () => disposed,
+        attachedTextures,
+      )
     : Promise.resolve();
 
   return {
@@ -260,6 +277,7 @@ function attachWaterDetail(
   baseUniforms: Record<string, { value: unknown }>,
   hasFoam: boolean,
   displacement: boolean,
+  anisotropy: number,
   loadWaterTexture: WaterTextureLoader,
   isDisposed: () => boolean,
   outAttachedTextures: THREE.Texture[],
@@ -272,6 +290,10 @@ function attachWaterDetail(
       }
 
       tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+      // Grazing-angle viewing (swimming, the shoreline skim) is the worst case
+      // for the aniso=1 default — mirrors terrain.ts's `quality.textureAnisotropy`
+      // wiring (terrain.ts:286,292) so water gets the same filtering floor.
+      tex.anisotropy = anisotropy;
       // Normal-map data is NOT perceptual colour — never sRGB-decode it
       // (mirrors terrain.ts's normal-map override of loadTexture's default).
       tex.colorSpace = THREE.NoColorSpace;

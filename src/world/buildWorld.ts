@@ -88,6 +88,7 @@ export function buildWorld(
     terrain.heightAt,
     quality.waterDisplacement,
     quality.waterDetail === "full",
+    quality.textureAnisotropy,
   );
   scene.add(boundaries.group);
 

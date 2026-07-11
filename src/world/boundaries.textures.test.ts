@@ -32,7 +32,7 @@ function waterMesh(group: THREE.Group): THREE.Mesh {
 describe("buildBoundaries — detail off (default): no fetch, base look untouched", () => {
   it("never fetches the ripple texture and resolves texturesReady immediately", async () => {
     const { load, calls } = stubLoader();
-    const b = buildBoundaries(stubHeightAt, true, false, load);
+    const b = buildBoundaries(stubHeightAt, true, false, 4, load);
     const mat = waterMesh(b.group).material as THREE.MeshStandardMaterial;
     const beforeCompile = mat.onBeforeCompile;
 
@@ -46,8 +46,8 @@ describe("buildBoundaries — detail off (default): no fetch, base look untouche
 
   it("also never fetches when detail:true but heightAt/displacement are absent (defensive AND-gate)", async () => {
     const { load, calls } = stubLoader();
-    const noHeight = buildBoundaries(undefined, true, true, load);
-    const noDisplacement = buildBoundaries(stubHeightAt, false, true, load);
+    const noHeight = buildBoundaries(undefined, true, true, 4, load);
+    const noDisplacement = buildBoundaries(stubHeightAt, false, true, 4, load);
     await Promise.all([noHeight.texturesReady, noDisplacement.texturesReady]);
     expect(calls).toHaveLength(0);
     noHeight.dispose();
@@ -58,7 +58,7 @@ describe("buildBoundaries — detail off (default): no fetch, base look untouche
 describe("buildBoundaries — detail on: async ripple-texture attach (upgrade in place)", () => {
   it("renders the base look the instant buildBoundaries returns (no onBeforeCompile swap yet)", () => {
     const { load } = stubLoader();
-    const b = buildBoundaries(stubHeightAt, true, true, load);
+    const b = buildBoundaries(stubHeightAt, true, true, 4, load);
     const mat = waterMesh(b.group).material as THREE.MeshStandardMaterial;
     // Roughness is set eagerly (a plain scalar, no recompile needed)...
     expect(mat.roughness).toBe(WATER_ROUGHNESS_DETAIL);
@@ -69,7 +69,7 @@ describe("buildBoundaries — detail on: async ripple-texture attach (upgrade in
 
   it("fetches exactly the ripple-normal path and upgrades the patch once it attaches", async () => {
     const { load, calls } = stubLoader();
-    const b = buildBoundaries(stubHeightAt, true, true, load);
+    const b = buildBoundaries(stubHeightAt, true, true, 8, load);
     const mat = waterMesh(b.group).material as THREE.MeshStandardMaterial;
 
     await b.texturesReady;
@@ -90,6 +90,10 @@ describe("buildBoundaries — detail on: async ripple-texture attach (upgrade in
     expect(normalTex.wrapS).toBe(THREE.RepeatWrapping);
     expect(normalTex.wrapT).toBe(THREE.RepeatWrapping);
     expect(normalTex.colorSpace).toBe(THREE.NoColorSpace);
+    // Grazing-angle viewing (swimming, the shoreline skim) is the worst case
+    // for the aniso=1 default — pinned exactly like
+    // terrain.textures.test.ts:116-118 pins the terrain splat textures'.
+    expect(normalTex.anisotropy).toBe(8);
     // The SAME uTime object the live WaterSystem holds is still wired through
     // the upgraded patch (no second clock).
     expect(shader.uniforms.uTime).toBe(b.waterUniforms!.uTime);
@@ -108,7 +112,7 @@ describe("buildBoundaries — detail on: async ripple-texture attach (upgrade in
       return tex;
     };
 
-    const b = buildBoundaries(stubHeightAt, true, true, load);
+    const b = buildBoundaries(stubHeightAt, true, true, 4, load);
     const mat = waterMesh(b.group).material as THREE.MeshStandardMaterial;
     const beforeCompile = mat.onBeforeCompile;
 
@@ -129,7 +133,7 @@ describe("buildBoundaries — detail on: async ripple-texture attach (upgrade in
       return tex;
     };
 
-    const b = buildBoundaries(stubHeightAt, true, true, load);
+    const b = buildBoundaries(stubHeightAt, true, true, 4, load);
     await b.texturesReady;
     expect(loaded).toHaveLength(1);
     const spy = vi.spyOn(loaded[0], "dispose");
@@ -144,7 +148,7 @@ describe("buildBoundaries — detail on: async ripple-texture attach (upgrade in
     const load: WaterTextureLoader = async () => {
       throw new Error("404");
     };
-    const b = buildBoundaries(stubHeightAt, true, true, load);
+    const b = buildBoundaries(stubHeightAt, true, true, 4, load);
     const mat = waterMesh(b.group).material as THREE.MeshStandardMaterial;
     const beforeCompile = mat.onBeforeCompile;
 

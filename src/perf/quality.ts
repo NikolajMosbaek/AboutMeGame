@@ -97,12 +97,16 @@ export interface QualityConfig {
    *  `waterDisplacement` to also be on (`boundaries.ts`/`waterPatch.ts` AND
    *  the two together defensively); every tier that has one has the other. */
   waterDetail: "none" | "full";
-  /** Anisotropic filtering level for the terrain's 4 splat textures (both
-   *  albedo and, on `"full"`, normal maps) — a cheap fill-rate knob (three
-   *  clamps it to the device's real max at bind time, so requesting more than
-   *  the GPU supports is always safe). 4 on low/medium, 8 on high where the
-   *  extra samples are affordable. */
-  terrainAnisotropy: number;
+  /** Anisotropic filtering level for every repeating-UV surface texture: the
+   *  terrain's 4 splat textures (both albedo and, on `"full"`, normal maps)
+   *  AND the water's ripple-normal detail map (visual-overhaul slice 4) — a
+   *  cheap fill-rate knob (three clamps it to the device's real max at bind
+   *  time, so requesting more than the GPU supports is always safe). Shared
+   *  across both features rather than duplicated per-feature: the terrain and
+   *  water grazing-angle viewing geometry both want the SAME filtering floor,
+   *  so one tier value serves both. 4 on low/medium, 8 on high where the extra
+   *  samples are affordable. */
+  textureAnisotropy: number;
 }
 
 /**
@@ -131,7 +135,7 @@ export const QUALITY_TIERS: Record<DeviceTier, QualityConfig> = {
     ao: { ...AO_LOOK, qualityMode: "Performance", halfRes: true },
     terrainDetail: "none",
     waterDetail: "none",
-    terrainAnisotropy: 4,
+    textureAnisotropy: 4,
   },
   medium: {
     tier: "medium",
@@ -146,7 +150,7 @@ export const QUALITY_TIERS: Record<DeviceTier, QualityConfig> = {
     ao: { ...AO_LOOK, qualityMode: "Performance", halfRes: true },
     terrainDetail: "full",
     waterDetail: "full",
-    terrainAnisotropy: 4,
+    textureAnisotropy: 4,
   },
   high: {
     tier: "high",
@@ -161,7 +165,7 @@ export const QUALITY_TIERS: Record<DeviceTier, QualityConfig> = {
     ao: { ...AO_LOOK, qualityMode: "Medium", halfRes: true },
     terrainDetail: "full",
     waterDetail: "full",
-    terrainAnisotropy: 8,
+    textureAnisotropy: 8,
   },
 };
 
