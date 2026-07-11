@@ -73,13 +73,17 @@ function modelUrl(name: string): string {
 }
 
 /** Load one processed GLB and extract its single merged, vertex-coloured
- *  geometry via `floraGlb.ts`'s minimal parser (NOT `assets.ts`'s
- *  `loadModel`/`GLTFLoader` seam — that module's own header doc records the
- *  measured byte-budget finding that motivated the swap). The geometry comes
- *  back already in the SAME local convention `props.ts`'s procedural geometry
- *  uses (base at local origin, scaled to this world's units — baked at
- *  process time, `scripts/process-models.mjs`), so no runtime scale fudge
- *  factor is needed at the instancing call site. */
+ *  geometry via `floraGlb.ts`'s minimal parser (NOT the general glTF loader —
+ *  `assets.ts`'s own header doc records the measured byte-budget finding that
+ *  motivated the swap, and the general `loadModel`/`GLTFLoader` seam has since
+ *  been deleted as dead code). Every call re-fetches independently — never
+ *  cached by URL (`floraGlb.ts`'s own header doc: a replay-fragility finding),
+ *  so a second `upgradeFlora` mount after `exitToTitle` → `playing` never
+ *  receives a geometry the first mount's teardown already disposed. The
+ *  geometry comes back already in the SAME local convention `props.ts`'s
+ *  procedural geometry uses (base at local origin, scaled to this world's
+ *  units — baked at process time, `scripts/process-models.mjs`), so no
+ *  runtime scale fudge factor is needed at the instancing call site. */
 export const loadGeometry: GeometryLoader = async (name) => {
   const geometry = await loadFloraGlb(modelUrl(name));
   geometry.computeBoundingBox();
@@ -209,18 +213,68 @@ export function upgradeFlora(
 
   (async () => {
     try {
-      const [canopy, palm, understory, rock] = await Promise.all([
-        Promise.all(CANOPY_MODELS.map(load)),
-        Promise.all(PALM_MODELS.map(load)),
-        Promise.all(UNDERSTORY_MODELS.map(load)),
-        Promise.all(ROCK_MODELS.map(load)),
+      // `Promise.allSettled` at BOTH levels (per-category AND per-variant
+      // within a category), NOT `Promise.all` — a plain `Promise.all`
+      // rejecting the instant any ONE model rejects (one 404s, say) silently
+      // drops every fulfilled sibling's value, including siblings WITHIN the
+      // same category's own `Promise.all` (e.g. `canopy-a` resolves fine
+      // while `canopy-b` 404s: the category-level `Promise.all` itself
+      // rejects, discarding `canopy-a`'s already-parsed geometry too) — and
+      // nothing ever called `.dispose()` on those real `THREE.BufferGeometry`
+      // instances (code-review finding 5). Settling every category AND every
+      // variant lets this sweep every fulfilled geometry, at any depth,
+      // before aborting — matching the existing "log once, keep the
+      // procedural props forever" fallback contract exactly; only the
+      // disposal path is new.
+      const perCategory = await Promise.all([
+        Promise.allSettled(CANOPY_MODELS.map(load)),
+        Promise.allSettled(PALM_MODELS.map(load)),
+        Promise.allSettled(UNDERSTORY_MODELS.map(load)),
+        Promise.allSettled(ROCK_MODELS.map(load)),
       ]);
+      const settled = perCategory.flat();
+
+      const firstRejection = settled.find(
+        (r): r is PromiseRejectedResult => r.status === "rejected",
+      );
+      if (firstRejection) {
+        for (const r of settled) {
+          if (r.status === "fulfilled") r.value.geometry.dispose();
+        }
+        throw firstRejection.reason;
+      }
+
+      const [canopy, palm, understory, rock] = perCategory.map((category) =>
+        category.map((r) => (r as PromiseFulfilledResult<LoadedVariant>).value),
+      );
 
       if (cancelled) {
         for (const v of [...canopy, ...palm, ...understory, ...rock]) v.geometry.dispose();
         return;
       }
 
+      // DELIBERATE shadow-convention change, canopy/palm ONLY (code-review
+      // finding 2). `props.ts`'s pre-slice-6 convention (#5) was
+      // "only solid trunk/rock geometry casts — the thin foliage crosses
+      // don't, at real fill-rate cost for little gain" — `canopyCross`/
+      // `palmFronds` were `castShadow: false` there. Each model-backed
+      // category here is `scripts/process-models.mjs`'s ONE merged mesh
+      // (trunk fused with its canopy/frond crown into a single primitive),
+      // so there is exactly one `castShadow` flag per category, not a
+      // separate trunk/foliage pair to split — `castShadow: true` on
+      // canopy/palm therefore now ALSO casts the foliage silhouette, not just
+      // the trunk. This is an intentional visual upgrade, not an accidental
+      // carry-over: real low-poly canopy/frond geometry casting dappled,
+      // broken light through the jungle canopy is a deliberate part of this
+      // slice's look (the flat foliage-cross alpha cutout `props.ts` shipped
+      // was never going to cast a convincing shadow anyway, which is WHY that
+      // convention existed pre-slice-6 — a real merged canopy mesh doesn't
+      // have that problem). Understory/rock below are UNCHANGED from the
+      // `props.ts` convention: understory stays non-casting (still thin,
+      // still short — the pre-slice-6 reasoning still applies at its scale),
+      // rock stays casting (solid geometry, always did). The measured shadow-
+      // pass fps/frame-time cost of this canopy/palm flip is recorded in
+      // `docs/perf-budget.md`'s slice-6 section.
       const disposers: Disposable[] = [];
       disposers.push(
         swapCategory(

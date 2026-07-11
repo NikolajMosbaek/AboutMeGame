@@ -1,6 +1,6 @@
 import type * as THREE from "three";
 import { glslFloat } from "./glslFormat.ts";
-import { WIND_SPEED } from "./windSway.ts";
+import { WIND_BEND_EXPONENT, WIND_HASH_SCALE, WIND_HASH_X, WIND_HASH_Z, WIND_SPEED } from "./windSway.ts";
 
 // The `onBeforeCompile` GLSL patch for foliage-bearing flora materials
 // (visual-overhaul slice 6) — the SAME idiom as `waterPatch.ts`: it patches the
@@ -57,19 +57,29 @@ const VERTEX_ANCHOR = "#include <begin_vertex>";
 export function makeWindPatch(options: WindPatchOptions): WindPatch {
   const { maxHeight, strength, uniforms } = options;
 
+  // Every constant shared with `windSway.ts`'s pure reference math (hash
+  // multipliers, the per-instance hash scale, the height-ramp bend exponent —
+  // WIND_SPEED already was) is baked here from that module's exports, never
+  // hand-typed a second time — a tuning edit to any of them propagates to
+  // this shader for free (the `waterPatch.ts`/`waterSurface.ts` ripple-
+  // constant discipline).
   const decl =
     "uniform float uTime;\n" +
     `const float WIND_SPEED = ${glslFloat(WIND_SPEED)};\n` +
     `const float WIND_MAX_HEIGHT = ${glslFloat(maxHeight)};\n` +
-    `const float WIND_STRENGTH = ${glslFloat(strength)};\n`;
+    `const float WIND_STRENGTH = ${glslFloat(strength)};\n` +
+    `const float WIND_HASH_X = ${glslFloat(WIND_HASH_X)};\n` +
+    `const float WIND_HASH_Z = ${glslFloat(WIND_HASH_Z)};\n` +
+    `const float WIND_HASH_SCALE = ${glslFloat(WIND_HASH_SCALE)};\n` +
+    `const float WIND_BEND_EXPONENT = ${glslFloat(WIND_BEND_EXPONENT)};\n`;
 
   const body =
     "#ifdef USE_INSTANCING\n" +
     "\t{\n" +
     "\t\tfloat windHeight01 = clamp( position.y / WIND_MAX_HEIGHT, 0.0, 1.0 );\n" +
-    "\t\tfloat windHash = sin( instanceMatrix[3].x * 12.9898 + instanceMatrix[3].z * 78.233 ) * 43758.5453;\n" +
+    "\t\tfloat windHash = sin( instanceMatrix[3].x * WIND_HASH_X + instanceMatrix[3].z * WIND_HASH_Z ) * WIND_HASH_SCALE;\n" +
     "\t\tfloat windPhase = fract( windHash ) * 6.28318530718;\n" +
-    "\t\tfloat windBend = sin( uTime * WIND_SPEED + windPhase ) * WIND_STRENGTH * windHeight01 * windHeight01;\n" +
+    "\t\tfloat windBend = sin( uTime * WIND_SPEED + windPhase ) * WIND_STRENGTH * pow( windHeight01, WIND_BEND_EXPONENT );\n" +
     "\t\ttransformed.x += windBend;\n" +
     "\t}\n" +
     "#endif\n";

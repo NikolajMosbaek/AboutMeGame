@@ -177,6 +177,39 @@ describe("upgradeFlora", () => {
     expect(group.getObjectByName("grass")).toBeDefined();
   });
 
+  it("keeps the INTENDED castShadow convention: canopy/palm cast (deliberate dappled-light upgrade), understory doesn't, rock still does (code-review finding 2)", async () => {
+    const group = buildFakeProps();
+    const windUniforms: WindUniforms = { uTime: { value: 0 } };
+    upgradeFlora(group, terrain, 1, windUniforms, fakeLoad);
+
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+
+    const meshesByPrefix = (prefix: string) =>
+      group.children.filter(
+        (c): c is THREE.InstancedMesh => c instanceof THREE.InstancedMesh && c.name.startsWith(prefix),
+      );
+
+    const canopyMeshes = meshesByPrefix("canopy-model-");
+    const palmMeshes = meshesByPrefix("palm-model-");
+    const understoryMeshes = meshesByPrefix("understory-model-");
+    const rockMeshes = meshesByPrefix("rock-model-");
+    expect(canopyMeshes.length).toBeGreaterThan(0);
+    expect(palmMeshes.length).toBeGreaterThan(0);
+    expect(understoryMeshes.length).toBeGreaterThan(0);
+    expect(rockMeshes.length).toBeGreaterThan(0);
+
+    // DELIBERATE change from `props.ts`'s pre-slice-6 convention (a merged
+    // single mesh, real canopy/frond geometry casting dappled light — see the
+    // `swapCategory` call sites' comment in `floraUpgrade.ts`).
+    for (const m of canopyMeshes) expect(m.castShadow).toBe(true);
+    for (const m of palmMeshes) expect(m.castShadow).toBe(true);
+    // UNCHANGED from `props.ts`: understory stays thin/non-casting, rock
+    // stays solid/casting.
+    for (const m of understoryMeshes) expect(m.castShadow).toBe(false);
+    for (const m of rockMeshes) expect(m.castShadow).toBe(true);
+  });
+
   it("dispose() before the load resolves cancels the swap (procedural props survive)", async () => {
     const group = buildFakeProps();
     const windUniforms: WindUniforms = { uTime: { value: 0 } };
@@ -208,6 +241,42 @@ describe("upgradeFlora", () => {
     expect(group.getObjectByName("canopy-trunk")).toBeDefined();
     expect(group.getObjectByName("grass")).toBeUndefined();
     expect(spy).toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  it("disposes every already-loaded geometry when one category fails partway through (no leak, code-review finding 5)", async () => {
+    // rock-b rejects; canopy/palm/understory (whole categories) AND rock-a
+    // (the sibling variant inside rock's own Promise.all) all finish loading
+    // successfully first. Before the fix, Promise.all's own semantics would
+    // discard every one of those fulfilled results the instant rock's group
+    // rejected — none of their real THREE.BufferGeometry instances was ever
+    // disposed. This pins the sweep that now disposes all of them.
+    const group = buildFakeProps();
+    const windUniforms: WindUniforms = { uTime: { value: 0 } };
+    const disposeSpies: ReturnType<typeof vi.spyOn>[] = [];
+    const trackingLoad: GeometryLoader = async (name) => {
+      if (name === "rock-b") throw new Error("network error");
+      const variant = await fakeLoad(name);
+      disposeSpies.push(vi.spyOn(variant.geometry, "dispose"));
+      return variant;
+    };
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    upgradeFlora(group, terrain, 1, windUniforms, trackingLoad);
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+
+    // Aborted upgrade: procedural props survive, the log-once fallback holds.
+    expect(group.getObjectByName("rocks")).toBeDefined();
+    expect(group.getObjectByName("grass")).toBeUndefined();
+    expect(spy).toHaveBeenCalled();
+
+    // Every category/variant that DID resolve before the rejection (canopy
+    // x2, palm x1, understory x2, rock-a x1 — 6 geometries) had its geometry
+    // disposed rather than silently leaked.
+    expect(disposeSpies.length).toBe(6);
+    for (const d of disposeSpies) expect(d).toHaveBeenCalledTimes(1);
+
     spy.mockRestore();
   });
 });

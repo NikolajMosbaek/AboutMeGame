@@ -16,6 +16,21 @@
  *  breeze, not a violent gale). */
 export const WIND_SPEED = 1.7;
 
+// --- Per-instance hash constants ({@link windPhase}'s "hash11" trick) ---
+// `windPatch.ts` transcribes these as GLSL `const float`s (never a second
+// hand-typed literal) so a tuning edit here propagates to the shader for free
+// — the `waterSurface.ts`/`waterPatch.ts` ripple-constant discipline.
+export const WIND_HASH_X = 12.9898;
+export const WIND_HASH_Z = 78.233;
+export const WIND_HASH_SCALE = 43758.5453;
+
+/** {@link windOffset}'s height-ramp exponent — 2 (squared) makes the sway
+ *  gentle near an instance's local origin and pronounced near its tallest
+ *  point, per this module's header doc. Exported (not an inline `h * h`) so
+ *  `windPatch.ts`'s GLSL `pow(windHeight01, WIND_BEND_EXPONENT)` transcribes
+ *  the SAME number rather than re-deriving "squared" as a separate literal. */
+export const WIND_BEND_EXPONENT = 2;
+
 // --- Time wrap (float32 precision guard, the WaterSystem/StarfieldSystem
 // precedent) — a single sine term closes on a WHOLE cycle after exactly
 // `2π / WIND_SPEED` time units, so wrapping the live accumulator modulo that
@@ -31,7 +46,7 @@ export const WIND_WRAP_PERIOD = (2 * Math.PI) / WIND_SPEED;
  * `[0, 2π)`.
  */
 export function windPhase(worldX: number, worldZ: number): number {
-  const h = Math.sin(worldX * 12.9898 + worldZ * 78.233) * 43758.5453;
+  const h = Math.sin(worldX * WIND_HASH_X + worldZ * WIND_HASH_Z) * WIND_HASH_SCALE;
   const frac = h - Math.floor(h);
   return frac * Math.PI * 2;
 }
@@ -50,5 +65,5 @@ export function windPhase(worldX: number, worldZ: number): number {
  */
 export function windOffset(height01: number, time: number, phase: number, strength: number): number {
   const h = height01 < 0 ? 0 : height01 > 1 ? 1 : height01;
-  return Math.sin(time * WIND_SPEED + phase) * strength * h * h;
+  return Math.sin(time * WIND_SPEED + phase) * strength * Math.pow(h, WIND_BEND_EXPONENT);
 }

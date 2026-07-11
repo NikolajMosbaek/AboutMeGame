@@ -224,26 +224,25 @@ export function parseFloraGlb(buffer: ArrayBuffer): THREE.BufferGeometry {
   return geometry;
 }
 
-const geometryCache = new Map<string, Promise<THREE.BufferGeometry>>();
-
-/** Fetch + parse one flora GLB, cached by URL (the `assets.ts` `loadTexture`/
- *  `loadModel` convention: repeated calls for the same path share one in-
- *  flight load). A plain `fetch`, not `assets.ts`'s `loadModel`/`GLTFLoader`
- *  seam — see this module's header doc for why. */
+/**
+ * Fetch + parse one flora GLB — NOT cached by URL (a deliberate departure from
+ * the `assets.ts` `loadTexture` convention, a visual-overhaul slice 6 code-
+ * review finding). `App.tsx` allows title → playing → exitToTitle → playing
+ * without a page reload, and each `playing` mount's `floraUpgrade.ts` calls
+ * `dispose()` on its swapped-in geometries when torn down; a module-level
+ * cache keyed by URL would have handed the SECOND world's `upgradeFlora` call
+ * the exact same (already-disposed) `THREE.BufferGeometry` instances the first
+ * world's teardown just freed — a real replay hazard, not a hypothetical one.
+ * Every call here re-fetches and re-parses, which is correct (each caller gets
+ * its own independent geometry to dispose of on its own teardown) and cheap
+ * (the browser's own HTTP cache serves the repeat network request; the models
+ * are a few hundred vertices each). A plain `fetch`, not `assets.ts`'s
+ * (removed) `loadModel`/`GLTFLoader` seam — see this module's header doc for
+ * why.
+ */
 export function loadFloraGlb(url: string): Promise<THREE.BufferGeometry> {
-  let pending = geometryCache.get(url);
-  if (!pending) {
-    pending = fetch(url).then(async (res) => {
-      if (!res.ok) throw new Error(`flora model fetch failed (${res.status}): ${url}`);
-      return parseFloraGlb(await res.arrayBuffer());
-    });
-    geometryCache.set(url, pending);
-  }
-  return pending;
-}
-
-/** Test/teardown hook: drop cached loads so a fresh load is forced (the
- *  `assets.ts` `clearAssetCache` convention). */
-export function clearFloraGlbCache(): void {
-  geometryCache.clear();
+  return fetch(url).then(async (res) => {
+    if (!res.ok) throw new Error(`flora model fetch failed (${res.status}): ${url}`);
+    return parseFloraGlb(await res.arrayBuffer());
+  });
 }

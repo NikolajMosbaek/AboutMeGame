@@ -567,10 +567,19 @@ node's compensating scale/translation (the "quantization volume" the spec
 pairs with any normalized-integer accessor) — referencing nothing outside
 `THREE.BufferGeometry`/`BufferAttribute`, both already eager everywhere in
 this codebase, so it adds ZERO bytes to the `three` chunk. `assets.ts`'s
-`loadModel`/`GLTFLoader` seam is kept (unused by this slice, but still a real
-general utility for a future caller) — DYNAMICALLY imported now instead of a
-static top-level import, so a future caller pays this same eager-chunk cost
-only if THEY actually invoke it, not merely by the seam existing.
+`loadModel`/`GLTFLoader` seam was DYNAMICALLY imported (not a static top-level
+import) at the time of this measurement, so a future caller would only have
+paid this eager-chunk cost if they actually invoked it.
+
+**Code review (post-merge):** `loadModel`/`gltfLoader` had zero callers even
+before this slice — `grep` confirmed it, and the constitution's "delete an
+uncalled fallback once grep confirms no caller" rule applied, so it was
+deleted from `assets.ts` entirely (`docs/asset-pipeline.md` updated). The
+measured finding above (GLTFLoader's real, +11.7 KB gz eager-chunk cost) is
+unaffected and stays the record of *why* `floraGlb.ts`'s custom parser exists;
+only the now-provably-dead "kept for a future caller" seam is gone. A general
+glTF loader is a small, well-understood re-addition behind the same dynamic-
+import idiom whenever a real caller needs it.
 
 *A real bug caught mid-build, load-bearing for anyone re-deriving this
 approach.* Applying the node's compensating scale (> 1, since it un-shrinks
@@ -608,9 +617,86 @@ quantizes.
 whole curved-trunk-plus-frond-crown model merges into one draw call now),
 understory 2 (was 1 — two model variants), rock 2 (was 1), plus the new grass
 layer (+1) — **net +2** against the pre-slice 6 draw calls, comfortably inside
-the design's `≤12 new` budget. A real `render_game_to_text` sample measured 28
-draw calls / 156,838 triangles / 35 fps on software GL (the render-gate's own
-low-tier stand-in) — comfortably inside the 500k triangle budget.
+the design's `≤12 new` budget.
+
+**Code review correction (post-merge) — the 28 draws / 156,838 triangles / 35
+fps figure above was a LOW-tier sample, not a slice-6 measurement.** Low never
+sets `floraDetail: "full"` (`QUALITY_TIERS.low.floraDetail === "none"`), so
+that sample structurally EXCLUDES every model this slice ships — it was the
+pre-slice-6 procedural props, on software GL, measured as a baseline before
+this slice's own content ever loaded. It is corrected below with real
+medium/high measurements, on a REAL GPU, of the scene this slice actually
+adds.
+
+*Real per-tier measurement (2026-07-11, code review).* `npm run build` +
+`npm run preview`, headless Chromium with a REAL GPU
+(`--use-gl=angle --use-angle=metal`, this build machine's Apple GPU — NOT the
+render-gate's SwiftShader software stand-in), `aboutmegame.settings.v1` set via
+`page.addInitScript` before load (`quality: "high"` forces high; `quality:
+"low"` forces low; medium was reached via `quality: "auto"` with
+`navigator.hardwareConcurrency`/`deviceMemory` spoofed to 4 so `detectTier`
+lands on `"medium"` — `resolveQuality` only lets a player setting force
+`"low"`/`"high"` directly, `"medium"` is auto-detected-only). `Engine`'s
+`render_game_to_text` reads three's `renderer.info`, which the medium/high
+`EffectComposer` (bloom, N8AO) RESETS on every internal `renderer.render()`
+call — the LAST one being the final full-screen-triangle output pass — so on
+any compositor tier that field reads a constant, useless "1 draw / 1 triangle"
+(the output pass, not the scene). Measured instead by instrumenting the raw
+WebGL2 `drawArrays`/`drawElements`/`drawArraysInstanced`/`drawElementsInstanced`
+calls directly (renderer-agnostic, survives any number of composer passes) and
+averaging the totals over a real 2-second window at the camp-vista spawn point
+(instanced meshes span the whole island and are never per-instance frustum
+culled, so the count does not vary by camera position/heading — confirmed by
+re-measuring from a second, jungle-interior vantage: 438,150 avg
+triangles/frame there vs 438,782–447,952 at spawn, within the run-to-run
+measurement noise):
+
+| Tier | `floraDetail` | `propDensity` | Avg draw calls/frame | Avg triangles/frame | % of 500k triangle budget |
+|---|---|---|---|---|---|
+| low | `"none"` (pre-slice-6 props, unchanged) | 0.4 | 28 | 156,837 | 31.4% |
+| medium | `"full"` | 0.7 | 77 | 365,382 | 73.1% |
+| high | `"full"` | 1.0 | 85 | ~442,000 (438,782–447,952 across 3 runs) | ~88.4% |
+
+The low-tier figure (28 draws / 156,837 triangles) matches the prior
+(mislabelled) sample almost exactly, which cross-validates the new
+instrumentation method against the number `renderer.info` itself already
+reports correctly on tiers with no compositor. **Both the medium and high
+tiers stay under the 500k triangle/frame and 150 draw-call/frame budgets**, but
+high tier's headroom is thin — **~58,000 triangles (~11.6% of budget)** — the
+tightest margin any slice has left; the NEXT slice that adds triangles
+(jaguar/wildlife, deferred from this one) must budget against this number, not
+slice 5's. `fps` read ~120 on this real desktop/laptop-class GPU at every
+tier (headless offscreen rendering is not vsync-locked, so this is evidence of
+"no GPU stall on capable hardware", NOT a mobile-equivalent fps figure — the
+render-gate's SwiftShader low-tier sample remains the mobile-floor fps
+stand-in, unchanged by this correction).
+
+*Shadow-pass cost A/B (code review, finding 2 — deliberate foliage-shadow
+convention change).* Same real-GPU method, high tier, same camp-vista point,
+one A/B: canopy/palm `castShadow` shipped (`true`, this slice's dappled-light
+upgrade) vs a temporary local revert to `false` (rebuilt, measured, then
+restored — confirmed the restored build's JS chunk hashes are byte-identical
+to the pre-A/B build, so nothing else changed):
+
+| | Avg draw calls/frame | Avg triangles/frame | fps (10-sample avg) |
+|---|---|---|---|
+| canopy/palm `castShadow: false` | ~84 | ~366,000 (361,977–371,142 across 2 runs) | 120.72 |
+| canopy/palm `castShadow: true` (shipped) | 85 | ~442,000 | 120.52 |
+
+The shadow pass's real cost: **+~1–4 draw calls and +~76,000–86,000 triangles
+per frame** (canopy/palm's foliage geometry rendered a second time into the
+shadow map) — a genuine ~17% bite out of the total triangle budget, not free.
+On this capable real GPU it produced **no measurable fps change** (both landed
+at ~120 fps, within normal run-to-run sample noise) — the desktop-class GPU
+here is nowhere near fill-rate-bound at this scene's cost. This is NOT
+evidence the shadow pass is free on the ≥30 fps mobile floor this budget is
+actually accountable to (`docs/perf-budget.md`'s own header) — mobile GPUs are
+fill-rate constrained in a way this run cannot exercise. The decision to keep
+the shadows on regardless (coordinator call, recorded at the `swapCategory`
+call sites in `floraUpgrade.ts`) is deliberate: real canopy/palm geometry
+casting dappled light is treated as worth the ~17%-of-budget triangle cost,
+and the tier still clears budget with ~58k triangles/frame to spare even
+paying it.
 
 *Wind sway.* One `onBeforeCompile` vertex patch (`src/world/windPatch.ts`, the
 `waterPatch.ts` idiom) shared by every canopy/palm/understory/grass material:
@@ -626,6 +712,20 @@ axis, not a world-consistent wind heading — a documented simplification (a
 `transpose(mat3(instanceMatrix))`); the cheaper version still reads as
 natural, non-uniform swaying since every instance already has a random yaw.
 Reduced motion holds the phase (never resets it), the `WaterSystem` contract.
+
+**Code review (post-merge):** the hash multipliers (`12.9898`/`78.233`/
+`43758.5453`) and the height-ramp bend exponent (squaring) were hand-typed
+literals in BOTH `windSway.ts`'s TS reference math and `windPatch.ts`'s GLSL —
+only `WIND_SPEED` was actually shared, so a future tuning edit to any of the
+others could silently desync the shader from its own documented reference.
+Fixed the same way `waterPatch.ts`/`waterSurface.ts` share every ripple
+constant: `windSway.ts` now exports `WIND_HASH_X`/`WIND_HASH_Z`/
+`WIND_HASH_SCALE`/`WIND_BEND_EXPONENT` too, and `windPatch.ts` bakes all of
+them into the shader as GLSL `const float`s from those exports — no number is
+hand-typed twice anymore. `windPatch.test.ts` pins every constant's GLSL
+literal verbatim against the export (the `waterPatch.test.ts` parity-guard
+pattern) so a future edit to any of them fails a test the instant the shader
+and the TS reference disagree, rather than silently drifting.
 
 *Grass.* `src/world/grass.ts` — one `InstancedMesh` of small tapered crossed
 blade-clusters, vertex-coloured root-to-tip (no texture, no `alphaTest`

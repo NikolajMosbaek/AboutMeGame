@@ -1,8 +1,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import * as THREE from "three";
-import { describe, expect, it } from "vitest";
-import { parseFloraGlb } from "./floraGlb.ts";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { loadFloraGlb, parseFloraGlb } from "./floraGlb.ts";
 
 // `parseFloraGlb` is a minimal, purpose-built GLB parser replacing three's
 // `GLTFLoader` for the flora payload (see `floraGlb.ts`'s own header doc for
@@ -70,5 +70,52 @@ describe("parseFloraGlb — real processed model fixtures", () => {
   it("throws a clear error on a non-GLB buffer rather than silently misparsing", () => {
     const bogus = new TextEncoder().encode("not a glb file at all").buffer;
     expect(() => parseFloraGlb(bogus)).toThrow(/bad magic/i);
+  });
+});
+
+describe("loadFloraGlb — NOT cached by URL (replay-fragility regression, code-review finding 4)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /** A fresh `Response`-like object over the real `rock-a.glb` fixture bytes
+   *  each call — `Response.arrayBuffer()` can only be read once per instance
+   *  (three's own JSON/text bodies behave the same way), so a shared instance
+   *  across two `fetch()` calls would itself hide the very bug this test
+   *  guards against. */
+  function fakeFetch(): Promise<Response> {
+    const bytes = readGlbBuffer("rock-a");
+    return Promise.resolve(new Response(bytes, { status: 200 }));
+  }
+
+  it("returns a DISTINCT geometry instance per call — never the same object twice", async () => {
+    vi.stubGlobal("fetch", vi.fn(fakeFetch));
+
+    const url = "https://example.test/rock-a.glb";
+    const first = await loadFloraGlb(url);
+    const second = await loadFloraGlb(url);
+
+    // Not the same instance: a URL-keyed module cache would fail this.
+    expect(second).not.toBe(first);
+    // Both real, independently-disposable geometries with the expected shape.
+    expect(first.getAttribute("position")).toBeDefined();
+    expect(second.getAttribute("position")).toBeDefined();
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("disposing the FIRST call's geometry leaves the SECOND call's geometry usable", async () => {
+    // The exact replay hazard this regression test pins: title -> playing ->
+    // exitToTitle -> playing (App.tsx) disposes the first world's flora
+    // geometries, then mounts a second world that must get its OWN geometry,
+    // never the disposed one a URL-keyed cache would have handed back.
+    vi.stubGlobal("fetch", vi.fn(fakeFetch));
+
+    const url = "https://example.test/rock-a.glb";
+    const first = await loadFloraGlb(url);
+    first.dispose();
+    const second = await loadFloraGlb(url);
+
+    expect(second).not.toBe(first);
+    expect(() => new THREE.InstancedMesh(second, new THREE.MeshStandardMaterial(), 1)).not.toThrow();
   });
 });
