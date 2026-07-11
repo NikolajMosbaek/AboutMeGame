@@ -43,3 +43,25 @@ normal hashed bundle; `public/` is for the larger, lazily-loaded 3D payload.
    `loadModel("assets/models/car.glb")`.
 3. That's it — no manifest to update. (A typed manifest can be introduced later
    if hand-typed paths become error-prone.)
+
+## Exception: the flora model payload bypasses `loadModel`/`GLTFLoader`
+
+`public/assets/models/flora/*.glb` (visual-overhaul slice 6) is loaded through
+`src/world/floraGlb.ts`'s own minimal GLB parser, NOT rule 2's `loadModel`
+seam — a measured, documented exception, not a silent inconsistency. Three's
+official `GLTFLoader` is a full spec-general loader (animations/skinning/
+morph targets/every extension); reaching for it here cost +13 KB gz of its
+own PLUS +11.7 KB gz on the ALWAYS-eager `three` vendor chunk (it references
+three-core symbols — `Skeleton`/`AnimationClip`/etc — nothing else in this
+codebase uses, so `vite.config.ts`'s `manualChunks` could no longer tree-shake
+them out the moment any caller made `loadModel` "live"), blowing the JS-gzip
+budget (`docs/perf-budget.md`'s slice-6 entry has the full measurement). Since
+`scripts/process-models.mjs`'s own output is fully known and narrow (one
+mesh, one primitive, POSITION/NORMAL/COLOR_0, `KHR_mesh_quantization`, no
+images/materials/animations), a purpose-built parser reads it directly at a
+fraction of the bytes, referencing nothing outside
+`THREE.BufferGeometry`/`BufferAttribute` (already eager everywhere). The
+general `loadModel`/`GLTFLoader` seam in `assets.ts` still exists (now behind
+a dynamic import, so it costs nothing until a caller actually uses it) for any
+FUTURE consumer that genuinely needs full glTF features this narrow parser
+does not support (animations, multiple meshes, textures, materials).
