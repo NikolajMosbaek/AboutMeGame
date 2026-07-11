@@ -71,6 +71,26 @@ export interface QualityConfig {
   envDynamic: boolean;
   /** N8AO ambient-occlusion tuning (medium/high only — see {@link AOQualityConfig}). */
   ao: AOQualityConfig;
+  /** Terrain PBR splat detail (visual-overhaul slice 3): `"full"` (medium/high)
+   *  fetches the 4 albedo + 4 normal ground textures and patches them into the
+   *  terrain's `onBeforeCompile` (`terrainMaterialPatch.ts`) — a mid-boot
+   *  shader recompile plus 8 texture samples/fragment steady-state. `"none"`
+   *  (low) never fetches, never patches, never recompiles: the terrain keeps
+   *  the plain vertex-colour `MeshStandardMaterial` exactly as it renders
+   *  today. This is the render gate's own finding (CI's software-GL/SwiftShader
+   *  runner, the low tier's real ≤2-core-device stand-in, timed out on the
+   *  albedo path's texture fetches + mipmap generation + shader recompile) —
+   *  the low tier's floor is "never slower than today", so it gets no terrain
+   *  textures at all rather than a cheaper one. A bake-at-mount knob (it
+   *  changes `customProgramCacheKey`/skips the fetch entirely), so it applies
+   *  on reload like `shadowMapSize`/`fog`. */
+  terrainDetail: "none" | "full";
+  /** Anisotropic filtering level for the terrain's 4 splat textures (both
+   *  albedo and, on `"full"`, normal maps) — a cheap fill-rate knob (three
+   *  clamps it to the device's real max at bind time, so requesting more than
+   *  the GPU supports is always safe). 4 on low/medium, 8 on high where the
+   *  extra samples are affordable. */
+  terrainAnisotropy: number;
 }
 
 /**
@@ -97,6 +117,8 @@ export const QUALITY_TIERS: Record<DeviceTier, QualityConfig> = {
     // Never reached (no compositor is built on low), kept a valid, sane value.
     envDynamic: false,
     ao: { ...AO_LOOK, qualityMode: "Performance", halfRes: true },
+    terrainDetail: "none",
+    terrainAnisotropy: 4,
   },
   medium: {
     tier: "medium",
@@ -109,6 +131,8 @@ export const QUALITY_TIERS: Record<DeviceTier, QualityConfig> = {
     bloom: true,
     envDynamic: true,
     ao: { ...AO_LOOK, qualityMode: "Performance", halfRes: true },
+    terrainDetail: "full",
+    terrainAnisotropy: 4,
   },
   high: {
     tier: "high",
@@ -121,6 +145,8 @@ export const QUALITY_TIERS: Record<DeviceTier, QualityConfig> = {
     bloom: true,
     envDynamic: true,
     ao: { ...AO_LOOK, qualityMode: "Medium", halfRes: true },
+    terrainDetail: "full",
+    terrainAnisotropy: 8,
   },
 };
 
