@@ -4,16 +4,23 @@ import { fileURLToPath } from "node:url";
 import * as THREE from "three";
 import { describe, expect, it } from "vitest";
 import {
+  DEPTH_ABSORPTION_RATE,
+  FOAM_BREAKUP_STRENGTH,
   FOAM_DEPTH_END,
   FOAM_DEPTH_START,
+  RIPPLE_HEADING_2_COS,
+  RIPPLE_TILE_1,
+  glslFloat,
   waveGlsl,
 } from "./waterSurface.ts";
 import {
   FOAM_COLOR_LINEAR,
+  WATER_DEEP_DETAIL_LINEAR,
   WATER_DEEP_LINEAR,
+  WATER_SHALLOW_DETAIL_LINEAR,
   WATER_SHALLOW_LINEAR,
 } from "./waterUniforms.ts";
-import { FRESNEL_POWER, makeWaterPatch } from "./waterPatch.ts";
+import { FRESNEL_POWER, RIPPLE_NORMAL_STRENGTH, makeWaterPatch } from "./waterPatch.ts";
 
 // T4 — the onBeforeCompile GLSL patch builder for the water `MeshStandard`
 // material (G1 slice 2). It must transliterate `waterSurface.ts` line-for-line:
@@ -440,5 +447,167 @@ describe("makeWaterPatch — uniform wiring", () => {
     expect(shader.uniforms.uWaterDeep).toBe(uniforms.uWaterDeep);
     expect(shader.uniforms.uFoamStart.value).toBe(FOAM_DEPTH_START);
     expect(shader.uniforms.uFoamEnd.value).toBe(FOAM_DEPTH_END);
+  });
+});
+
+describe("makeWaterPatch — detail variant (visual-overhaul slice 4: ripple normal + depth absorption + foam breakup)", () => {
+  it("defensively ANDs detail with hasFoam && displacement — detail:true alone changes NOTHING", () => {
+    // hasFoam:false, displacement:false — an invalid combination in practice
+    // (boundaries.ts never requests it), but the patch must degrade instead
+    // of compiling a dangling `depth`/`uTime` reference.
+    const shader = freshShader();
+    makeWaterPatch({ hasFoam: false, uniforms: {}, detail: true }).onBeforeCompile(
+      shader as unknown as THREE.WebGLProgramParametersWithUniforms,
+    );
+    const fs = stripGlslComments(shader.fragmentShader);
+    expect(fs).not.toMatch(/#define\s+HAS_DETAIL/);
+    expect(fs).not.toContain("uWaterNormal");
+    expect(fs).not.toContain("rippleUV");
+    // Cache key is identical to the plain no-foam/no-displacement key.
+    expect(makeWaterPatch({ hasFoam: false, uniforms: {}, detail: true }).customProgramCacheKey()).toBe(
+      "water-nofoam-v1",
+    );
+  });
+
+  it("hasFoam && displacement && detail: defines HAS_DETAIL and declares the ripple + detail-palette uniforms", () => {
+    const shader = freshShader();
+    makeWaterPatch({ hasFoam: true, uniforms: {}, displacement: true, detail: true }).onBeforeCompile(
+      shader as unknown as THREE.WebGLProgramParametersWithUniforms,
+    );
+    const fs = stripGlslComments(shader.fragmentShader);
+    expect(fs).toMatch(/#define\s+HAS_DETAIL/);
+    expect(fs).toContain("uWaterNormal");
+    expect(fs).toContain("uWaterShallowDetail");
+    expect(fs).toContain("uWaterDeepDetail");
+    // The fragment stage declares its OWN uTime uniform (GLSL uniforms are
+    // per-stage) rather than relying on the vertex stage's declaration.
+    expect(fs).toMatch(/uniform\s+float\s+uTime\s*;/);
+    // Regression guard: `normalMatrix` is part of three's VERTEX-only prefix
+    // (confirmed against a real WebGL compile — the fragment program failed
+    // with "undeclared identifier" before this declaration was added), so the
+    // detail block's own `normalMatrix *` use needs an explicit fragment-side
+    // declaration too.
+    expect(fs).toMatch(/uniform\s+mat3\s+normalMatrix\s*;/);
+  });
+
+  it("emits the ripple/depth-absorption GLSL from the shared waterSurface.ts emitters (no hand-copied math)", () => {
+    const shader = freshShader();
+    makeWaterPatch({ hasFoam: true, uniforms: {}, displacement: true, detail: true }).onBeforeCompile(
+      shader as unknown as THREE.WebGLProgramParametersWithUniforms,
+    );
+    const fs = stripGlslComments(shader.fragmentShader);
+    expect(fs).toMatch(/vec2\s+rippleUV\s*\(/);
+    expect(fs).toMatch(/vec2\s+rippleWorldSlope\s*\(/);
+    expect(fs).toMatch(/float\s+depthAbsorption\s*\(/);
+    // The two ripple samples are actually sampled and combined.
+    expect(fs).toContain("texture2D( uWaterNormal, rUV1 )");
+    expect(fs).toContain("texture2D( uWaterNormal, rUV2 )");
+    // Every art constant is carried BY VALUE from its single-source export.
+    for (const v of [RIPPLE_TILE_1, RIPPLE_HEADING_2_COS, RIPPLE_NORMAL_STRENGTH, FOAM_BREAKUP_STRENGTH, DEPTH_ABSORPTION_RATE]) {
+      expect(fs).toContain(glslFloat(v));
+    }
+  });
+
+  it("reassigns `normal` from the detail block BEFORE fresnel is computed (glints reach the BRDF)", () => {
+    const shader = freshShader();
+    makeWaterPatch({ hasFoam: true, uniforms: {}, displacement: true, detail: true }).onBeforeCompile(
+      shader as unknown as THREE.WebGLProgramParametersWithUniforms,
+    );
+    const fs = stripGlslComments(shader.fragmentShader);
+    const detailNormalIdx = fs.search(/normal\s*=\s*normalize\s*\(\s*normal\s*\+/);
+    const fresnelIdx = fs.search(/float\s+fresnel\s*=\s*pow/);
+    expect(detailNormalIdx).toBeGreaterThanOrEqual(0);
+    expect(fresnelIdx).toBeGreaterThan(detailNormalIdx);
+  });
+
+  it("scales the detail-normal perturbation by faceDirection (DoubleSide back-face mirror)", () => {
+    // The water material is `side: THREE.DoubleSide` (swimming/looking-up-at-
+    // the-surface). Three's `normal_fragment_begin` flips the BASE `normal` by
+    // `faceDirection` under `#ifdef DOUBLE_SIDED` before this block runs; the
+    // ADDED ripple perturbation must mirror that flip too, or the glint stays
+    // sign-locked to the front face while the base normal flips underneath it.
+    const shader = freshShader();
+    makeWaterPatch({ hasFoam: true, uniforms: {}, displacement: true, detail: true }).onBeforeCompile(
+      shader as unknown as THREE.WebGLProgramParametersWithUniforms,
+    );
+    const fs = stripGlslComments(shader.fragmentShader);
+    expect(fs).toMatch(
+      /normal\s*=\s*normalize\s*\(\s*normal\s*\+\s*faceDirection\s*\*\s*\(\s*normalMatrix\s*\*\s*vec3\s*\(\s*-microGrad\.x\s*,\s*0\.0\s*,\s*-microGrad\.y\s*\)\s*\)\s*\)/,
+    );
+    // The patch itself declares NO `faceDirection` — it only references the
+    // variable three's own `normal_fragment_begin` chunk declares (that chunk
+    // is still an un-expanded `#include` token at this string-patching stage,
+    // resolved later by three's real compile step), so this must not
+    // introduce a second, colliding declaration.
+    expect(fs).not.toMatch(/float\s+faceDirection\s*=/);
+  });
+
+  it("the detail-tier ramp combines fresnel and depth absorption via max(), replacing the plain ramp", () => {
+    const shader = freshShader();
+    makeWaterPatch({ hasFoam: true, uniforms: {}, displacement: true, detail: true }).onBeforeCompile(
+      shader as unknown as THREE.WebGLProgramParametersWithUniforms,
+    );
+    const fs = stripGlslComments(shader.fragmentShader);
+    expect(fs).toMatch(/max\s*\(\s*fresnel\s*,\s*depthAbs\s*\)/);
+    expect(fs).toMatch(/mix\s*\(\s*uWaterShallowDetail\s*,\s*uWaterDeepDetail/);
+  });
+
+  it("foam breakup jitters BOTH smoothstep edges identically from the ripple samples", () => {
+    const shader = freshShader();
+    makeWaterPatch({ hasFoam: true, uniforms: {}, displacement: true, detail: true }).onBeforeCompile(
+      shader as unknown as THREE.WebGLProgramParametersWithUniforms,
+    );
+    const fs = stripGlslComments(shader.fragmentShader);
+    expect(fs).toMatch(
+      /smoothstep\s*\(\s*uFoamStart\s*\+\s*foamBreakup\s*,\s*uFoamEnd\s*\+\s*foamBreakup\s*,\s*depth\s*\)/,
+    );
+  });
+
+  it("without detail (hasFoam && displacement only), the plain ramp/foam text is BYTE-IDENTICAL to before this slice", () => {
+    const withoutDetail = freshShader();
+    makeWaterPatch({ hasFoam: true, uniforms: {}, displacement: true }).onBeforeCompile(
+      withoutDetail as unknown as THREE.WebGLProgramParametersWithUniforms,
+    );
+    const fs = stripGlslComments(withoutDetail.fragmentShader);
+    expect(fs).not.toContain("uWaterNormal");
+    expect(fs).not.toContain("rippleUV");
+    expect(fs).not.toContain("depthAbsorption");
+    expect(fs).not.toContain("foamBreakup");
+    expect(fs).toMatch(/mix\s*\(\s*uWaterShallow\s*,\s*uWaterDeep\s*,\s*clamp\s*\(\s*fresnel/);
+    expect(fs).toMatch(/1\.0\s*-\s*smoothstep\s*\(\s*uFoamStart\s*,\s*uFoamEnd\s*,\s*depth\s*\)/);
+  });
+
+  it("the detail cache key is distinct from — and namespaced consistently with — the non-detail keys", () => {
+    const key = (hasFoam: boolean, displacement: boolean, detail: boolean) =>
+      makeWaterPatch({ hasFoam, uniforms: {}, displacement, detail }).customProgramCacheKey();
+
+    const detailKey = key(true, true, true);
+    expect(detailKey).toBe("water-foam-disp-detail-v1");
+    expect(detailKey).not.toBe(key(true, true, false));
+    expect(detailKey).toMatch(/^water-/);
+
+    // The pre-existing four keys stay byte-identical (regression lock from the
+    // displacement-axis test above) when `detail` is omitted.
+    expect(key(false, false, false)).toBe("water-nofoam-v1");
+    expect(key(true, false, false)).toBe("water-foam-v1");
+    expect(key(false, true, false)).toBe("water-nofoam-disp-v1");
+    expect(key(true, true, false)).toBe("water-foam-disp-v1");
+  });
+
+  it("merges the caller-supplied detail uniforms (sampler + detail palette) onto shader.uniforms", () => {
+    const uWaterNormal = { value: new THREE.Texture() };
+    const uWaterShallowDetail = { value: new THREE.Vector3(...WATER_SHALLOW_DETAIL_LINEAR) };
+    const uWaterDeepDetail = { value: new THREE.Vector3(...WATER_DEEP_DETAIL_LINEAR) };
+    const uTime = { value: 0 };
+    const uniforms = { uWaterNormal, uWaterShallowDetail, uWaterDeepDetail, uTime };
+    const shader = freshShader();
+    makeWaterPatch({ hasFoam: true, uniforms, displacement: true, detail: true }).onBeforeCompile(
+      shader as unknown as THREE.WebGLProgramParametersWithUniforms,
+    );
+    expect(shader.uniforms.uWaterNormal).toBe(uWaterNormal);
+    expect(shader.uniforms.uWaterShallowDetail).toBe(uWaterShallowDetail);
+    expect(shader.uniforms.uWaterDeepDetail).toBe(uWaterDeepDetail);
+    // The SAME uTime object the live WaterSystem advances — no separate clock.
+    expect(shader.uniforms.uTime).toBe(uTime);
   });
 });

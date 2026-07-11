@@ -160,6 +160,138 @@ async function processOne({ name, assetId }) {
   }
 }
 
+// --- Water ripple normal map (visual-overhaul slice 4) ---------------------
+//
+// The slice's design doc assumed ambientCG stocks a CC0 "water/ripple normal"
+// material set; it does not (verified against the live catalog: the `water`
+// text search and every `ripple`/`wave`/`pool`/`ocean` near-miss return
+// nothing that IS a seamless still-water ripple normal map — closest hits
+// were pool-tile albedos, rain-decal photogrammetry and paving-stone "wave"
+// patterns, none usable). Poly Haven's texture library has no "water"
+// category at all. Rather than ship a mismatched substitute, this generates
+// the ripple normal map PROCEDURALLY: a sum of 5 sine terms at small-integer
+// (u,v) cycle counts over the unit square — EXACTLY tileable by construction
+// (each term completes a whole number of cycles per texture width/height, so
+// wrapping is seamless, the same "derive to close the wrap" discipline
+// `waterSurface.ts`'s `WRAP_PERIOD`/`RIPPLE_SPEED_1/2` use) — with the exact
+// analytic gradient (not a numerical finite-difference) building the encoded
+// tangent-space normal. Zero licensing ambiguity (it originates in this repo,
+// not a downloaded asset) and a provably perfect tile at any repeat count.
+//
+//   node scripts/process-textures.mjs
+//
+// Output: `public/assets/textures/water/ripple-normal.webp`, 512x512,
+// lossless WebP (VP8L) — normal-map data is directional, not perceptual
+// colour, so it follows the SAME lossless rule the terrain normal maps above
+// do (a lossy VP8 4:2:0 chroma-subsampled encode would smear the channels).
+
+const WATER_OUT_DIR = resolve(REPO_ROOT, "public/assets/textures/water");
+const RIPPLE_SIZE = 512;
+
+/** Deterministic PRNG (mulberry32) — no `Math.random`, so the ripple terms
+ *  below are reproducible byte-for-byte across runs/machines. */
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function rand() {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** Fixed seed — reproducible, not tied to the date/build (a build re-run must
+ *  regenerate the SAME texture bytes). */
+const RIPPLE_SEED = 20260711;
+/** How many sine terms sum into the height field — enough to read as organic
+ *  broadband ripple detail rather than a plaid/moiré of a handful of harsh
+ *  frequencies (an early cut at 5 hand-picked terms looked exactly like that;
+ *  see this slice's run-log entry). */
+const RIPPLE_TERM_COUNT = 28;
+/** Max integer cycles per texture width/height for any term's (a,b) — every
+ *  term therefore completes a WHOLE number of cycles across the 512px tile,
+ *  so the sum tiles EXACTLY at any repeat count (no seam), the same
+ *  "derive to close the wrap" discipline `waterSurface.ts`'s `WRAP_PERIOD`/
+ *  `RIPPLE_SPEED_1/2` use. */
+const RIPPLE_FREQ_MAX = 30;
+
+/** Build the deterministic term list: random (but seeded, reproducible)
+ *  integer (a,b) frequency pairs with a pink-noise-ish amplitude falloff
+ *  (`1/freq^1.1`, favouring the lower frequencies so the result doesn't read
+ *  as pure high-frequency static), normalized so the OVERALL contrast stays
+ *  fixed regardless of `RIPPLE_TERM_COUNT`/`RIPPLE_FREQ_MAX` tuning. */
+function buildRippleTerms() {
+  const rand = mulberry32(RIPPLE_SEED);
+  const terms = [];
+  for (let i = 0; i < RIPPLE_TERM_COUNT; i++) {
+    let a = 0;
+    let b = 0;
+    while (a === 0 && b === 0) {
+      a = Math.round((rand() * 2 - 1) * RIPPLE_FREQ_MAX);
+      b = Math.round((rand() * 2 - 1) * RIPPLE_FREQ_MAX);
+    }
+    const freq = Math.hypot(a, b);
+    const amp = 1 / Math.pow(freq, 1.1);
+    const phase = rand() * Math.PI * 2;
+    terms.push({ amp, a, b, phase });
+  }
+  const ampSum = terms.reduce((sum, t) => sum + t.amp, 0);
+  for (const t of terms) t.amp /= ampSum;
+  return terms;
+}
+
+const RIPPLE_TERMS = buildRippleTerms();
+
+/** Analytic (du, dv) gradient of the sum-of-sines height field at unit-square
+ *  (u, v) — the exact closed-form partials, not a numerical approximation
+ *  (mirrors `waterSurface.ts`'s `waveGradient` discipline). */
+function rippleGradient(u, v) {
+  const TWO_PI = Math.PI * 2;
+  let du = 0;
+  let dv = 0;
+  for (const { amp, a, b, phase } of RIPPLE_TERMS) {
+    const c = Math.cos(TWO_PI * (a * u + b * v) + phase) * TWO_PI * amp;
+    du += c * a;
+    dv += c * b;
+  }
+  return [du, dv];
+}
+
+/** Tames the raw analytic derivative (normalized amplitude budget above, but
+ *  still scaled by each term's 2π·frequency in the derivative) into a
+ *  plausible bump strength before it's encoded as a normal — judged by eye
+ *  against a rendered preview. */
+const SLOPE_SCALE = 0.02;
+
+async function processWaterNormal() {
+  console.log("water ripple-normal (procedural, no third-party source)");
+  const size = RIPPLE_SIZE;
+  const data = Buffer.alloc(size * size * 3);
+  for (let y = 0; y < size; y++) {
+    const v = y / size;
+    for (let x = 0; x < size; x++) {
+      const u = x / size;
+      const [du, dv] = rippleGradient(u, v);
+      const nx = -du * SLOPE_SCALE;
+      const ny = -dv * SLOPE_SCALE;
+      const nz = 1;
+      const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
+      const i = (y * size + x) * 3;
+      data[i] = Math.round(((nx / len) * 0.5 + 0.5) * 255);
+      data[i + 1] = Math.round(((ny / len) * 0.5 + 0.5) * 255);
+      data[i + 2] = Math.round(((nz / len) * 0.5 + 0.5) * 255);
+    }
+  }
+
+  mkdirSync(WATER_OUT_DIR, { recursive: true });
+  const out = join(WATER_OUT_DIR, "ripple-normal.webp");
+  await sharp(data, { raw: { width: size, height: size, channels: 3 } })
+    .webp({ lossless: true })
+    .toFile(out);
+  const kb = (statSync(out).size / 1024).toFixed(1);
+  console.log(`  -> ${out} (${kb} KB)`);
+}
+
 async function main() {
   console.log(`cache: ${CACHE_DIR}`);
   console.log(`output: ${OUT_DIR}\n`);
@@ -169,6 +301,9 @@ async function main() {
   const files = readdirSync(OUT_DIR).filter((f) => f.endsWith(".webp"));
   const total = files.reduce((sum, f) => sum + statSync(join(OUT_DIR, f)).size, 0);
   console.log(`\n${files.length} files, ${(total / 1024).toFixed(1)} KB total`);
+
+  console.log();
+  await processWaterNormal();
 }
 
 main().catch((err) => {

@@ -408,7 +408,38 @@ body {
   background: rgba(14, 74, 86, 0.38);
   pointer-events: none;
   z-index: 8;
+  overflow: hidden;
 }
+
+/* Underwater light dapple (visual-overhaul slice 4): a soft, slowly drifting
+   caustics-ish pattern layered under the static teal wash above — pure CSS on
+   the existing overlay node, zero WebGL/canvas cost. Subtle (low-alpha,
+   `screen` blend) so it reads as shifting light through the surface, not a
+   distracting pattern; oversized (`inset: -20%`) so the drift never exposes a
+   hard edge. Reduced motion FREEZES the drift rather than removing the
+   pattern (mirrors the `meter-flash` idiom below) — the dapple is decorative
+   motion, not information. */
+.underwater-overlay::before {
+  content: "";
+  position: absolute;
+  inset: -20%;
+  background:
+    radial-gradient(circle at 20% 30%, rgba(210, 255, 250, 0.16) 0%, transparent 45%),
+    radial-gradient(circle at 70% 60%, rgba(210, 255, 250, 0.12) 0%, transparent 40%),
+    radial-gradient(circle at 45% 85%, rgba(210, 255, 250, 0.14) 0%, transparent 42%);
+  background-size: 140% 140%;
+  mix-blend-mode: screen;
+  animation: dapple-drift 11s ease-in-out infinite;
+}
+@keyframes dapple-drift {
+  0% { background-position: 0% 0%, 100% 0%, 50% 100%; }
+  50% { background-position: 8% 12%, 88% 15%, 42% 85%; }
+  100% { background-position: 0% 0%, 100% 0%, 50% 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .underwater-overlay::before { animation: none; }
+}
+:root[data-reduced-motion="true"] .underwater-overlay::before { animation: none; }
 
 /* Low-meter attention flash — non-essential motion, so both reduced-motion
    gates suppress it (the colour + width still carry the state). */

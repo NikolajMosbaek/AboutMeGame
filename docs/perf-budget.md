@@ -63,7 +63,8 @@ wins — only `"auto"` follows detection (`resolveQuality`'s contract).
 | `envDynamic` | **off** | on | on | Whether the sky-driven PMREM environment light (`EnvLightSystem`, visual-overhaul slice 2) regenerates as the day cycle moves. Every tier gets the environment map itself (a real per-tier lighting upgrade, not gated); low bakes it ONCE at load (the golden-hour keyframe) and never touches it again — a free visual upgrade with zero steady-state cost. Applies on reload (bake-at-mount). |
 | `ao.qualityMode` | n/a (no compositor) | `"Performance"` | `"Medium"` | N8AO's sample-count preset (visual-overhaul slice 2) — medium/high only, inside the same lazy `postfx` chunk as bloom. `aoRadius`/`distanceFalloff`/`intensity`/`halfRes` are the SAME on both tiers (tuned once for this world's scale); only the preset differs. Applies on reload. |
 | `terrainDetail` | **"none"** | "full" | "full" | Visual-overhaul slice 3 (PBR terrain splatting): `"full"` (medium/high) fetches the 4 albedo + 4 normal ground textures and compiles the full splat blend (including the tangent-space normal-map pass) into the terrain's `onBeforeCompile` patch (`src/world/terrainMaterialPatch.ts`) — 8 texture samples/fragment steady-state. `"none"` (low) never fetches, never patches, never recompiles: the terrain keeps the plain vertex-colour `MeshStandardMaterial` exactly as it rendered before this slice. The render-gate CI job caught the original `"albedo"` (4-texture, low-cost-looking) design as still too heavy for the software-GL runner (texture fetches + mipmap generation + a mid-boot shader recompile) — the low tier's floor is "never slower than today," so it gets no terrain textures at all rather than a cheaper variant. Applies on reload (bake-at-mount, like `shadowMapSize`). |
-| `terrainAnisotropy` | 4 | 4 | 8 | Anisotropic filtering level for the terrain's splat textures — three clamps to the device's real max at bind time, so this is always safe to request. A cheap fill-rate knob; only high spends the extra samples. |
+| `textureAnisotropy` | 4 | 4 | 8 | Anisotropic filtering level for every repeating-UV surface texture: the terrain's splat textures AND the water's ripple-normal detail map (visual-overhaul slice 4) — three clamps to the device's real max at bind time, so this is always safe to request. A cheap fill-rate knob; only high spends the extra samples. Water is viewed at grazing angles almost the entire session (the worst case for aniso=1 shimmer/blur), so it shares this knob rather than duplicating a per-feature value. |
+| `waterDetail` | **"none"** | "full" | "full" | Visual-overhaul slice 4 (water ripple detail): `"full"` (medium/high, requires `waterDisplacement` also on) fetches ONE ripple-normal texture and patches the water's `onBeforeCompile` (`src/world/waterPatch.ts`) with two scrolling samples of it (combined additively with the existing analytic wave normal), a depth-based colour-absorption ramp, and a raggedized foam edge — 2 extra texture samples/fragment + a lower roughness (0.25 → 0.12) steady-state. `"none"` (low) never fetches, never patches: the water stays byte-identical to the pre-slice-4 look (same low-tier floor and bake-at-mount/"applies on reload" cost shape as `terrainDetail`). |
 
 **Low tier vs the mobile budget.** Low is tuned to comfortably clear the
 mid-range-phone bar: pixelRatio 1 (no super-sampling), no real-time shadows, and
@@ -333,6 +334,108 @@ limitation the design doc anticipated: no in-repo tooling exists to force a
 quality tier through the *official* `npm run verify` orchestrator
 (`scripts/verify-game.mjs` takes no such flag), so the medium/high
 confirmation is a manual spot-check, not a repeatable CI assertion.
+
+**Visual-overhaul slice 4 (water, 2026-07-11)** replaced the fresnel-only,
+view-angle-driven water colour ramp — which reads as one flat translucent blue
+sheet, since it never varies across the water sheet for a fixed camera
+position — with ripple-normal detail, physically-plausible depth-based colour
+absorption, and a raggedized foam edge. All patched into the SAME ONE water
+`MeshStandardMaterial`/one draw call the `waterPatch.ts` idiom has kept since
+slice 2 — no second mesh, no extra geometry, no `ShaderMaterial`.
+
+*What changed, medium/high only (`quality.waterDetail === "full"`, requires
+`waterDisplacement` also on — `src/world/waterPatch.ts`'s `wantDetail` ANDs
+all three of `hasFoam`/`displacement`/`detail` defensively so an invalid
+combination can never compile a dangling reference).* Two scrolling samples of
+ONE ripple-normal texture (1x tile scale heading +x, ~2.7x finer tile scale
+heading ~37° off — both headings baked as EXACT rational cos/sin pairs, and
+both scroll speeds DERIVED from an integer cycle count over the water swell's
+own `WRAP_PERIOD`, so neither sample's scroll visibly pops the instant the
+swell's `uTime` wraps — `src/world/waterSurface.ts`) are decoded and summed
+additively onto the existing analytic two-sine wave normal, in the FRAGMENT
+stage (per-pixel, independent of the coarse ~24-unit-per-vertex displacement
+grid) — this is what makes sun glints sharp rather than vertex-interpolated
+mush, since the perturbed `normal` feeds three's own specular BRDF for free by
+anchor ordering (the block runs before `#include <lights_fragment_begin>`).
+Depth-based absorption (`1 - exp(-depth * 0.4)`) combines with the existing
+fresnel term via `max()` — either a grazing angle OR real depth pushes toward
+the darker/deeper endpoint — reading against a NEW, more saturated
+tropical-turquoise/dark-teal detail-tier palette pair (the low tier's
+`#2e6f9e` Water token pair is untouched). The shoreline foam band's smoothstep
+edges jitter by a scalar pulled from the same two ripple samples (no extra
+texture fetch) instead of reading as a clean, static line. Roughness drops
+0.25 → 0.12 on the detail tier only (a plain material scalar, set eagerly —
+no shader recompile risk) for livelier noon glitter without white-out.
+
+*Low tier: verified byte-identical.* `waterDetail: "none"` (low) never fetches
+the texture and never touches `makeWaterPatch`'s `detail` option — the
+existing four `{foam,no-foam}x{displace,no-displace}` `customProgramCacheKey`
+values are REGRESSION-LOCKED in `waterPatch.test.ts` (pinned exact strings),
+proving the pre-slice-4 programs are untouched. The render gate (CI's
+software-GL runner, this doc's own low-tier forcing signal) exercises exactly
+this untouched path every time, by construction — same proof shape as the
+terrainDetail fix above.
+
+*Asset.* The design doc assumed ambientCG stocks a CC0 "water/ripple normal"
+material set; it does not (verified against the live catalog — see
+`public/assets/LICENSES.md` for the full search record). The ripple-normal
+texture is instead PROCEDURALLY GENERATED by `scripts/process-textures.mjs`
+(a deterministic, seeded sum of 28 sine terms at small-integer cycle counts,
+so it tiles exactly at any repeat count — verified by rendering a 2x2 tiled
+preview with no visible seam) — zero licensing ambiguity, no third-party
+attribution needed. `public/assets/textures/water/ripple-normal.webp`,
+512x512, lossless WebP (VP8L, same rule the terrain normal maps follow: a
+lossy VP8 4:2:0 chroma-subsampled encode would smear the directional channel
+data), **198.6 KB**.
+
+*Draw calls / triangles.* Zero change — this patches the ONE existing water
+`MeshStandardMaterial` in place, so draw calls and triangle count are
+unaffected; the spend is entirely fill-rate (2 extra texture samples/fragment
+on the detail tier, zero on low).
+
+Measured `vite build` (gzip) + `npm run check:bundle`, same method as slices
+1-3 (branch vs the slice-3 baseline: entry 94.71 KB, `three` 134.04 KB,
+`postfx` 151.07 KB (± build noise), CSS 4.54 KB, summed JS gzip 379.8 KB,
+total download 3561.1 KB):
+
+- **Entry chunk:** 94.71 → 95.68 KB gz (**+0.97 KB** — the new pure modules
+  `waterSurface.ts` ripple/depth-absorption additions, `waterPatch.ts`'s
+  detail block, and the async texture-attach path in `boundaries.ts`, all
+  pulled in eagerly via `buildWorld` on every tier).
+- **`three` vendor chunk (eager):** 134.04 KB gz, unchanged.
+- **`postfx` chunk (lazy, medium/high only):** 151.07 KB gz, unchanged
+  (untouched by this slice).
+- **CSS:** 4.54 → 4.74 KB gz (**+0.2 KB** — the underwater light-dapple
+  `::before`/`@keyframes` rules, `src/tokens.css`).
+- **Summed JS gzip (`check:bundle`):** 379.8 → **380.7 KB**, **19.3 KB** of the
+  400 KB cap left free (was 20.2 KB after slice 3 — this slice's actual JS
+  cost, ~+0.9 KB, was comfortably inside that headroom).
+- **Total download:** 3561.1 KB → **3766.1 KB** (the +198.6 KB texture payload
+  plus the small JS/CSS deltas), **2233.9 KB** of the 6 MB cap still free
+  (measured via `npm run check:bundle`).
+
+Both caps hold with real headroom (`npm run check:bundle` EXIT=0). JS-gzip
+headroom is thinner than ever (19.3 KB) — the next slice (sky/atmosphere) that
+adds meaningful JS should budget against this number, not slice 3's.
+
+**Underwater dapple.** A subtle, slowly drifting caustics-ish pattern layered
+under the existing static teal DOM wash (`UnderwaterOverlay`'s
+`.underwater-overlay` node) — pure CSS (`::before` + a `radial-gradient`
+`background-position` `@keyframes` drift), ZERO WebGL/canvas cost, gated on
+BOTH reduced-motion mechanisms this codebase already uses (`@media
+(prefers-reduced-motion: reduce)` and `:root[data-reduced-motion="true"]`,
+mirroring the existing `meter-flash` idiom) — frozen, not removed, under
+reduced motion (decorative motion, not information). Verified live: a real
+submerged screenshot plus a `getComputedStyle` check confirming the `::before`
+pseudo-element's `animation-name` is `dapple-drift` (not `none`) while
+submerged.
+
+**Consciously skipped: planar reflections.** `Reflector`-style real
+reflections would double the scene render (a second full pass from the
+mirrored camera) — judged too expensive for this world against the
+fill-rate-first mitigation order, and out of scope for this slice. The sky
+IBL (visual-overhaul slice 2) plus the tuned roughness/ripple-normal detail
+already deliver believable specular glints without paying for a second render.
 
 ## How it is enforced
 

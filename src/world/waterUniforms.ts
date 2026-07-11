@@ -1,5 +1,10 @@
 import * as THREE from "three";
-import { WATER_DEEP, WATER_SHALLOW } from "./waterSurface.ts";
+import {
+  WATER_DEEP,
+  WATER_DEEP_DETAIL,
+  WATER_SHALLOW,
+  WATER_SHALLOW_DETAIL,
+} from "./waterSurface.ts";
 
 // Colour-space transport for the water `onBeforeCompile` patch (G1 slice 2).
 //
@@ -49,3 +54,7 @@ export const WATER_SHALLOW_LINEAR = srgbTupleToLinear(WATER_SHALLOW);
 export const WATER_DEEP_LINEAR = srgbTupleToLinear(WATER_DEEP);
 /** {@link FOAM_COLOR} decoded to linear, ready as a `vec3` uniform. */
 export const FOAM_COLOR_LINEAR = srgbTupleToLinear(FOAM_COLOR);
+/** {@link WATER_SHALLOW_DETAIL} decoded to linear (detail tier only). */
+export const WATER_SHALLOW_DETAIL_LINEAR = srgbTupleToLinear(WATER_SHALLOW_DETAIL);
+/** {@link WATER_DEEP_DETAIL} decoded to linear (detail tier only). */
+export const WATER_DEEP_DETAIL_LINEAR = srgbTupleToLinear(WATER_DEEP_DETAIL);

@@ -289,3 +289,184 @@ export function smoothstep(edge0: number, edge1: number, x: number): number {
   const t = clamp01((x - edge0) / (edge1 - edge0));
   return t * t * (3 - 2 * t);
 }
+
+// --- Ripple detail (visual-overhaul slice 4) -------------------------------
+// The two-sine `waveHeight`/`waveGradient` above own the water's ACTUAL
+// displacement (gameplay/visual scale — `waterDepthAt` and the swim mechanics
+// never touch this section). This adds the higher-frequency "sparkle" detail
+// a scrolling normal-map texture contributes ON TOP: sampled TWICE (different
+// scale, heading and speed) and combined additively with the analytic wave
+// normal in the fragment stage (`waterPatch.ts`) — a fragment-only effect, so
+// it reads at full per-pixel frequency regardless of the (coarse, ~24
+// world-units/vertex) displacement grid.
+//
+// Both scroll headings are baked as EXACT cos/sin pairs, never a literal
+// angle: sample 1 scrolls along +x (trivially closes the UV wrap for any
+// integer offset); sample 2 reuses the wave model's own 3-4-5-triangle idea —
+// a DIFFERENT rational pair, (0.8, 0.6) rather than `waveHeight`'s
+// (DIR2_X, DIR2_Z) = (0.6, 0.8) — so {@link RIPPLE_SPEED_2}'s wrap-closure
+// derivation below can be exact on BOTH uv axes at once; a literal "~35°"
+// heading (irrational cos/sin) could never do that. atan2(0.6, 0.8) ≈ 36.87°,
+// close to the design's "~35°" ask — recorded as a deliberate approximation.
+
+/** World units per texture repeat, ripple sample 1 (the coarser "1x" layer). */
+export const RIPPLE_TILE_1 = 5;
+/** World units per texture repeat, ripple sample 2 — ~2.7x finer than sample
+ *  1 (the design's "~2.7x scale"), breaking up the coarse layer's tiling. */
+export const RIPPLE_TILE_2 = RIPPLE_TILE_1 / 2.7;
+/** Sample 1's scroll heading: cos/sin of 0° — straight along +x. */
+export const RIPPLE_HEADING_1_COS = 1;
+export const RIPPLE_HEADING_1_SIN = 0;
+/** Sample 2's scroll heading: cos/sin of atan2(0.6, 0.8) ≈ 36.87° — an EXACT
+ *  rational pair (this section's doc explains why), close to the design's
+ *  "~35°" offset heading. */
+export const RIPPLE_HEADING_2_COS = 0.8;
+export const RIPPLE_HEADING_2_SIN = 0.6;
+
+// Both speeds are DERIVED (not hand-typed) from an integer cycle count over
+// the shared {@link WRAP_PERIOD} — the same discipline `WRAP_PERIOD` itself
+// documents — so the scroll never visibly pops the instant `uTime` wraps (the
+// same moment the wave phases close). Sample 1 (heading (1,0)) closes for ANY
+// integer scroll distance; sample 2 (heading (0.8,0.6) = (4/5,3/5)) only
+// closes on BOTH uv axes when its total scroll distance is a multiple of 5.
+const RIPPLE_WRAP_CYCLES_1 = 2;
+const RIPPLE_WRAP_CYCLES_2 = 3;
+/** UV-units/second scroll speed, ripple sample 1. */
+export const RIPPLE_SPEED_1 = RIPPLE_WRAP_CYCLES_1 / WRAP_PERIOD;
+/** UV-units/second scroll speed, ripple sample 2 (scaled by 5 so the heading's
+ *  0.8/0.6 components both land on an exact integer at the wrap point). */
+export const RIPPLE_SPEED_2 = (RIPPLE_WRAP_CYCLES_2 * 5) / WRAP_PERIOD;
+
+/**
+ * Scrolling planar UV for one ripple sample: rotate world `(x, z)` into the
+ * sample's local `(u, v)` heading, scale by `tile`, then add a scroll offset
+ * along that SAME heading (`speed` uv-units/second). Pure, allocation-light (a
+ * 2-tuple); the exact GLSL transcription is emitted by {@link rippleGlsl}.
+ */
+export function rippleUV(
+  x: number,
+  z: number,
+  t: number,
+  tile: number,
+  headingCos: number,
+  headingSin: number,
+  speed: number,
+): [number, number] {
+  const u = (x * headingCos + z * headingSin) / tile;
+  const v = (-x * headingSin + z * headingCos) / tile;
+  const dist = t * speed;
+  return [u + headingCos * dist, v + headingSin * dist];
+}
+
+/**
+ * Rotate a decoded tangent-space normal-map slope (`decodedX`/`decodedY`, the
+ * texel's r/g channels already `*2-1`) back into WORLD `(x, z)` slope
+ * contributions — the inverse of the rotation {@link rippleUV} applies going
+ * in. Pure; the caller sums this across both ripple samples and adds the
+ * result to the analytic wave normal (`waterPatch.ts`'s detail block) — never
+ * a second hand-copy of the rotation.
+ */
+export function rippleWorldSlope(
+  decodedX: number,
+  decodedY: number,
+  headingCos: number,
+  headingSin: number,
+): [number, number] {
+  return [
+    -decodedX * headingCos + decodedY * headingSin,
+    -decodedX * headingSin - decodedY * headingCos,
+  ];
+}
+
+/**
+ * Emit the shared GLSL for the ripple detail: callable `rippleUV` /
+ * `rippleWorldSlope` GLSL function definitions, generic over the (tile,
+ * heading, speed) parameters passed at each call site as baked `const float`s
+ * (`waterPatch.ts`) — one body of math for both ripple samples, never a
+ * hand-copied duplicate. Pure, deterministic, build-time only (no per-frame
+ * allocation, no WebGL context needed).
+ */
+export function rippleGlsl(): string {
+  return (
+    `vec2 rippleUV( vec2 worldXZ, float t, float tile, float headingCos, float headingSin, float speed ) {\n` +
+    `\tvec2 local = vec2( worldXZ.x * headingCos + worldXZ.y * headingSin, -worldXZ.x * headingSin + worldXZ.y * headingCos ) / tile;\n` +
+    `\tfloat dist = t * speed;\n` +
+    `\treturn local + vec2( headingCos, headingSin ) * dist;\n` +
+    `}\n` +
+    `vec2 rippleWorldSlope( vec2 decodedXY, float headingCos, float headingSin ) {\n` +
+    `\treturn vec2( -decodedXY.x * headingCos + decodedXY.y * headingSin, -decodedXY.x * headingSin - decodedXY.y * headingCos );\n` +
+    `}\n`
+  );
+}
+
+// --- Depth-based colour absorption (visual-overhaul slice 4) --------------
+// The existing `waterColor` ramp above is driven ENTIRELY by view-angle
+// fresnel — uniform across the whole water sheet for a given camera position,
+// so it cannot show the sandy shallows reading differently from the deep
+// river channel (the "translucent blue sheet" problem this slice fixes). This
+// adds a depth-driven term the detail-tier fragment combines with fresnel via
+// `max` (either a grazing angle OR real depth pushes toward the deep tone —
+// the ramp never reads LIGHTER than either cue alone would suggest).
+
+/** Exponential absorption rate, world-units^-1. Tuned against the river bed
+ *  (`RIVER.depth` 2.6) and lagoon (`LAGOON.depth` 3.2, `worldConfig.ts`): at
+ *  `FOAM_DEPTH_END` (1.5, where the shoreline foam has fully faded) this
+ *  already reads ~45% absorbed, continuing to ~65-70% at the true channel/
+ *  basin floor — visible depth variation without crushing to a flat block of
+ *  colour. Art-tunable. */
+export const DEPTH_ABSORPTION_RATE = 0.4;
+
+/**
+ * Depth-based absorption fraction in [0,1]: `1 - exp(-depth * rate)`, clamping
+ * `depth` at 0 so dry land / negative depth reads as fully unabsorbed (never
+ * NaN or negative). 0 at the shoreline (`depth <= 0`), asymptotically -> 1 as
+ * `depth` grows — never fully saturates by construction (`exp` never reaches
+ * 0), matching real light attenuation's shape.
+ */
+export function depthAbsorption(depth: number): number {
+  return 1 - Math.exp(-Math.max(depth, 0) * DEPTH_ABSORPTION_RATE);
+}
+
+/**
+ * The detail-tier water ramp: `clamp01(max(clamp01(fresnel), depthAbsorption(depth)))`.
+ * Combines the existing view-angle fresnel term with the new depth-driven
+ * absorption — whichever cue is stronger wins, so a steep grazing angle OR
+ * genuine depth both push the mix toward the darker/deeper endpoint, while
+ * shallow water read at any angle can still show the lighter shallow tone.
+ */
+export function detailWaterRamp(fresnel: number, depth: number): number {
+  return clamp01(Math.max(clamp01(fresnel), depthAbsorption(depth)));
+}
+
+/**
+ * Emit the GLSL transcription of {@link depthAbsorption} — a callable
+ * `depthAbsorption(float)` function built from the SAME
+ * {@link DEPTH_ABSORPTION_RATE} constant via {@link glslFloat}, never a
+ * hand-copied duplicate of the rate.
+ */
+export function depthAbsorptionGlsl(): string {
+  return (
+    `float depthAbsorption( float depth ) {\n` +
+    `\treturn 1.0 - exp( -max( depth, 0.0 ) * ${glslFloat(DEPTH_ABSORPTION_RATE)} );\n` +
+    `}\n`
+  );
+}
+
+// --- Detail-tier palette (visual-overhaul slice 4) -------------------------
+// The base WATER_SHALLOW/WATER_DEEP pair above stays the low tier's exact look
+// (AC1's `#2e6f9e` Water token, unchanged — low ships byte-identical water).
+// The detail tier (medium/high, where the ramp above actually responds to
+// real depth instead of only view angle) gets its own, more saturated
+// tropical pair — closer to what the sandy shallows / dark channel should
+// read as now that depth genuinely varies the colour across the water sheet.
+/** Detail-tier shallow tone: a saturated tropical turquoise. sRGB 0..1. */
+export const WATER_SHALLOW_DETAIL = [0x2f / 255, 0xb8 / 255, 0xad / 255] as const;
+/** Detail-tier deep tone: a dark blue-green. sRGB 0..1. */
+export const WATER_DEEP_DETAIL = [0x0d / 255, 0x2f / 255, 0x38 / 255] as const;
+
+// --- Foam breakup (visual-overhaul slice 4) --------------------------------
+/** How far (world-units of depth) the detail tier's ripple-derived noise can
+ *  shift the foam band's smoothstep edges, raggedizing the shoreline instead
+ *  of a clean line — applied to BOTH `FOAM_DEPTH_START`/`FOAM_DEPTH_END`
+ *  identically (a pure edge-shift, not a width change). Art-tunable. */
+export const FOAM_BREAKUP_STRENGTH = 0.4;

@@ -3,7 +3,9 @@ import { WORLD } from "./worldConfig.ts";
 import { FOAM_DEPTH_END, FOAM_DEPTH_START } from "./waterSurface.ts";
 import {
   FOAM_COLOR_LINEAR,
+  WATER_DEEP_DETAIL_LINEAR,
   WATER_DEEP_LINEAR,
+  WATER_SHALLOW_DETAIL_LINEAR,
   WATER_SHALLOW_LINEAR,
 } from "./waterUniforms.ts";
 import { makeWaterPatch } from "./waterPatch.ts";
@@ -12,6 +14,7 @@ import {
   createGroundHeightTexture,
   type GroundHeightTexture,
 } from "./groundHeightTexture.ts";
+import { loadTexture } from "../engine/assets.ts";
 
 /**
  * Fixed, measured subdivision count per side of the animated water plane (G1
@@ -32,6 +35,26 @@ export interface WaterUniforms {
   uTime: { value: number };
 }
 
+/** Injectable ripple-normal-map texture loader (visual-overhaul slice 4) —
+ *  defaults to the cached, `assetUrl`-resolving `loadTexture`
+ *  (`src/engine/assets.ts`). Matches its signature exactly (mirrors
+ *  `terrain.ts`'s `TerrainTextureLoader`) so tests can substitute a stub that
+ *  never touches the network/jsdom `Image` loading path. */
+export type WaterTextureLoader = (path: string) => Promise<THREE.Texture>;
+
+const RIPPLE_NORMAL_PATH = "assets/textures/water/ripple-normal.webp";
+
+/** Base-tier roughness (byte-identical to the pre-slice-4 water — the low
+ *  tier, and the detail tier's own first paint before its ripple texture
+ *  attaches, both use this). */
+export const WATER_ROUGHNESS_BASE = 0.25;
+/** Detail-tier roughness (visual-overhaul slice 4): lower than the base value
+ *  so the sky IBL + ripple-normal detail (slice 2/4) produce a lively sun
+ *  glitter path at noon without white-out, and long soft reflections at dusk —
+ *  tuned by eye against real screenshots (see the slice's run-log entry). Only
+ *  ever applied when `detail` is on; the low tier keeps {@link WATER_ROUGHNESS_BASE}. */
+export const WATER_ROUGHNESS_DETAIL = 0.12;
+
 export interface Boundaries {
   group: THREE.Group;
   /** True while (x,z) is inside the soft boundary. */
@@ -43,6 +66,12 @@ export interface Boundaries {
    *  `displacement` is on (medium/high). Undefined on the low tier / the static
    *  preview, where the water is the slice-2 surface with no `uTime`. */
   waterUniforms?: WaterUniforms;
+  /** Resolves once the async ripple-normal-map load has settled (attached on
+   *  success, logged-and-skipped on failure) — never rejects (mirrors
+   *  `Terrain.texturesReady`'s idiom). `Promise.resolve()` immediately when
+   *  `detail` is off (low tier, or detail requested without its `displacement`/
+   *  `heightAt` prerequisites) — no fetch is ever made in that case. */
+  texturesReady: Promise<void>;
   dispose(): void;
 }
 
@@ -71,13 +100,35 @@ export interface Boundaries {
  * `uTime` is compiled, and no per-frame work is owed — so low pays ZERO extra
  * vertex cost.
  *
+ * `detail` (visual-overhaul slice 4, defaults false) is the third seam —
+ * gated by `quality.waterDetail === "full"` (off on low, on medium/high) —
+ * AND requires BOTH `hasFoam` and `displacement` (see `wantDetail` below);
+ * when all three hold, a ripple-normal-map texture loads ASYNCHRONOUSLY
+ * (mirroring `Terrain.texturesReady`): the water renders the base slice-2/3
+ * look the instant this function returns, then upgrades in place — ripple
+ * sparkle + depth-based colour absorption + raggedized foam edges + a lower,
+ * livelier-glint roughness — once the texture attaches
+ * ({@link Boundaries.texturesReady}). Off (low), the water is byte-identical
+ * to before this slice: no texture fetch, no shader change beyond what
+ * `displacement`/foam already did.
+ *
  * EITHER way the water stays exactly one geometry / one mesh / ONE draw call at
  * `seaLevel - 0.05`, the triangle count is fixed at mount and far under the 500k
  * budget, and the bounds maths is unchanged.
+ *
+ * `anisotropy` (defaults 8, the high-tier value) sets the ripple-normal
+ * texture's `tex.anisotropy` once it attaches — the water is viewed at grazing
+ * angles almost the entire session (swimming, the follow camera skimming the
+ * shore), the worst case for the aniso=1 default (shimmer/blur), so this
+ * mirrors `terrain.ts`'s `quality.textureAnisotropy` exactly (same shared
+ * quality knob, not a per-feature duplicate). Only reached when `detail` is on.
  */
 export function buildBoundaries(
   heightAt?: (x: number, z: number) => number,
   displacement = true,
+  detail = false,
+  anisotropy = 8,
+  loadWaterTexture: WaterTextureLoader = loadTexture,
 ): Boundaries {
   const group = new THREE.Group();
   group.name = "boundaries";
@@ -87,10 +138,23 @@ export function buildBoundaries(
   const segs = displacement ? WATER_SEGMENTS : 1;
   const waterGeo = new THREE.PlaneGeometry(WORLD.size * 3, WORLD.size * 3, segs, segs);
   waterGeo.rotateX(-Math.PI / 2);
+
+  // Detail (visual-overhaul slice 4: ripple normal maps + depth absorption +
+  // foam breakup) needs BOTH the baked ground-height depth (hasFoam) and the
+  // live uTime the ripple scroll reuses (displacement) — AND them defensively,
+  // same discipline as `makeWaterPatch`'s own gate, so an invalid combination
+  // degrades to the base look instead of ever requesting a texture it has no
+  // shader slot for.
+  const hasFoam = heightAt !== undefined;
+  const wantDetail = detail && hasFoam && displacement;
   const waterMat = new THREE.MeshStandardMaterial({
     transparent: true,
     opacity: 0.82,
-    roughness: 0.25,
+    // Roughness is a plain material scalar (not shader-compiled), so it is
+    // safe to set eagerly by `wantDetail` even before the async ripple
+    // texture attaches below — no shader recompile, no visual pop risk beyond
+    // a barely-perceptible glossiness step once loaded.
+    roughness: wantDetail ? WATER_ROUGHNESS_DETAIL : WATER_ROUGHNESS_BASE,
     metalness: 0.1,
     // Swimming (#184) puts the camera under the plane: without the back
     // faces the surface would vanish overhead. Cost: the water's fragments
@@ -102,7 +166,6 @@ export function buildBoundaries(
 
   // Bake the ground-height lookup texture only when `heightAt` is injected; the
   // foam variant samples it, the no-foam variant references nothing.
-  const hasFoam = heightAt !== undefined;
   let groundTex: GroundHeightTexture | undefined;
   const uniforms: Record<string, { value: unknown }> = {
     // Palette is sRGB-authored in waterSurface.ts; gamma-decode to linear here
@@ -124,6 +187,9 @@ export function buildBoundaries(
   // The live time uniform — created ONLY when the swell is compiled. It is the
   // SAME `{value}` object merged into the program by `onBeforeCompile`, so the
   // `WaterSystem` advances the running shader by mutating it (no scene hunt).
+  // The detail-tier ripple scroll (visual-overhaul slice 4) reuses this EXACT
+  // object once its texture attaches below — no second clock, so the
+  // WaterSystem's reduced-motion hold already covers the ripple scroll too.
   let waterUniforms: WaterUniforms | undefined;
   if (displacement) {
     const uTime = { value: 0 };
@@ -131,6 +197,10 @@ export function buildBoundaries(
     waterUniforms = { uTime };
   }
 
+  // Synchronous first paint — foam + optional displacement, EXACTLY the
+  // slice-2/3 look (never `detail` yet): mirrors `Terrain`'s texturesReady
+  // idiom, rendering correctly the instant `buildBoundaries` returns and
+  // upgrading in place once the async ripple-normal texture attaches below.
   const patch = makeWaterPatch({ hasFoam, uniforms, displacement });
   waterMat.onBeforeCompile = patch.onBeforeCompile;
   waterMat.customProgramCacheKey = patch.customProgramCacheKey;
@@ -155,15 +225,92 @@ export function buildBoundaries(
     }
   };
 
+  let disposed = false;
+  // Populated by `attachWaterDetail` the moment it attaches — same
+  // explicit-texture-dispose convention `terrain.ts`/`props.ts` follow.
+  const attachedTextures: THREE.Texture[] = [];
+  const texturesReady = wantDetail
+    ? attachWaterDetail(
+        waterMat,
+        uniforms,
+        hasFoam,
+        displacement,
+        anisotropy,
+        loadWaterTexture,
+        () => disposed,
+        attachedTextures,
+      )
+    : Promise.resolve();
+
   return {
     group,
     isInBounds,
     clampToBounds,
     waterUniforms,
+    texturesReady,
     dispose() {
+      disposed = true;
       waterGeo.dispose();
       waterMat.dispose();
       groundTex?.dispose();
+      for (const tex of attachedTextures) tex.dispose();
     },
   };
+}
+
+/**
+ * Load the ripple-normal texture and attach the detail water patch in ONE
+ * atomic step (mirrors `terrain.ts`'s `attachTerrainTextures`): builds the
+ * detail uniform bag (the caller's base uniforms — including the identity-
+ * stable `uTime` the live `WaterSystem` advances — PLUS the ripple sampler and
+ * the detail palette), rewires `mat.onBeforeCompile`/`customProgramCacheKey`
+ * from `makeWaterPatch({ ..., detail: true })`, and flips `mat.needsUpdate`.
+ * Never rejects: a failed load is logged and the base (slice-2/3) look simply
+ * never upgrades.
+ *
+ * `isDisposed` guards the unmount race: if `Boundaries.dispose()` ran while
+ * the load was in flight, the just-uploaded texture is disposed instead of
+ * attached to a dead material.
+ */
+function attachWaterDetail(
+  mat: THREE.MeshStandardMaterial,
+  baseUniforms: Record<string, { value: unknown }>,
+  hasFoam: boolean,
+  displacement: boolean,
+  anisotropy: number,
+  loadWaterTexture: WaterTextureLoader,
+  isDisposed: () => boolean,
+  outAttachedTextures: THREE.Texture[],
+): Promise<void> {
+  return loadWaterTexture(RIPPLE_NORMAL_PATH)
+    .then((tex) => {
+      if (isDisposed()) {
+        tex.dispose();
+        return;
+      }
+
+      tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+      // Grazing-angle viewing (swimming, the shoreline skim) is the worst case
+      // for the aniso=1 default — mirrors terrain.ts's `quality.textureAnisotropy`
+      // wiring (terrain.ts:286,292) so water gets the same filtering floor.
+      tex.anisotropy = anisotropy;
+      // Normal-map data is NOT perceptual colour — never sRGB-decode it
+      // (mirrors terrain.ts's normal-map override of loadTexture's default).
+      tex.colorSpace = THREE.NoColorSpace;
+
+      const uniforms: Record<string, { value: unknown }> = {
+        ...baseUniforms,
+        uWaterNormal: { value: tex },
+        uWaterShallowDetail: { value: new THREE.Vector3(...WATER_SHALLOW_DETAIL_LINEAR) },
+        uWaterDeepDetail: { value: new THREE.Vector3(...WATER_DEEP_DETAIL_LINEAR) },
+      };
+      const patch = makeWaterPatch({ hasFoam, uniforms, displacement, detail: true });
+      mat.onBeforeCompile = patch.onBeforeCompile;
+      mat.customProgramCacheKey = patch.customProgramCacheKey;
+      mat.needsUpdate = true;
+      outAttachedTextures.push(tex);
+    })
+    .catch((err: unknown) => {
+      console.error("water ripple-normal texture failed to load — keeping the base water look:", err);
+    });
 }

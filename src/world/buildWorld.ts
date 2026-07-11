@@ -84,7 +84,12 @@ export function buildWorld(
   });
   scene.add(sky.group);
 
-  const boundaries = buildBoundaries(terrain.heightAt, quality.waterDisplacement);
+  const boundaries = buildBoundaries(
+    terrain.heightAt,
+    quality.waterDisplacement,
+    quality.waterDetail === "full",
+    quality.textureAnisotropy,
+  );
   scene.add(boundaries.group);
 
   const landmarks = buildLandmarks(terrain);

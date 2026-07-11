@@ -96,7 +96,7 @@ function uniformSuffix(channel: SplatChannel): string {
  * immediately and no fetch ever happens.
  */
 export function buildTerrain(
-  quality: Pick<QualityConfig, "terrainDetail" | "terrainAnisotropy"> = QUALITY_TIERS.high,
+  quality: Pick<QualityConfig, "terrainDetail" | "textureAnisotropy"> = QUALITY_TIERS.high,
   loadTerrainTexture: TerrainTextureLoader = loadTexture,
 ): Terrain {
   const noise = makeNoise2D(WORLD.seed);
@@ -260,7 +260,7 @@ export function buildTerrain(
  */
 function attachTerrainTextures(
   mat: THREE.MeshStandardMaterial,
-  quality: Pick<QualityConfig, "terrainDetail" | "terrainAnisotropy">,
+  quality: Pick<QualityConfig, "terrainDetail" | "textureAnisotropy">,
   loadTerrainTexture: TerrainTextureLoader,
   isDisposed: () => boolean,
   outAttachedTextures: THREE.Texture[],
@@ -283,13 +283,13 @@ function attachTerrainTextures(
       SPLAT_CHANNELS.forEach((ch, i) => {
         const tex = albedoTextures[i];
         tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-        tex.anisotropy = quality.terrainAnisotropy;
+        tex.anisotropy = quality.textureAnisotropy;
         uniforms[`uAlbedo${uniformSuffix(ch)}`] = { value: tex };
       });
       SPLAT_CHANNELS.forEach((ch, i) => {
         const tex = normalTextures[i];
         tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-        tex.anisotropy = quality.terrainAnisotropy;
+        tex.anisotropy = quality.textureAnisotropy;
         // Normal-map data is NOT perceptual colour — it must never go
         // through an sRGB decode, so override `loadTexture`'s colour-map
         // default (docs/asset-pipeline.md's sRGB-tagging is for albedo).

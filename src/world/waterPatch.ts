@@ -1,5 +1,19 @@
 import type * as THREE from "three";
-import { waveGlsl } from "./waterSurface.ts";
+import {
+  FOAM_BREAKUP_STRENGTH,
+  RIPPLE_HEADING_1_COS,
+  RIPPLE_HEADING_1_SIN,
+  RIPPLE_HEADING_2_COS,
+  RIPPLE_HEADING_2_SIN,
+  RIPPLE_SPEED_1,
+  RIPPLE_SPEED_2,
+  RIPPLE_TILE_1,
+  RIPPLE_TILE_2,
+  depthAbsorptionGlsl,
+  glslFloat,
+  rippleGlsl,
+  waveGlsl,
+} from "./waterSurface.ts";
 
 // The `onBeforeCompile` GLSL patch for the water `MeshStandardMaterial` (G1
 // slice 2). It patches the ONE existing water plane in place — no new geometry,
@@ -64,6 +78,16 @@ import { waveGlsl } from "./waterSurface.ts";
  */
 export const FRESNEL_POWER = 3.5;
 
+/**
+ * Detail-normal blend weight (visual-overhaul slice 4) — how strongly the two
+ * ripple-normal-map samples' decoded slope (`waterSurface.ts`'s
+ * `rippleWorldSlope`) perturbs the already-analytic wave normal before it
+ * feeds the fresnel/lighting response. The second art tunable this patch owns
+ * (parallel to {@link FRESNEL_POWER}): a shader blend-shape knob, NOT a
+ * palette/foam/ripple-geometry constant (those live in `waterSurface.ts`).
+ */
+export const RIPPLE_NORMAL_STRENGTH = 0.4;
+
 /** A GLSL uniform record entry as three's `onBeforeCompile` expects it. */
 type UniformValue = { value: unknown };
 
@@ -81,6 +105,17 @@ export interface WaterPatchOptions {
    *  low) NEITHER vertex anchor is injected and the program text references no
    *  `uTime`/wave function — the water is the static slice-2 surface. */
   displacement?: boolean;
+  /** Whether to compile the ripple normal-map detail + depth-based colour
+   *  absorption + foam breakup + (`boundaries.ts`) roughness tuning
+   *  (visual-overhaul slice 4, `quality.waterDetail === "full"`). Needs BOTH
+   *  `hasFoam` (the baked ground-height depth) and `displacement` (the live
+   *  `uTime` the ripple scroll reuses, so reduced-motion holds it for free —
+   *  see `WaterSystem`) — this patch ANDs the three together defensively so an
+   *  invalid combination can never compile a dangling reference; in practice
+   *  `boundaries.ts` only ever requests it alongside both. Off by default: the
+   *  low tier, and the terrain-style "render the base look now, upgrade once
+   *  the async ripple texture attaches" first pass, both compile without it. */
+  detail?: boolean;
 }
 
 export interface WaterPatch {
@@ -134,13 +169,23 @@ const FRAG_ANCHOR = "#include <normal_fragment_maps>";
  */
 export function makeWaterPatch(options: WaterPatchOptions): WaterPatch {
   const { hasFoam, uniforms, displacement = false } = options;
+  // Detail needs BOTH the live `uTime` (from displacement) and the baked
+  // ground-height depth (from hasFoam) — see this module's `detail` doc.
+  const wantDetail = Boolean(options.detail) && hasFoam && displacement;
 
   // Fragment preamble: the palette uniforms, the fresnel exponent, and — only
   // for the foam variant — the foam uniforms, the sampler, and `#define HAS_FOAM`.
   // The no-foam variant emits NONE of the foam tokens, so its program text holds
-  // no sampler/uniform reference at all (AC8).
+  // no sampler/uniform reference at all (AC8). The detail variant (medium/high,
+  // G1 slice 4) ALSO declares `uTime` (the fragment stage needs its own copy —
+  // GLSL uniforms are per-stage, three binds the SAME `{value}` object to both
+  // by name), the ripple normal sampler + detail palette, the ripple/foam-
+  // breakup art constants baked as GLSL float literals from their single-source
+  // `waterSurface.ts` exports (never hand-copied), and the shared
+  // `rippleUV`/`rippleWorldSlope`/`depthAbsorption` GLSL emitters.
   const fragDecl =
     (hasFoam ? "#define HAS_FOAM\n" : "") +
+    (wantDetail ? "#define HAS_DETAIL\n" : "") +
     "uniform vec3 uWaterShallow;\n" +
     "uniform vec3 uWaterDeep;\n" +
     `const float WATER_FRESNEL_POWER = ${FRESNEL_POWER.toFixed(1)};\n` +
@@ -152,32 +197,122 @@ export function makeWaterPatch(options: WaterPatchOptions): WaterPatch {
         "uniform float uSeaLevel;\n" +
         "uniform sampler2D uGroundHeight;\n" +
         "uniform float uGroundExtent;\n"
+      : "") +
+    (wantDetail
+      ? "uniform float uTime;\n" +
+        // `normalMatrix` is part of three's VERTEX-only prefix (never the
+        // fragment one — confirmed against `WebGLProgram.js`'s separate
+        // `prefixVertex`/`prefixFragment` builders), so the fragment stage
+        // needs its own declaration; `WebGLUniforms` binds by NAME across the
+        // whole linked program, so declaring it here is enough to receive the
+        // renderer's per-object value with no further wiring.
+        "uniform mat3 normalMatrix;\n" +
+        "uniform sampler2D uWaterNormal;\n" +
+        "uniform vec3 uWaterShallowDetail;\n" +
+        "uniform vec3 uWaterDeepDetail;\n" +
+        `const float RIPPLE_TILE_1 = ${glslFloat(RIPPLE_TILE_1)};\n` +
+        `const float RIPPLE_TILE_2 = ${glslFloat(RIPPLE_TILE_2)};\n` +
+        `const float RIPPLE_HEADING_1_COS = ${glslFloat(RIPPLE_HEADING_1_COS)};\n` +
+        `const float RIPPLE_HEADING_1_SIN = ${glslFloat(RIPPLE_HEADING_1_SIN)};\n` +
+        `const float RIPPLE_HEADING_2_COS = ${glslFloat(RIPPLE_HEADING_2_COS)};\n` +
+        `const float RIPPLE_HEADING_2_SIN = ${glslFloat(RIPPLE_HEADING_2_SIN)};\n` +
+        `const float RIPPLE_SPEED_1 = ${glslFloat(RIPPLE_SPEED_1)};\n` +
+        `const float RIPPLE_SPEED_2 = ${glslFloat(RIPPLE_SPEED_2)};\n` +
+        `const float RIPPLE_NORMAL_STRENGTH = ${glslFloat(RIPPLE_NORMAL_STRENGTH)};\n` +
+        `const float FOAM_BREAKUP_STRENGTH = ${glslFloat(FOAM_BREAKUP_STRENGTH)};\n` +
+        rippleGlsl() +
+        depthAbsorptionGlsl()
       : "");
 
-  // Fragment body, injected after the normal/view vars exist. The fresnel ramp
-  // transcribes `waterColor`: mix(shallow, deep, clamp(fresnel,0,1)); the foam
-  // band transcribes `shorelineFoam`: 1 - smoothstep(start, end, depth), over a
-  // tone-mapped off-white. `depth = uSeaLevel - groundHeight`, with groundHeight
-  // sampled from the baked R-channel texture in normalized [0,1] UV.
+  // Detail-normal block: reassigns `normal` (view space) BEFORE fresnel reads
+  // it, so both the colour ramp AND three's own specular BRDF (computed later
+  // from this same `normal`) see the per-fragment ripple sparkle — this is
+  // where "sharp sun glints" comes from, at zero extra draw calls. Combines
+  // the two ripple samples' decoded slope (rotated back to world axes by
+  // `rippleWorldSlope`) additively with the existing (already analytic-wave)
+  // normal — a standard small-angle "detail normal add", valid because both
+  // the macro wave tilt and the micro ripple slope are small perturbations
+  // from +Y by construction (`waveHeight`'s amplitudes, and a normal map's
+  // near-flat neutral texel).
   //
-  // The foam block is emitted at BUILD TIME only when `hasFoam`. It is ALSO kept
-  // inside `#ifdef HAS_FOAM`: the build-time omission guarantees the no-foam
-  // program references no foam token at all (AC8), while the `#ifdef` keeps the
-  // emitted block self-documenting and consistent with the `#define` preamble.
-  const foamBlock = hasFoam
+  // `faceDirection` (three's `normal_fragment_begin`, unconditionally declared
+  // as `gl_FrontFacing ? 1.0 : -1.0` — confirmed against three 0.185's real
+  // source, ahead of any `#ifdef DOUBLE_SIDED` branch — so it is always in
+  // scope here regardless of the compiled variant) scales the perturbation:
+  // the water material is `side: THREE.DoubleSide` (swimming/looking-up-at-
+  // the-surface is a supported view), and that SAME chunk already flips the
+  // base `normal` by `faceDirection` on the back face before this block runs.
+  // Without mirroring the perturbation too, the ripple tilt would keep its
+  // surface-up sign while the base normal flips — pointing the glint away
+  // from where the flipped base normal says it should be. Multiplying the
+  // added term by `faceDirection` keeps the two consistent on both faces.
+  const detailNormalBody = wantDetail
+    ? "#ifdef HAS_DETAIL\n" +
+      "\t\tvec2 rUV1 = rippleUV( vWorldXZ, uTime, RIPPLE_TILE_1, RIPPLE_HEADING_1_COS, RIPPLE_HEADING_1_SIN, RIPPLE_SPEED_1 );\n" +
+      "\t\tvec2 rUV2 = rippleUV( vWorldXZ, uTime, RIPPLE_TILE_2, RIPPLE_HEADING_2_COS, RIPPLE_HEADING_2_SIN, RIPPLE_SPEED_2 );\n" +
+      "\t\tvec3 rTex1 = texture2D( uWaterNormal, rUV1 ).xyz * 2.0 - 1.0;\n" +
+      "\t\tvec3 rTex2 = texture2D( uWaterNormal, rUV2 ).xyz * 2.0 - 1.0;\n" +
+      "\t\tvec2 micro1 = rippleWorldSlope( rTex1.xy, RIPPLE_HEADING_1_COS, RIPPLE_HEADING_1_SIN );\n" +
+      "\t\tvec2 micro2 = rippleWorldSlope( rTex2.xy, RIPPLE_HEADING_2_COS, RIPPLE_HEADING_2_SIN );\n" +
+      "\t\tvec2 microGrad = ( micro1 + micro2 ) * RIPPLE_NORMAL_STRENGTH;\n" +
+      "\t\tnormal = normalize( normal + faceDirection * ( normalMatrix * vec3( -microGrad.x, 0.0, -microGrad.y ) ) );\n" +
+      "#endif\n"
+    : "";
+
+  // Depth (shore distance) is needed by BOTH the detail-tier ramp (absorption)
+  // and the foam band below — computed ONCE here, ahead of both, whenever
+  // `hasFoam` (unconditional on detail: today's non-detail foam variant reads
+  // it too, unchanged from before this slice, just relocated earlier in the
+  // block — a pure reordering with no behaviour change since it has no side
+  // effects).
+  const depthDeclBody = hasFoam
     ? "#ifdef HAS_FOAM\n" +
       "\t\tvec2 groundUV = vWorldXZ / ( 2.0 * uGroundExtent ) + 0.5;\n" +
       "\t\tfloat groundHeight = texture2D( uGroundHeight, groundUV ).r;\n" +
       "\t\tfloat depth = uSeaLevel - groundHeight;\n" +
-      "\t\tfloat foam = 1.0 - smoothstep( uFoamStart, uFoamEnd, depth );\n" +
+      "#endif\n"
+    : "";
+
+  // The colour ramp: the detail tier transcribes `detailWaterRamp` (fresnel
+  // combined with depth-based absorption via `max`); every other variant keeps
+  // the EXACT slice-2 fresnel-only ramp (transcribing `waterColor`), unchanged.
+  const rampBody = wantDetail
+    ? "#ifdef HAS_DETAIL\n" +
+      "\t\tfloat depthAbs = depthAbsorption( depth );\n" +
+      "\t\tfloat waterRamp = clamp( max( fresnel, depthAbs ), 0.0, 1.0 );\n" +
+      "\t\tvec3 waterCol = mix( uWaterShallowDetail, uWaterDeepDetail, waterRamp );\n" +
+      "#endif\n"
+    : "\t\tvec3 waterCol = mix( uWaterShallow, uWaterDeep, clamp( fresnel, 0.0, 1.0 ) );\n";
+
+  // Foam band: transcribes `shorelineFoam` — 1 - smoothstep(start, end, depth)
+  // — over a tone-mapped off-white. The detail tier additionally raggedizes
+  // the band edge with a scalar derived from the SAME two ripple samples
+  // already read above (no extra texture fetch): the edge jitters instead of
+  // reading as a clean smoothstep line (the design's "foam upgrade").
+  //
+  // The foam block is emitted at BUILD TIME only when `hasFoam`. It is ALSO
+  // kept inside `#ifdef HAS_FOAM`: the build-time omission guarantees the
+  // no-foam program references no foam token at all (AC8), while the `#ifdef`
+  // keeps the emitted block self-documenting and consistent with the
+  // `#define` preamble.
+  const foamBlock = hasFoam
+    ? "#ifdef HAS_FOAM\n" +
+      (wantDetail
+        ? "#ifdef HAS_DETAIL\n" +
+          "\t\tfloat foamBreakup = ( rTex1.x + rTex2.x ) * 0.5 * FOAM_BREAKUP_STRENGTH;\n" +
+          "\t\tfloat foam = 1.0 - smoothstep( uFoamStart + foamBreakup, uFoamEnd + foamBreakup, depth );\n" +
+          "#endif\n"
+        : "\t\tfloat foam = 1.0 - smoothstep( uFoamStart, uFoamEnd, depth );\n") +
       "\t\twaterCol = mix( waterCol, uFoamColor, clamp( foam, 0.0, 1.0 ) );\n" +
       "#endif\n"
     : "";
   const fragBody =
     "\t{\n" +
+    detailNormalBody +
     "\t\tvec3 V = normalize( vViewPosition );\n" +
     "\t\tfloat fresnel = pow( 1.0 - max( dot( normal, V ), 0.0 ), WATER_FRESNEL_POWER );\n" +
-    "\t\tvec3 waterCol = mix( uWaterShallow, uWaterDeep, clamp( fresnel, 0.0, 1.0 ) );\n" +
+    depthDeclBody +
+    rampBody +
     foamBlock +
     "\t\tdiffuseColor.rgb = waterCol;\n" +
     "\t}\n";
@@ -219,12 +354,15 @@ export function makeWaterPatch(options: WaterPatchOptions): WaterPatch {
     );
   };
 
-  // Distinct constant per variant; the `water-` prefix disambiguates all four
-  // {foam, no-foam} x {displace, no-displace} programs from each other and from
-  // the terrain/props MeshStandard programs in three's program cache, so three
-  // never serves an undisplaced program to a displaced mesh.
+  // Distinct constant per variant; the `water-` prefix disambiguates all
+  // {foam, no-foam} x {displace, no-displace} x {detail, no-detail} programs
+  // from each other and from the terrain/props MeshStandard programs in
+  // three's program cache, so three never serves a mismatched program to a
+  // differently-configured mesh. The `-detail` axis is appended last so the
+  // four slice-2/3 keys this was already pinned to (regression-locked in
+  // `waterPatch.test.ts`) are BYTE-IDENTICAL when `detail` is omitted/false.
   const customProgramCacheKey = () =>
-    `water-${hasFoam ? "foam" : "nofoam"}${displacement ? "-disp" : ""}-v1`;
+    `water-${hasFoam ? "foam" : "nofoam"}${displacement ? "-disp" : ""}${wantDetail ? "-detail" : ""}-v1`;
 
   return { onBeforeCompile, customProgramCacheKey };
 }
