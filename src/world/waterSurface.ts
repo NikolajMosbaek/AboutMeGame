@@ -119,6 +119,16 @@ export function waveGradient(
  * would not type-check where a `float` is wanted). Round-trips exactly:
  * `Number(glslFloat(v)) === v`, so interpolating an exported constant into the
  * shader text loses no precision and stays the single source of truth.
+ *
+ * A second, independent copy of this same tiny formatter lives in
+ * `glslFormat.ts` for `windPatch.ts` (visual-overhaul slice 6) to use instead
+ * of importing it from here: this module is asserted BOTH self-contained
+ * (`import isolation` below — zero imports, full stop) AND narrowly imported
+ * (the "ONLY the sanctioned water-wiring files" guard) by
+ * `waterSurface.test.ts`, so a non-water consumer cannot import this export
+ * without breaking the second guard, and this module cannot import a shared
+ * helper without breaking the first. Duplicating five lines of a pure,
+ * trivial formatter is the cheaper trade against either guard's own purpose.
  */
 export function glslFloat(v: number): string {
   const s = String(v);
