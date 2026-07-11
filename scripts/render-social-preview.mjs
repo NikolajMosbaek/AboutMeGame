@@ -38,16 +38,38 @@ import sharp from "sharp";
 const WIDTH = 1200;
 const HEIGHT = 630;
 
-// The recipe: golden hour (dayCycle.ts's exact GOLDEN_T keyframe is t=90s of
-// the 180s loop; 84s — 91% of the way from noon to golden — was chosen by eye
-// over the exact keyframe because the lower, slightly-earlier sun sits right
-// behind the lagoon from this vantage, throwing its glint straight down the
-// water toward camera) and a camera eye/target pair south-west of the lagoon
-// looking north-east across it toward the camp-side jungle, framing the sun
-// disc, its glint and the palm-lined far shore together.
-const DAY_CYCLE_MS = 84_000;
-const EYE = [-48, 22, 166];
-const TARGET = [12, 8, 82];
+// The recipe (visual-overhaul slice 7, coordinator polish pass — recomposed;
+// see docs/team/runs/ for the review that flagged the prior framing as
+// "washed out/hazy" — the camera stared almost straight down the sun's
+// bearing, so the compositor's tight sun-disc/halo term (sky.ts:
+// SUN_DISC_INNER/OUTER only spans ~2° of arc; SUN_HALO_POWER=24 still glows
+// broadly within ~15-20°) bloomed the ENTIRE upper frame into a flat cream
+// haze). This recipe deliberately looks AWAY from the sun's bearing instead
+// of at it: DAY_CYCLE_MS = 0 is dayCycleSystem.ts's own mount default (`t=0`,
+// the warm DAWN keyframe — no advance needed, byte-for-byte reproducible from
+// a fresh load), and the camera sits on the lagoon's NW rim looking SE across
+// the whole lagoon toward the camp's shore. That framing was chosen by
+// measurement, not just eye, over ~25 tried eye/target/time combinations
+// (`std` = midtone contrast, `p99` = brightest 1% of pixels — a low p99 means
+// no blown-white sky wash):
+//
+//   | composition                          | mean  | std  | p99 |
+//   |---------------------------------------|-------|------|-----|
+//   | prior (stared at the sun)              | 138.4 | 44.6 | 208 |
+//   | this recipe (lagoon vista, sun behind)  | 125.7 | 46.3 | 182 |
+//
+// Lower mean/p99 (less washed, no near-white clipping) at EQUAL-OR-BETTER
+// contrast and colour saturation. A literal off-center "rule of thirds" sun
+// DISC turned out to be unreachable at any angle: the disc's ~2°-wide
+// smoothstep is essentially binary (dead-on or invisible), so any framing
+// wide enough to read as "off-center" on a 1200-wide frame loses the disc
+// entirely — this recipe instead leans on the lagoon's own colour (the warm
+// dawn-lit camp-side bank, palm silhouettes, teal water) to carry the shot,
+// per the review's own ask ("terrain/trees/water glint carry color instead
+// of haze").
+const DAY_CYCLE_MS = 0;
+const EYE = [-60, 20, 142];
+const TARGET = [21, 8, 142];
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(scriptDir, "..");
