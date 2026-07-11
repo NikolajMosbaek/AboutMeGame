@@ -65,6 +65,7 @@ wins — only `"auto"` follows detection (`resolveQuality`'s contract).
 | `terrainDetail` | **"none"** | "full" | "full" | Visual-overhaul slice 3 (PBR terrain splatting): `"full"` (medium/high) fetches the 4 albedo + 4 normal ground textures and compiles the full splat blend (including the tangent-space normal-map pass) into the terrain's `onBeforeCompile` patch (`src/world/terrainMaterialPatch.ts`) — 8 texture samples/fragment steady-state. `"none"` (low) never fetches, never patches, never recompiles: the terrain keeps the plain vertex-colour `MeshStandardMaterial` exactly as it rendered before this slice. The render-gate CI job caught the original `"albedo"` (4-texture, low-cost-looking) design as still too heavy for the software-GL runner (texture fetches + mipmap generation + a mid-boot shader recompile) — the low tier's floor is "never slower than today," so it gets no terrain textures at all rather than a cheaper variant. Applies on reload (bake-at-mount, like `shadowMapSize`). |
 | `textureAnisotropy` | 4 | 4 | 8 | Anisotropic filtering level for every repeating-UV surface texture: the terrain's splat textures AND the water's ripple-normal detail map (visual-overhaul slice 4) — three clamps to the device's real max at bind time, so this is always safe to request. A cheap fill-rate knob; only high spends the extra samples. Water is viewed at grazing angles almost the entire session (the worst case for aniso=1 shimmer/blur), so it shares this knob rather than duplicating a per-feature value. |
 | `waterDetail` | **"none"** | "full" | "full" | Visual-overhaul slice 4 (water ripple detail): `"full"` (medium/high, requires `waterDisplacement` also on) fetches ONE ripple-normal texture and patches the water's `onBeforeCompile` (`src/world/waterPatch.ts`) with two scrolling samples of it (combined additively with the existing analytic wave normal), a depth-based colour-absorption ramp, and a raggedized foam edge — 2 extra texture samples/fragment + a lower roughness (0.25 → 0.12) steady-state. `"none"` (low) never fetches, never patches: the water stays byte-identical to the pre-slice-4 look (same low-tier floor and bake-at-mount/"applies on reload" cost shape as `terrainDetail`). |
+| `cloudDetail` | **"none"** | "full" | "full" | Visual-overhaul slice 5 (drifting clouds): `"full"` (medium/high) constructs the cloud-layer `InstancedMesh` (`src/world/clouds.ts`, `CloudSystem`) — ONE extra draw call, ~7 cheap billboard quads, tinted live from the day-cycle palette. `"none"` (low) never constructs it: zero extra draw call, zero extra triangles. Bake-at-mount, applies on reload (same shape as `terrainDetail`/`waterDetail`). The sky dome's atmosphere upgrade and the starfield (`src/world/starfield.ts`) are NOT gated by this knob — both run on every tier (one shared dome-shader patch, one cheap `Points` draw call). |
 
 **Low tier vs the mobile budget.** Low is tuned to comfortably clear the
 mid-range-phone bar: pixelRatio 1 (no super-sampling), no real-time shadows, and
@@ -436,6 +437,89 @@ mirrored camera) — judged too expensive for this world against the
 fill-rate-first mitigation order, and out of scope for this slice. The sky
 IBL (visual-overhaul slice 2) plus the tuned roughness/ripple-normal detail
 already deliver believable specular glints without paying for a second render.
+
+**Visual-overhaul slice 5 (sky & atmosphere, 2026-07-11)** upgraded the flat
+2-colour gradient dome to a Preetham/Rayleigh-flavoured atmosphere (a
+horizon-haze band, a sharp sun disc, a broad Mie-style forward-scattering
+halo warming toward amber at low sun — `src/world/skyAtmosphere.ts`'s pure
+reference math, transcribed into `sky.ts`'s `buildDomeMaterial` GLSL, the
+`waterSurface.ts` idiom), added a seeded ~1200-star `Points` field
+(`src/world/starfield.ts`, ALL tiers) and 7 drifting billboard clouds
+(`src/world/clouds.ts`, medium/high, new `cloudDetail` knob), and wired
+pmndrs `GodRaysEffect` (high tier only) into the existing merged `EffectPass`.
+
+*Draw calls / triangles.* +1 on every tier (the starfield's one `Points`
+draw), +1 more on medium/high (the cloud layer's one `InstancedMesh`) — the
+design's `+2 max` budget exactly. God rays adds ZERO draw calls: it lives
+entirely inside the existing merged post-processing `EffectPass` (a
+fullscreen fragment pass, not a scene draw), fed by a small light-source
+sphere `GodRaysEffect` renders into its own private internal target, not the
+main scene.
+
+*Sky-dome shape, not bytes.* The dome upgrade patches the ONE existing
+`ShaderMaterial` `buildDomeMaterial` builds (adding `sunDirection`/`sunColor`/
+`sunDiscStrength` uniforms `DayCycleSystem` now also writes, alongside the
+pre-existing `topColor`/`bottomColor`) — no second dome, no extra draw call.
+`EnvLightSystem`'s private PMREM bake-scene reuses this SAME function, so it
+gets the gradient/haze upgrade for free; its `sunDiscStrength` is explicitly
+muted to 0 so the calibrated environment-map energy budget (its own
+dedicated, tuned sun-glow disc mesh) is unaffected by the new disc/halo
+terms — verified visually (below) that the ground/tent stay correctly lit at
+every phase. Fog density (`fogDensityForElevation`) now also retunes per
+phase (bit-exact `0.0022` at noon, ~+30% at the lowest-sun keyframes) instead
+of one flat value, agreeing with the dome's own horizon look.
+
+*Twilight, not literal night.* `dayCycle.ts`'s day cycle has NO true night by
+design (its documented floor: sun elevation never dips below the dawn
+keyframe's 0.12 rad) — so the starfield's fade curve peaks at that dawn
+minimum and reads as twilight/pre-dawn stars, not a literal midnight sky. This
+is a deliberate, documented interpretation given the binding no-night
+invariant, not a bug; visually confirmed (below) that stars are clearly
+visible at dawn/dusk and correctly invisible at noon.
+
+*Bundle — the headline finding.* Measuring the ACTUAL cost of `GodRaysEffect`
+before committing to it (rather than assuming the worst against the thin
+post-slice-4 headroom) found it shares most of its machinery with what the
+compositor chain already imports: **+1.35 KB gzip total**, far cheaper than
+feared. Measured `vite build` (gzip) + `npm run check:bundle`, branch vs the
+slice-4 baseline (entry 95.68 KB, `three` 134.04 KB, `postfx` 151.07 KB, CSS
+4.74 KB, summed JS gzip 380.7 KB, total download 3766.1 KB):
+
+- **Entry chunk:** 95.68 → 98.03 KB gz (**+2.35 KB** — the 5 new pure/GPU
+  modules — `skyAtmosphere.ts`, `starfield.ts`, `clouds.ts`, plus the small
+  `dayCycleSystem.ts`/`sky.ts`/`envLightSystem.ts` extensions and
+  `buildWorld.ts`'s two new system registrations — all pulled in eagerly on
+  every tier).
+- **`three` vendor chunk (eager):** 134.04 KB gz, unchanged.
+- **`postfx` chunk (lazy, medium/high only):** 151.07 → 152.33 KB gz
+  (**+1.26 KB** — `GodRaysEffect`, high tier only within this already-lazy
+  chunk).
+- **CSS:** 4.74 KB gz, unchanged (no new DOM/UI surface — this slice is
+  entirely inside the canvas).
+- **Summed JS gzip (`check:bundle`):** 380.7 → **384.6 KB**, **15.4 KB** of
+  the 400 KB cap left free (was 19.3 KB after slice 4 — this slice spent
+  3.9 KB of it, comfortably inside).
+- **Total download:** 3766.1 → **3770.1 KB** (+4.0 KB, the small JS delta
+  only — no new binary assets; the cloud puff texture and every star/cloud
+  placement are procedurally generated at runtime, zero shipped bytes).
+
+Both caps hold (`npm run check:bundle` EXIT=0). JS-gzip headroom is
+**15.4 KB** — the next slice (flora & fauna models, which will ship real GLB
+binaries and a `MeshoptDecoder`) should budget against this number, not
+slice 4's, and should expect its JS delta (the decoder, GLTFLoader glue) to
+matter more than its triangle/draw-call cost.
+
+Verified visually via manual Playwright spot-checks (real GPU, `quality`
+forced via `localStorage`, mirroring the terrain/water slices' method) at
+dawn/noon/dusk/~150s ("night") on both low and high tiers: low shows the
+warm horizon gradient, a visible sun disc/halo at dawn/dusk, and a clearly
+readable twilight star field, with none of the extra draws (no clouds, no
+god rays); high additionally shows soft clouds tinted from bright noon-white
+toward ember at low sun, and a faint but visible god-ray shaft near the sun
+at dawn/dusk (and under reduced motion's pinned golden hour), correctly
+near-invisible at noon. The IBL-lit ground and tent read correctly lit at
+every phase on both tiers — no lighting regression from the dome shader
+change.
 
 ## How it is enforced
 
