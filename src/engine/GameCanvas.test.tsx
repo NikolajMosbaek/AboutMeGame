@@ -101,7 +101,7 @@ function makeHandle(): { handle: GameHandle; store: DiscoveryStore; resetCalls: 
     nav: createNavStore(),
     settings: createSettingsStore(),
     session: createSession(),
-    quest: { store: createQuestStore(POIS.length) },
+    quest: { store: createQuestStore(POIS.length), getFinaleGlow: () => 0 },
   };
   return { handle, store, resetCalls: () => resetCalls };
 }

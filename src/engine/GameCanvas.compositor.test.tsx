@@ -119,6 +119,7 @@ describe("GameCanvas — lazy compositor tier gate", () => {
       engineOpts.camera,
       QUALITY_TIERS.high,
       undefined,
+      undefined,
     );
     expect(engineStub.setCompositor).toHaveBeenCalledTimes(1);
     expect(engineStub.setCompositor).toHaveBeenCalledWith(compositor);

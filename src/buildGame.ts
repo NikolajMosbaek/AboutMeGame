@@ -51,8 +51,11 @@ export interface Game {
   };
   /** Foraging (pivot slice E): pick-and-eat plants. */
   forage: { store: ForageStore };
-  /** The treasure quest (pivot slice G): the win condition. */
-  quest: { store: QuestStore };
+  /** The treasure quest (pivot slice G): the win condition. `getFinaleGlow`
+   *  (visual-overhaul slice 7) is `TreasureBurstSystem`'s own 0..1 sweep
+   *  signal, surfaced here (not the system itself) so `GameCanvas` can thread
+   *  it into the compositor's golden screen-sweep without reaching into fx. */
+  quest: { store: QuestStore; getFinaleGlow(): number };
   /** Toggle the sun's shadow casting live (#47), so a quality change in the menu
    *  re-applies shadows in BOTH directions — the renderer's shadowMap.enabled
    *  flag alone can't turn shadows back on once the caster was built without it. */
@@ -220,21 +223,22 @@ export function buildGame(
   // The completion spectacle (owner note 2026-07-10): golden motes spiral up
   // from the dig point and the idol's emissive pulses through the bloom for
   // the finale window the quest store publishes. Reduced motion inside the
-  // system swaps the spiral for a static glow.
-  engine.addSystem(
-    new TreasureBurstSystem(
-      engine.scene,
-      questStore,
-      {
-        x: treasure.digPoint.x,
-        y: world.terrain.heightAt(treasure.digPoint.x, treasure.digPoint.z),
-        z: treasure.digPoint.z,
-      },
-      settings,
-      treasure.setIdolEmissive,
-      QUEST_TUNE.finaleSeconds,
-    ),
+  // system swaps the spiral for a static glow. Captured (not discarded) so
+  // its `getFinaleGlow()` (visual-overhaul slice 7) can ride along on `Game.quest`
+  // for the compositor's golden screen-sweep.
+  const treasureBurst = new TreasureBurstSystem(
+    engine.scene,
+    questStore,
+    {
+      x: treasure.digPoint.x,
+      y: world.terrain.heightAt(treasure.digPoint.x, treasure.digPoint.z),
+      z: treasure.digPoint.z,
+    },
+    settings,
+    treasure.setIdolEmissive,
+    QUEST_TUNE.finaleSeconds,
   );
+  engine.addSystem(treasureBurst);
 
   // Audio (#51 SFX, #52 ambient bed). Only when a context factory is available
   // (skipped headless). The AudioSystem is a System, so engine.dispose() tears
@@ -284,7 +288,7 @@ export function buildGame(
       hurt: (amount: number) => survivalSystem.hurt(amount),
     },
     forage: { store: forageStore },
-    quest: { store: questStore },
+    quest: { store: questStore, getFinaleGlow: () => treasureBurst.getFinaleGlow() },
     setShadowsEnabled(enabled) {
       world.sky.sun.castShadow = enabled;
     },

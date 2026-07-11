@@ -84,6 +84,60 @@ export interface SunDirectionSource {
 }
 
 /**
+ * The finale's whole-screen "golden sweep" driver (visual-overhaul slice 7,
+ * polish) — duck-typed against `TreasureBurstSystem.getFinaleGlow()` (0
+ * outside the finale, ramping 0→1→0 across it via that system's own mote-fade
+ * envelope) but declared LOCALLY, mirroring {@link SunDirectionSource}'s own
+ * doc: this engine-layer file never imports `src/fx`/`src/quest`. Optional —
+ * absent (a test/preview compositor) means "no sweep, ever", the same shape
+ * `sunSource` already has.
+ */
+export interface FinaleGlowSource {
+  getFinaleGlow(): number;
+}
+
+function clamp01(v: number): number {
+  return v < 0 ? 0 : v > 1 ? 1 : v;
+}
+
+/** Extra bloom intensity at the finale's peak (glow=1), on top of the
+ *  baseline {@link BLOOM_INTENSITY} — cheap (a live property write on the
+ *  already-built `BloomEffect`, no new effect/import), and it amplifies
+ *  exactly the golden light sources (the idol, the mote spiral) already
+ *  calibrated to bloom, so the whole frame reads warmer without any new
+ *  colour-grading machinery. */
+const BLOOM_FINALE_BOOST = 1.0;
+
+/** Bloom intensity for the current finale glow (0 outside it). Pure —
+ *  headless-testable without a real `BloomEffect`. */
+export function bloomIntensityForFinale(glow: number): number {
+  return BLOOM_INTENSITY + BLOOM_FINALE_BOOST * clamp01(glow);
+}
+
+/** Fraction of the vignette's baseline darkness eased away at peak glow — the
+ *  frame "opens up" for the reveal instead of staying letterboxed-dark. */
+const VIGNETTE_FINALE_EASE = 1;
+
+/** Vignette darkness for the current finale glow (the untouched
+ *  {@link VIGNETTE_DARKNESS} outside it). */
+export function vignetteDarknessForFinale(glow: number): number {
+  return VIGNETTE_DARKNESS * (1 - VIGNETTE_FINALE_EASE * clamp01(glow));
+}
+
+/** How much the god-rays effect's blend opacity surges at peak glow (high
+ *  tier only) — ADDITIVE on top of the ambient {@link godRaysStrength}, so a
+ *  daytime finale still gets a visible shaft rather than staying invisible
+ *  just because the sun happens to be high. Capped at 1 (a valid blend
+ *  opacity), never restructuring the merged `EffectPass` this lives inside. */
+const GOD_RAYS_FINALE_BOOST = 0.5;
+
+/** God-rays blend opacity for the current sun-derived `baseStrength` plus the
+ *  finale glow's surge. Pure. */
+export function godRaysOpacityForFinale(baseStrength: number, glow: number): number {
+  return Math.min(1, baseStrength + GOD_RAYS_FINALE_BOOST * clamp01(glow));
+}
+
+/**
  * World-unit distance the god-rays light-source mesh sits at along the sun
  * direction — far enough to read as a sky-bound source, safely inside the
  * camera's far plane (`buildWorld.ts` sets it to `WORLD.size * 2` = 1040
@@ -121,8 +175,11 @@ export interface GodRays {
   effect: GodRaysEffect;
   /** Reposition the light source along unit direction `dir` and fade the
    *  effect's contribution by how low the sun currently is — call once per
-   *  frame, before compositing. */
-  update(dir: THREE.Vector3): void;
+   *  frame, before compositing. `glow` (visual-overhaul slice 7, default 0) is
+   *  the finale's 0..1 sweep signal — additive on top of the ambient
+   *  sun-derived strength ({@link godRaysOpacityForFinale}), so a daytime
+   *  finale still gets a visible surge. */
+  update(dir: THREE.Vector3, glow?: number): void;
   /** Disposes ONLY the externally-owned mesh resources (geometry/material) —
    *  `effect` itself is disposed by the merged `EffectPass`/`EffectComposer`
    *  teardown, never here (double-disposing the same `GodRaysEffect` is
@@ -160,7 +217,7 @@ function buildGodRays(camera: THREE.Camera): GodRays {
 
   return {
     effect,
-    update(dir) {
+    update(dir, glow = 0) {
       lightMesh.position.copy(dir).multiplyScalar(GOD_RAYS_DISTANCE);
       // `lightMesh` is never added to any scene (see the constructor comment),
       // so nothing else ever calls `updateMatrixWorld()` on it — worse,
@@ -181,7 +238,7 @@ function buildGodRays(camera: THREE.Camera): GodRays {
       // this mesh) never actually takes it.
       lightMesh.updateMatrix();
       lightMesh.matrixWorld.copy(lightMesh.matrix);
-      effect.blendMode.opacity.value = godRaysStrength(dir.y);
+      effect.blendMode.opacity.value = godRaysOpacityForFinale(godRaysStrength(dir.y), glow);
     },
     dispose() {
       geometry.dispose();
@@ -328,6 +385,14 @@ export function buildPasses(
  * the effect's contribution from it every frame BEFORE compositing; absent
  * or on any other tier, god rays is simply never built (`buildPasses`) and
  * this parameter is inert.
+ *
+ * `finaleSource` (visual-overhaul slice 7, polish) is the finale's golden-
+ * sweep driver — every frame, `render()` reads its 0..1 glow and live-writes
+ * it into the ALREADY-BUILT bloom/vignette effects (and, high tier, folds it
+ * into the god-rays opacity above), so the whole screen breathes gold in
+ * lockstep with `TreasureBurstSystem`'s mote spiral with zero new effects and
+ * zero restructuring of the chain. Absent (or 0 outside the finale) is
+ * inert — the tier's normal look.
  */
 export function createBloomCompositor(
   renderer: THREE.WebGLRenderer,
@@ -335,11 +400,12 @@ export function createBloomCompositor(
   camera: THREE.Camera,
   quality: QualityConfig,
   sunSource?: SunDirectionSource,
+  finaleSource?: FinaleGlowSource,
 ): Compositor {
   configureCompositorColor(renderer);
 
   const composer = new EffectComposer(renderer, { frameBufferType: THREE.HalfFloatType });
-  const { renderPass, aoPass, effectPass, godRays } = buildPasses(scene, camera, quality);
+  const { renderPass, aoPass, effectPass, godRays, stack } = buildPasses(scene, camera, quality);
 
   composer.addPass(renderPass);
   composer.addPass(aoPass);
@@ -347,7 +413,10 @@ export function createBloomCompositor(
 
   return {
     render() {
-      if (godRays && sunSource) godRays.update(sunSource.getSunDirection());
+      const glow = finaleSource?.getFinaleGlow() ?? 0;
+      stack.bloom.intensity = bloomIntensityForFinale(glow);
+      stack.vignette.darkness = vignetteDarknessForFinale(glow);
+      if (godRays && sunSource) godRays.update(sunSource.getSunDirection(), glow);
       composer.render();
     },
 

@@ -9,13 +9,26 @@
 // parked invisible outside the finale — zero idle cost, no mid-game
 // allocation. Reduced motion (#49 posture) swaps the spiral for a static glow:
 // the idol simply holds the peak emissive for the finale, no animated motes.
+//
+// Visual-overhaul slice 7 (polish) upgrade: more motes (200→320), a per-mote
+// sparkle twinkle (a vertex-colour multiplier, phased via `windSway.ts`'s
+// `windPhase` — the same deterministic per-instance hash `windPatch.ts`'s
+// foliage sway already uses, reused here purely as a phase generator), and
+// `getFinaleGlow()` — a 0→1→0 signal `createCompositor.ts` reads to sweep
+// bloom/vignette (and, high tier, a god-rays surge) across the WHOLE screen in
+// lockstep with the spiral, without either file needing a second clock.
 
 import * as THREE from "three";
 import type { System, FrameContext } from "../engine/types.ts";
 import type { ReducedMotionSource } from "../world/buildWorld.ts";
+import { windPhase } from "../world/windSway.ts";
 
-/** Motes in the spiral. One draw call regardless. */
-export const MOTE_COUNT = 200;
+/** Motes in the spiral. One draw call regardless. Bumped from 200 for the
+ *  visual-overhaul slice 7 finale upgrade — "more motes" per the design, still
+ *  free (`windSystem.ts`, and therefore `windSway.ts`'s `windPhase`, is
+ *  already eagerly bundled by every tier via `buildWorld.ts`'s static
+ *  import, so reusing it here costs zero extra bytes). */
+export const MOTE_COUNT = 320;
 /** Warm gold — additive, so overlapping motes read as sparks of light. */
 export const MOTE_COLOR = 0xffd76a;
 /** Spiral column: base radius, total height, climb + spin rates. */
@@ -23,6 +36,16 @@ export const SPIRAL_RADIUS = 2.6;
 export const SPIRAL_HEIGHT = 9;
 export const RISE_SPEED = 2.2; // units/s upward
 export const SPIN_SPEED = 1.8; // rad/s around the column
+/** Sparkle brightness range (visual-overhaul slice 7) — per-mote vertex-colour
+ *  multiplier, bounded ≤1 so the twinkle only ever DIMS a mote relative to the
+ *  calibrated bloom-triggering base colour, never brightens past it. */
+const SPARKLE_MID = 0.775;
+const SPARKLE_AMPLITUDE = 0.225;
+/** rad/s the twinkle cycles — much faster than `windSway.ts`'s own
+ *  `WIND_SPEED` (a slow foliage sway); only the deterministic per-index phase
+ *  generator (`windPhase`, the same "hash11" trick `windPatch.ts`'s foliage
+ *  sway uses) is reused here, not the sway rate itself. */
+const SPARKLE_RATE = 6;
 /** Idol emissive keyframes: buried rest → finale peak → settled afterglow. */
 export const IDOL_EMISSIVE_REST = 1.1;
 export const IDOL_EMISSIVE_PEAK = 2.5;
@@ -57,6 +80,14 @@ export class TreasureBurstSystem implements System {
   private readonly material: THREE.PointsMaterial;
   private readonly points: THREE.Points;
   private readonly positions: Float32Array;
+  /** Per-mote sparkle multiplier (visual-overhaul slice 7) — a vertex-colour
+   *  attribute three's PointsMaterial multiplies against `material.color`
+   *  (`vertexColors: true`), the same mechanism the terrain's splat macro
+   *  tint rides for free. */
+  private readonly colors: Float32Array;
+  /** Each mote's fixed sparkle phase, hashed once at construction from its
+   *  index via `windSway.ts`'s `windPhase` — deterministic, no per-frame cost. */
+  private readonly sparklePhases: Float32Array;
 
   private wasActive = false;
   /** Latched at finale start, so the setting can't half-toggle mid-spectacle. */
@@ -76,8 +107,12 @@ export class TreasureBurstSystem implements System {
     private readonly finaleSeconds: number = 4.5,
   ) {
     this.positions = new Float32Array(MOTE_COUNT * 3);
+    this.colors = new Float32Array(MOTE_COUNT * 3).fill(1);
+    this.sparklePhases = new Float32Array(MOTE_COUNT);
+    for (let i = 0; i < MOTE_COUNT; i++) this.sparklePhases[i] = windPhase(i, 0);
     this.geometry = new THREE.BufferGeometry();
     this.geometry.setAttribute("position", new THREE.BufferAttribute(this.positions, 3));
+    this.geometry.setAttribute("color", new THREE.BufferAttribute(this.colors, 3));
     this.material = new THREE.PointsMaterial({
       color: MOTE_COLOR,
       size: 0.55,
@@ -86,6 +121,7 @@ export class TreasureBurstSystem implements System {
       depthWrite: false,
       blending: THREE.AdditiveBlending,
       sizeAttenuation: true,
+      vertexColors: true,
     });
     this.points = new THREE.Points(this.geometry, this.material);
     this.points.name = "treasure-burst";
@@ -133,9 +169,10 @@ export class TreasureBurstSystem implements System {
     this.setIdolEmissive?.(idolEmissiveAt(this.elapsed / this.finaleSeconds));
   }
 
-  /** Position every mote on the rising spiral for the current clock. Each mote
-   *  owns a fixed angular seed and height offset, so the column is a smooth
-   *  function of (index, elapsed) — no per-mote state, deterministic. */
+  /** Position every mote on the rising spiral for the current clock, and
+   *  twinkle its sparkle colour (visual-overhaul slice 7). Each mote owns a
+   *  fixed angular seed, height offset and sparkle phase, so both are a
+   *  smooth function of (index, elapsed) — no per-mote state, deterministic. */
   private layout(): void {
     for (let i = 0; i < MOTE_COUNT; i++) {
       const f = i / MOTE_COUNT;
@@ -147,8 +184,25 @@ export class TreasureBurstSystem implements System {
       this.positions[o] = this.at.x + Math.cos(angle) * r;
       this.positions[o + 1] = this.at.y + h;
       this.positions[o + 2] = this.at.z + Math.sin(angle) * r;
+
+      const twinkle =
+        SPARKLE_MID + SPARKLE_AMPLITUDE * Math.sin(this.elapsed * SPARKLE_RATE + this.sparklePhases[i]);
+      this.colors[o] = this.colors[o + 1] = this.colors[o + 2] = twinkle;
     }
     (this.geometry.getAttribute("position") as THREE.BufferAttribute).needsUpdate = true;
+    (this.geometry.getAttribute("color") as THREE.BufferAttribute).needsUpdate = true;
+  }
+
+  /** The whole-screen "golden sweep" signal (visual-overhaul slice 7) — 0
+   *  outside the finale, ramping 0→1→0 across it via the SAME fade envelope
+   *  the mote spiral's own opacity already tracks (in over `FADE_IN`, out
+   *  over `FADE_OUT`), so `createCompositor.ts`'s bloom/vignette/god-rays
+   *  sweep breathes in lockstep with the motes, with no separate clock kept
+   *  in the engine layer. Reduced motion: stays 0 throughout (the
+   *  `animate()`/`layout()` path that drives `opacity` never runs), so the
+   *  screen sweep is suppressed along with every other finale animation. */
+  getFinaleGlow(): number {
+    return this.material.opacity / MAX_OPACITY;
   }
 
   describe(): Record<string, unknown> {
