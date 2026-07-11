@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as THREE from "three";
 import { act, render } from "@testing-library/react";
 import { QUALITY_TIERS } from "../perf/quality.ts";
 import { createDiscoveryStore } from "../discovery/discoveryStore.ts";
@@ -23,8 +24,14 @@ vi.mock("./createRenderer.ts", () => ({
 // postprocessing effects, reached through a dynamic import() (the lazy
 // postfx chunk) on the medium/high tiers this file also exercises. Mocking it
 // keeps this shell test WebGL/N8AO-free (mirrors GameCanvas.journal.test.tsx).
+// Args are captured (visual-overhaul slice 5) so a test here can prove the
+// built handle's `dayCycle` is forwarded through — the god-rays seam.
+const compositorCtorArgs: unknown[][] = [];
 vi.mock("./createCompositor.ts", () => ({
-  createBloomCompositor: () => ({ render() {}, setSize() {}, dispose() {} }),
+  createBloomCompositor: vi.fn((...args: unknown[]) => {
+    compositorCtorArgs.push(args);
+    return { render() {}, setSize() {}, dispose() {} };
+  }),
 }));
 
 const rendererStub = { shadowMap: { enabled: false }, setPixelRatio() {} };
@@ -78,6 +85,7 @@ const dayCycleAccessor = {
     domeBottom: [1, 1, 1] as const,
     fogColor: [1, 1, 1] as const,
   }),
+  getSunDirection: () => new THREE.Vector3(0, 1, 0),
 };
 
 const POIS = [{ id: "poi-alpha", order: 1, title: "Alpha" }];
@@ -111,6 +119,7 @@ describe("GameCanvas — EnvLightSystem wiring (visual-overhaul slice 2)", () =>
     vi.unstubAllGlobals();
     vi.clearAllMocks();
     envLightCtorArgs.length = 0;
+    compositorCtorArgs.length = 0;
     localStorage.clear();
   });
 
@@ -156,5 +165,49 @@ describe("GameCanvas — EnvLightSystem wiring (visual-overhaul slice 2)", () =>
     await act(async () => {});
 
     expect(EnvLightSystem).not.toHaveBeenCalled();
+  });
+});
+
+describe("GameCanvas — god-rays sun-direction forwarding (visual-overhaul slice 5)", () => {
+  beforeEach(() => {
+    vi.stubGlobal("ResizeObserver", StubResizeObserver);
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+    envLightCtorArgs.length = 0;
+    compositorCtorArgs.length = 0;
+    localStorage.clear();
+  });
+
+  it("forwards the built handle's dayCycle accessor to createBloomCompositor as the 5th arg", async () => {
+    forceQualitySetting("high");
+    const handle = makeHandle(true);
+
+    render(<GameCanvas build={() => handle} showStats={false} />);
+    await act(async () => {});
+
+    expect(compositorCtorArgs).toHaveLength(1);
+    const [renderer, , , quality, sunSource] = compositorCtorArgs[0] as [
+      unknown,
+      unknown,
+      unknown,
+      { tier: string },
+      unknown,
+    ];
+    expect(renderer).toBe(rendererStub);
+    expect(quality.tier).toBe("high");
+    expect(sunSource).toBe(dayCycleAccessor);
+  });
+
+  it("passes undefined when the built handle has no dayCycle (minimal preview/test build)", async () => {
+    forceQualitySetting("high");
+    const handle = makeHandle(false);
+
+    render(<GameCanvas build={() => handle} showStats={false} />);
+    await act(async () => {});
+
+    expect(compositorCtorArgs).toHaveLength(1);
+    expect(compositorCtorArgs[0][4]).toBeUndefined();
   });
 });

@@ -108,6 +108,14 @@ export class EnvLightSystem implements System {
     this.miniScene = new THREE.Scene();
     this.domeGeo = new THREE.SphereGeometry(ENV_DOME_RADIUS, 16, 8);
     this.domeMat = buildDomeMaterial();
+    // Visual-overhaul slice 5's atmospheric dome shader added a sun disc/halo
+    // term to the SAME `buildDomeMaterial` this mini-scene reuses — muted here
+    // (`sunDiscStrength = 0`) so the PMREM bake's calibrated energy budget
+    // (this file's own dedicated, tuned `glowMesh` below) is unaffected: this
+    // scene still gets the slice's gradient/horizon-haze upgrade for free,
+    // just not a second, uncalibrated bright source stacked on top of the
+    // existing sun-glow disc.
+    this.domeMat.uniforms.sunDiscStrength.value = 0;
     this.miniScene.add(new THREE.Mesh(this.domeGeo, this.domeMat));
 
     this.glowGeo = new THREE.SphereGeometry(SUN_GLOW_RADIUS, 12, 8);

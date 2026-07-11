@@ -143,6 +143,27 @@ describe("buildSky() shipped NOON defaults (T3, bit-exact)", () => {
 
     expect(sky.horizon.getHex()).toBe(0xcfe4f2);
   });
+
+  it("with quality.fog=true, fog density starts at FOG_DENSITY_BASE (the shipped 0.0022)", () => {
+    const sky = buildSky(new THREE.Scene(), { shadows: true, shadowMapSize: 2048, fog: true });
+
+    expect(sky.fog!.density).toBeCloseTo(0.0022, 10);
+  });
+});
+
+describe("buildSky() atmospheric dome uniforms (visual-overhaul slice 5)", () => {
+  it("dome carries sunDirection/sunColor/sunDiscStrength uniforms with sane NOON defaults", () => {
+    const sky = buildSky(new THREE.Scene());
+
+    const dir = sky.dome.uniforms.sunDirection.value as THREE.Vector3;
+    const expectedDir = new THREE.Vector3(0.6, 1, 0.4).normalize();
+    expect(dir.x).toBeCloseTo(expectedDir.x, 10);
+    expect(dir.y).toBeCloseTo(expectedDir.y, 10);
+    expect(dir.z).toBeCloseTo(expectedDir.z, 10);
+
+    expect((sky.dome.uniforms.sunColor.value as THREE.Color).getHex()).toBe(0xfff1d6);
+    expect(sky.dome.uniforms.sunDiscStrength.value).toBe(1);
+  });
 });
 
 describe("buildSky() fog-fork regression (T4, horizon is not the live handle)", () => {

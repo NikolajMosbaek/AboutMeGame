@@ -106,9 +106,11 @@ describe("GameCanvas — lazy compositor tier gate", () => {
     await act(async () => resolve());
 
     // …then the factory is invoked with the SAME renderer + scene + camera the
-    // Engine renders with, and the resolved tier config — and the result is
-    // attached through the Engine's late seam (which sizes it; Engine.test.ts
-    // pins that half of the handshake).
+    // Engine renders with, the resolved tier config, and (visual-overhaul
+    // slice 5) the built handle's `dayCycle` — `undefined` here since this
+    // test's `build` returns void — and the result is attached through the
+    // Engine's late seam (which sizes it; Engine.test.ts pins that half of
+    // the handshake).
     const engineOpts = vi.mocked(Engine).mock.calls[0][0];
     expect(createBloomCompositor).toHaveBeenCalledTimes(1);
     expect(createBloomCompositor).toHaveBeenCalledWith(
@@ -116,6 +118,7 @@ describe("GameCanvas — lazy compositor tier gate", () => {
       engineOpts.scene,
       engineOpts.camera,
       QUALITY_TIERS.high,
+      undefined,
     );
     expect(engineStub.setCompositor).toHaveBeenCalledTimes(1);
     expect(engineStub.setCompositor).toHaveBeenCalledWith(compositor);

@@ -26,22 +26,31 @@ function fakeSun(): Pick<THREE.DirectionalLight, "color" | "intensity" | "positi
 }
 
 /** A `THREE.ShaderMaterial`-shaped fake exposing only the gradient uniforms the
- *  System writes — `topColor.value` / `bottomColor.value` are live `THREE.Color`s
- *  the System mutates by reference (never reassigning `.uniforms`). */
+ *  System writes — `topColor.value`/`bottomColor.value`/`sunColor.value` are
+ *  live `THREE.Color`s and `sunDirection.value` a live `THREE.Vector3`, the
+ *  System mutates each by reference (never reassigning `.uniforms`). */
 function fakeDome(): {
-  uniforms: { topColor: { value: THREE.Color }; bottomColor: { value: THREE.Color } };
+  uniforms: {
+    topColor: { value: THREE.Color };
+    bottomColor: { value: THREE.Color };
+    sunDirection: { value: THREE.Vector3 };
+    sunColor: { value: THREE.Color };
+  };
 } {
   return {
     uniforms: {
       topColor: { value: new THREE.Color(0xffffff) },
       bottomColor: { value: new THREE.Color(0xffffff) },
+      sunDirection: { value: new THREE.Vector3() },
+      sunColor: { value: new THREE.Color(0xffffff) },
     },
   };
 }
 
-/** A `THREE.FogExp2`-shaped fake — just the live `color` the System writes. */
-function fakeFog(): Pick<THREE.FogExp2, "color"> {
-  return { color: new THREE.Color(0xffffff) };
+/** A `THREE.FogExp2`-shaped fake — the live `color`/`density` the System
+ *  writes (slice 5 added the density write alongside the pre-existing colour). */
+function fakeFog(): Pick<THREE.FogExp2, "color" | "density"> {
+  return { color: new THREE.Color(0xffffff), density: 0 };
 }
 
 // A reduced-motion source whose answer we can flip between frames, so the test
@@ -101,6 +110,19 @@ describe("DayCycleSystem (G3 slice, T2)", () => {
 
     it("fog == horizon #cfe4f2 (fog refactor is a no-op at noon)", () => {
       expect(fog.color.getHex()).toBe(0xcfe4f2);
+    });
+
+    it("fog density == FOG_DENSITY_BASE 0.0022 at noon (slice 5, item 5)", () => {
+      expect(fog.density).toBeCloseTo(0.0022, 10);
+    });
+
+    it("dome sunColor == sun colour #fff1d6 and sunDirection matches the written sun direction", () => {
+      expect(dome.uniforms.sunColor.value.getHex()).toBe(0xfff1d6);
+      const dir = dome.uniforms.sunDirection.value;
+      const expected = sys.getSunDirection();
+      expect(dir.x).toBeCloseTo(expected.x, 10);
+      expect(dir.y).toBeCloseTo(expected.y, 10);
+      expect(dir.z).toBeCloseTo(expected.z, 10);
     });
 
     it("sun colour == DirectionalLight colour #fff1d6", () => {
@@ -295,6 +317,8 @@ describe("DayCycleSystem (G3 slice, T2)", () => {
     const sunColorBefore = sun.color;
     const topValueBefore = dome.uniforms.topColor.value;
     const bottomValueBefore = dome.uniforms.bottomColor.value;
+    const sunDirectionValueBefore = dome.uniforms.sunDirection.value;
+    const sunColorValueBefore = dome.uniforms.sunColor.value;
     const fogColorBefore = fog.color;
     const positionBefore = sun.position;
 
@@ -307,6 +331,8 @@ describe("DayCycleSystem (G3 slice, T2)", () => {
     expect(sun.color).toBe(sunColorBefore);
     expect(dome.uniforms.topColor.value).toBe(topValueBefore);
     expect(dome.uniforms.bottomColor.value).toBe(bottomValueBefore);
+    expect(dome.uniforms.sunDirection.value).toBe(sunDirectionValueBefore);
+    expect(dome.uniforms.sunColor.value).toBe(sunColorValueBefore);
     expect(fog.color).toBe(fogColorBefore);
     expect(sun.position).toBe(positionBefore);
   });
