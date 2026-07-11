@@ -162,6 +162,25 @@ function buildGodRays(camera: THREE.Camera): GodRays {
     effect,
     update(dir) {
       lightMesh.position.copy(dir).multiplyScalar(GOD_RAYS_DISTANCE);
+      // `lightMesh` is never added to any scene (see the constructor comment),
+      // so nothing else ever calls `updateMatrixWorld()` on it — worse,
+      // `GodRaysEffect.update()` (pmndrs `postprocessing`) itself SAVES
+      // `matrixAutoUpdate`, forces it `false`, then calls
+      // `updateWorldMatrix(true, false)`, whose `if (this.matrixAutoUpdate)
+      // this.updateMatrix()` guard is now false, so `updateMatrix()` never
+      // runs there — and `matrixWorld` only gets copied from `matrix` when
+      // `matrixWorldNeedsUpdate` is already true. Net effect: left to that
+      // library call alone, `matrixWorld` freezes at its construction-time
+      // identity (world origin) forever, and every position write above is
+      // silently discarded. Compute both ourselves, right here, every frame:
+      // `updateMatrix()` bakes `position` into `matrix` (and flips
+      // `matrixWorldNeedsUpdate` true); since this mesh has no parent, its
+      // world matrix IS its local matrix, so copying it across is exact — the
+      // same `parent === null` branch `Object3D.updateWorldMatrix` itself
+      // would take, done eagerly instead of leaving it to a call that (for
+      // this mesh) never actually takes it.
+      lightMesh.updateMatrix();
+      lightMesh.matrixWorld.copy(lightMesh.matrix);
       effect.blendMode.opacity.value = godRaysStrength(dir.y);
     },
     dispose() {

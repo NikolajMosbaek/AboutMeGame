@@ -145,6 +145,38 @@ describe("buildPasses — god rays (visual-overhaul slice 5, high tier only)", (
     expect(() => godRays!.update(new THREE.Vector3(0.6, 0.16, 0.4).normalize())).not.toThrow();
   });
 
+  it("update() actually moves the light source's WORLD matrix (not frozen at the origin)", () => {
+    // Regression guard for the pmndrs `matrixAutoUpdate` trap: `GodRaysEffect`
+    // (`update.ts`, `postprocessing`) saves `lightSource.matrixAutoUpdate`,
+    // forces it to `false`, THEN calls `lightSource.updateWorldMatrix(true, false)`.
+    // `Object3D.updateWorldMatrix` only calls `updateMatrix()` when
+    // `matrixAutoUpdate` is true — since it was just forced false, `updateMatrix()`
+    // never runs there, and `matrixWorld` is only copied from `matrix` when
+    // `matrixWorldNeedsUpdate` is already true. Left to its own devices, our
+    // never-added-to-scene `lightMesh` NEVER gets `updateMatrix()` called on it
+    // anywhere, so `matrixWorld` stays at its construction-time identity
+    // (world origin) forever — every per-frame `position.copy()` write is
+    // silently discarded. `godRays.update()` must compute the mesh's
+    // `matrix`/`matrixWorld` itself so the shaft's screen anchor actually
+    // follows the sun.
+    const camera = new THREE.PerspectiveCamera();
+    const { godRays } = buildPasses(new THREE.Scene(), camera, QUALITY_TIERS.high);
+    const mesh = godRays!.effect.lightSource as THREE.Object3D;
+
+    const dirA = new THREE.Vector3(0, 1, 0);
+    godRays!.update(dirA);
+    const posA = new THREE.Vector3().setFromMatrixPosition(mesh.matrixWorld);
+    expect(posA.length()).toBeGreaterThan(1); // NOT stuck at the origin
+    expect(posA.clone().normalize().dot(dirA)).toBeCloseTo(1, 5);
+
+    const dirB = new THREE.Vector3(0.6, 0.16, 0.4).normalize();
+    godRays!.update(dirB);
+    const posB = new THREE.Vector3().setFromMatrixPosition(mesh.matrixWorld);
+    expect(posB.clone().normalize().dot(dirB)).toBeCloseTo(1, 5);
+    // Genuinely moved to the SECOND direction, not stuck at A's position.
+    expect(posB.distanceTo(posA)).toBeGreaterThan(1);
+  });
+
   it("dispose() does not throw and is safe alongside the effect's own teardown", () => {
     const camera = new THREE.PerspectiveCamera();
     const { godRays, effectPass } = buildPasses(new THREE.Scene(), camera, QUALITY_TIERS.high);

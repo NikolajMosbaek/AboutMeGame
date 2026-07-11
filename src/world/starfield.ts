@@ -106,6 +106,47 @@ const STAR_RADIUS = WORLD.size * 1.15; // just inside the sky dome (WORLD.size *
 const TWINKLE_RATE = 1.6;
 const STAR_COLOR = 0xdfe8ff; // a cool starlight white-blue
 
+// --- Time wrap (float32 precision guard) -----------------------------------
+// The System's `elapsed` accumulator feeds BOTH `uTime` (the twinkle shader's
+// `sin(uTime * TWINKLE_RATE + aPhase)`) and `group.rotation.y` (via
+// `starRotationAngle`, `elapsed * STAR_ROTATION_RATE`). Left to grow without
+// bound across a long-lived tab, it would lose float32 precision in the
+// shader's `sin()` argument on a mediump mobile GPU — the same failure mode
+// `waterSurface.ts`'s `WRAP_PERIOD` guards against, and the same fix: wrap the
+// accumulator modulo a period common to BOTH consumers, so wrapping never
+// visibly jumps either one. The period must make each consumer complete a
+// WHOLE number of cycles: `TWINKLE_RATE·T` a whole multiple of `2π` (so the
+// twinkle `sin()` closes on an exact cycle) AND `STAR_ROTATION_RATE·T` a whole
+// multiple of `2π` (so the wheel's rotation angle returns to an equivalent
+// angle — `rotation.y` is only ever read mod 2π visually). With
+// TWINKLE_RATE = 1.6 and STAR_ROTATION_RATE = 0.006, the ratio
+// 1.6/0.006 = 800/3 (exact, already coprime), so the smallest common period is
+// `T = 2π·800/1.6 = 1000π` (≈ 3141.6s, ≈ 52 minutes) — both phases close on an
+// exact cycle at that T, making both consumers continuous across the wrap.
+/**
+ * Shared continuous wrap period (seconds) for the starfield's `elapsed`
+ * accumulator, derived (not hand-typed) as the smallest `T` for which both
+ * `T·TWINKLE_RATE` and `T·STAR_ROTATION_RATE` are whole multiples of `2π` —
+ * mirrors `waterSurface.ts`'s `WRAP_PERIOD` derivation (same GCD-of-scaled-
+ * rates method) so wrapping `elapsed` modulo `T` is seamless for both the
+ * twinkle shader and the pole rotation.
+ */
+export const STAR_WRAP_PERIOD = (() => {
+  // n_i = T·rate_i / (2π) must be integers. Recover the smallest (n1, n2) with
+  // n1/n2 = TWINKLE_RATE/STAR_ROTATION_RATE by scaling both rates to integers
+  // via their precision (thousandths: 1600/6), then reducing by their GCD.
+  const SCALE = 1000;
+  let n1 = Math.round(TWINKLE_RATE * SCALE);
+  let n2 = Math.round(STAR_ROTATION_RATE * SCALE);
+  const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b));
+  const g = gcd(n1, n2);
+  n1 /= g;
+  n2 /= g;
+  // T·TWINKLE_RATE = 2π·n1 and T·STAR_ROTATION_RATE = 2π·n2 are the SAME T by
+  // construction. Compute it from TWINKLE_RATE.
+  return (2 * Math.PI * n1) / TWINKLE_RATE;
+})();
+
 const vertexShader = `
   attribute float aSize;
   attribute float aPhase;
@@ -207,7 +248,10 @@ export class StarfieldSystem implements System {
   update(ctx: FrameContext): void {
     const still = this.reducedMotion?.getSnapshot().reducedMotion ?? false;
     if (!still) {
-      this.elapsed += ctx.dt;
+      // Wrap modulo STAR_WRAP_PERIOD (float32-precision discipline — see its
+      // doc) — both the twinkle sine and the pole rotation close on an exact
+      // cycle at that period, so the wrap never visibly jumps either one.
+      this.elapsed = THREE.MathUtils.euclideanModulo(this.elapsed + ctx.dt, STAR_WRAP_PERIOD);
       this.material.uniforms.uTime.value = this.elapsed;
       this.group.rotation.y = starRotationAngle(this.elapsed);
     }

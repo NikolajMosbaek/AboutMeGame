@@ -515,11 +515,26 @@ dawn/noon/dusk/~150s ("night") on both low and high tiers: low shows the
 warm horizon gradient, a visible sun disc/halo at dawn/dusk, and a clearly
 readable twilight star field, with none of the extra draws (no clouds, no
 god rays); high additionally shows soft clouds tinted from bright noon-white
-toward ember at low sun, and a faint but visible god-ray shaft near the sun
-at dawn/dusk (and under reduced motion's pinned golden hour), correctly
-near-invisible at noon. The IBL-lit ground and tent read correctly lit at
-every phase on both tiers — no lighting regression from the dome shader
-change.
+toward ember at low sun, and a faint god-ray glow near the sun at dawn/dusk
+(and under reduced motion's pinned golden hour), correctly near-invisible at
+noon. The IBL-lit ground and tent read correctly lit at every phase on both
+tiers — no lighting regression from the dome shader change.
+
+**Correction (code review, post-merge):** the spot-check above confirmed a
+glow was *visible* at dawn/dusk but did NOT verify the shaft actually
+*tracked the sun's arc* — it did not. Review caught a real bug: pmndrs
+`GodRaysEffect.update()` forces its light-source mesh's `matrixAutoUpdate`
+false immediately before reading its world matrix, which (per
+`Object3D.updateWorldMatrix`'s own guard) skips `updateMatrix()` entirely, so
+the mesh's `matrixWorld` never left its construction-time identity — every
+per-frame reposition toward the sun was silently discarded, and only the
+opacity fade (which reads `dir.y` directly, not the mesh) actually worked.
+Fixed in `buildGodRays`'s `update()` (`src/engine/createCompositor.ts`): the
+mesh's `matrix`/`matrixWorld` are now computed directly, every frame, rather
+than left to the library call that never actually updated them for this
+never-added-to-scene mesh. Re-verified visually at dawn AND dusk on high tier
+post-fix: the shaft now genuinely anchors at the sun disc's screen position in
+both, rather than a fixed point.
 
 ## How it is enforced
 

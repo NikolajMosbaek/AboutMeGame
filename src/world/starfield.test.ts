@@ -7,11 +7,17 @@ import {
   STAR_ELEVATION_FULL,
   STAR_ELEVATION_HIDDEN,
   STAR_ROTATION_RATE,
+  STAR_WRAP_PERIOD,
   StarfieldSystem,
   makeStarField,
   starOpacity,
   starRotationAngle,
 } from "./starfield.ts";
+
+/** radians/second inside the twinkle shader's `sin()` — mirrors the module's
+ *  own private `TWINKLE_RATE` (not exported, so re-declared here; a drift
+ *  between the two would only affect this test's own continuity check). */
+const TWINKLE_RATE = 1.6;
 
 describe("makeStarField (deterministic placement)", () => {
   it("is a pure function: the same seed produces byte-identical output", () => {
@@ -73,6 +79,43 @@ describe("starRotationAngle (celestial-pole wheel)", () => {
   it("is slow — a full 2π wheel takes several minutes, not a spin", () => {
     const secondsForFullTurn = (2 * Math.PI) / STAR_ROTATION_RATE;
     expect(secondsForFullTurn).toBeGreaterThan(180); // slower than one whole day-cycle loop
+  });
+});
+
+describe("STAR_WRAP_PERIOD (continuous wrap for float32 precision — mirrors waterSurface.ts's WRAP_PERIOD)", () => {
+  it("is a finite, positive period", () => {
+    expect(Number.isFinite(STAR_WRAP_PERIOD)).toBe(true);
+    expect(STAR_WRAP_PERIOD).toBeGreaterThan(0);
+  });
+
+  it("each consumer's rate completes a whole number of 2π cycles over the period", () => {
+    const nTwinkle = (STAR_WRAP_PERIOD * TWINKLE_RATE) / (2 * Math.PI);
+    const nRotation = (STAR_WRAP_PERIOD * STAR_ROTATION_RATE) / (2 * Math.PI);
+    expect(nTwinkle).toBeCloseTo(Math.round(nTwinkle), 6);
+    expect(nRotation).toBeCloseTo(Math.round(nRotation), 6);
+    expect(Math.round(nTwinkle)).toBeGreaterThan(0);
+    expect(Math.round(nRotation)).toBeGreaterThan(0);
+  });
+
+  it("makes the twinkle shader's sin() term continuous across the wrap", () => {
+    // sin(uTime * TWINKLE_RATE + phase) must read identically at t and
+    // t + STAR_WRAP_PERIOD for ANY per-star phase — otherwise the twinkle
+    // would visibly pop the instant the accumulator wraps.
+    const phases = [0, 0.7, 2.1, 4.4, Math.PI];
+    for (const phase of phases) {
+      const before = Math.sin(0 * TWINKLE_RATE + phase);
+      const afterWrap = Math.sin(STAR_WRAP_PERIOD * TWINKLE_RATE + phase);
+      expect(afterWrap).toBeCloseTo(before, 9);
+    }
+  });
+
+  it("makes the pole rotation continuous across the wrap (same angle mod 2π)", () => {
+    const angleAtZero = starRotationAngle(0);
+    const angleAtPeriod = starRotationAngle(STAR_WRAP_PERIOD);
+    const twoPi = 2 * Math.PI;
+    const wrappedZero = THREE.MathUtils.euclideanModulo(angleAtZero, twoPi);
+    const wrappedPeriod = THREE.MathUtils.euclideanModulo(angleAtPeriod, twoPi);
+    expect(wrappedPeriod).toBeCloseTo(wrappedZero, 6);
   });
 });
 
@@ -147,6 +190,30 @@ describe("StarfieldSystem (GPU wiring)", () => {
     const timeB = mat.uniforms.uTime.value;
 
     expect(timeB).toBeGreaterThan(timeA);
+  });
+
+  it("wraps uTime/rotation modulo STAR_WRAP_PERIOD — the accumulator never grows unbounded", () => {
+    // Float32-precision discipline (mirrors `WaterSystem`/`waterSurface.ts`'s
+    // `WRAP_PERIOD`): a long-lived tab must not feed an ever-growing `elapsed`
+    // into `sin(uTime * TWINKLE_RATE + aPhase)` on a mediump mobile GPU.
+    const scene = new THREE.Scene();
+    const sys = new StarfieldSystem(scene, sunSource(0.15), reducedMotion(false));
+    const group = scene.children[0] as THREE.Group;
+    const points = group.children[0] as THREE.Points;
+    const mat = points.material as THREE.ShaderMaterial;
+
+    // One big dt that would, unwrapped, sail past several periods.
+    sys.update(ctxWith(STAR_WRAP_PERIOD * 2.5));
+    expect(mat.uniforms.uTime.value).toBeGreaterThanOrEqual(0);
+    expect(mat.uniforms.uTime.value).toBeLessThan(STAR_WRAP_PERIOD);
+
+    // Stepping exactly one further period lands on the SAME wrapped value
+    // (continuous — no jump at the wrap boundary).
+    const beforeWrapTime = mat.uniforms.uTime.value;
+    const beforeWrapRotation = group.rotation.y;
+    sys.update(ctxWith(STAR_WRAP_PERIOD));
+    expect(mat.uniforms.uTime.value).toBeCloseTo(beforeWrapTime, 6);
+    expect(group.rotation.y).toBeCloseTo(beforeWrapRotation, 6);
   });
 
   it("dispose() removes the group from the scene and disposes geometry/material", () => {
