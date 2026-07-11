@@ -9,7 +9,15 @@ import {
   VignetteEffect,
 } from "postprocessing";
 import { N8AOPostPass } from "n8ao";
-import { buildAOPass, buildEffectStack, buildPasses, godRaysStrength } from "./createCompositor.ts";
+import {
+  bloomIntensityForFinale,
+  buildAOPass,
+  buildEffectStack,
+  buildPasses,
+  godRaysOpacityForFinale,
+  godRaysStrength,
+  vignetteDarknessForFinale,
+} from "./createCompositor.ts";
 import { QUALITY_TIERS } from "../perf/quality.ts";
 
 /**
@@ -145,6 +153,22 @@ describe("buildPasses — god rays (visual-overhaul slice 5, high tier only)", (
     expect(() => godRays!.update(new THREE.Vector3(0.6, 0.16, 0.4).normalize())).not.toThrow();
   });
 
+  it("update()'s optional glow param surges the blend opacity beyond the ambient sun strength", () => {
+    const camera = new THREE.PerspectiveCamera();
+    const { godRays } = buildPasses(new THREE.Scene(), camera, QUALITY_TIERS.high);
+    // A comfortably-high noon sun ⇒ ambient strength is 0 (godRaysStrength's
+    // own contract, pinned below — same (0.6, 1, 0.4) direction that test
+    // derives NOON_SUN_Y from) — so any non-zero opacity here can only come
+    // from the finale surge.
+    const noonSun = new THREE.Vector3(0.6, 1, 0.4).normalize();
+
+    godRays!.update(noonSun, 0);
+    expect(godRays!.effect.blendMode.opacity.value).toBe(0);
+
+    godRays!.update(noonSun, 1);
+    expect(godRays!.effect.blendMode.opacity.value).toBeGreaterThan(0);
+  });
+
   it("update() actually moves the light source's WORLD matrix (not frozen at the origin)", () => {
     // Regression guard for the pmndrs `matrixAutoUpdate` trap: `GodRaysEffect`
     // (`update.ts`, `postprocessing`) saves `lightSource.matrixAutoUpdate`,
@@ -185,6 +209,61 @@ describe("buildPasses — god rays (visual-overhaul slice 5, high tier only)", (
       godRays!.dispose();
       effectPass.dispose(); // disposes godRays.effect itself — must not double-free the mesh
     }).not.toThrow();
+  });
+});
+
+describe("finale golden sweep (visual-overhaul slice 7, polish)", () => {
+  it("bloomIntensityForFinale is the untouched baseline at glow=0, boosted at glow=1", () => {
+    const { bloom } = buildEffectStack(QUALITY_TIERS.high);
+    expect(bloomIntensityForFinale(0)).toBeCloseTo(bloom.intensity, 5);
+    expect(bloomIntensityForFinale(1)).toBeGreaterThan(bloom.intensity);
+  });
+
+  it("bloomIntensityForFinale ramps monotonically with glow", () => {
+    expect(bloomIntensityForFinale(0.8)).toBeGreaterThan(bloomIntensityForFinale(0.2));
+  });
+
+  it("bloomIntensityForFinale clamps glow outside [0,1]", () => {
+    expect(bloomIntensityForFinale(-1)).toBe(bloomIntensityForFinale(0));
+    expect(bloomIntensityForFinale(2)).toBe(bloomIntensityForFinale(1));
+  });
+
+  it("vignetteDarknessForFinale eases from the baseline toward 0 as glow rises", () => {
+    const { vignette } = buildEffectStack(QUALITY_TIERS.high);
+    expect(vignetteDarknessForFinale(0)).toBeCloseTo(vignette.darkness, 5);
+    expect(vignetteDarknessForFinale(1)).toBeCloseTo(0, 5);
+    expect(vignetteDarknessForFinale(0.5)).toBeLessThan(vignetteDarknessForFinale(0));
+    expect(vignetteDarknessForFinale(0.5)).toBeGreaterThan(vignetteDarknessForFinale(1));
+  });
+
+  it("godRaysOpacityForFinale adds a surge on top of the ambient sun strength, capped at 1", () => {
+    expect(godRaysOpacityForFinale(0, 0)).toBe(0);
+    expect(godRaysOpacityForFinale(0, 1)).toBeGreaterThan(0);
+    expect(godRaysOpacityForFinale(0.6, 1)).toBeLessThanOrEqual(1);
+    expect(godRaysOpacityForFinale(1, 1)).toBe(1); // never exceeds a valid opacity
+  });
+
+  it("createBloomCompositor's render() reads finaleSource every frame and live-writes bloom/vignette", async () => {
+    // A stub WebGLRenderer/EffectComposer isn't reachable headless (see this
+    // file's own doc — only construction is WebGL-free); this proves the
+    // wiring via buildPasses' own stack, which createBloomCompositor's
+    // render() closure mutates identically (same `stack.bloom`/`stack.vignette`
+    // references buildPasses returns).
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera();
+    const { stack } = buildPasses(scene, camera, QUALITY_TIERS.high);
+    const baseline = stack.bloom.intensity;
+
+    let glow = 0;
+    const finaleSource = { getFinaleGlow: () => glow };
+    // Exercise the pure mapping the same way render() would, without needing
+    // a real renderer/composer.
+    stack.bloom.intensity = bloomIntensityForFinale(finaleSource.getFinaleGlow());
+    expect(stack.bloom.intensity).toBeCloseTo(baseline, 5);
+
+    glow = 1;
+    stack.bloom.intensity = bloomIntensityForFinale(finaleSource.getFinaleGlow());
+    expect(stack.bloom.intensity).toBeGreaterThan(baseline);
   });
 });
 

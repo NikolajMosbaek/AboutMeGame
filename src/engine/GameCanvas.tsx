@@ -59,8 +59,10 @@ export interface GameHandle {
   survival?: { store: SurvivalStore; respawn(): void };
   /** Foraging (pivot slice E) — the pick hint reads it. */
   forage?: { store: ForageStore };
-  /** The treasure quest (pivot slice G) — dig prompt + win screen. */
-  quest?: { store: QuestStore };
+  /** The treasure quest (pivot slice G) — dig prompt + win screen.
+   *  `getFinaleGlow` (visual-overhaul slice 7) feeds the compositor's finale
+   *  golden sweep — see `createBloomCompositor`'s `finaleSource` param. */
+  quest?: { store: QuestStore; getFinaleGlow(): number };
   /** Toggle shadow casting live when graphics quality changes (#47). */
   setShadowsEnabled?: (enabled: boolean) => void;
   /** Touch surface (mobile-controls upgrade): `pressInteract` queues the same
@@ -204,7 +206,14 @@ export function GameCanvas({
       loadCompositor().then(
         ({ createBloomCompositor }) => {
           if (cancelled) return;
-          const compositor = createBloomCompositor(renderer, scene, camera, quality, built?.dayCycle);
+          const compositor = createBloomCompositor(
+            renderer,
+            scene,
+            camera,
+            quality,
+            built?.dayCycle,
+            built?.quest,
+          );
           compositorRef.current = compositor;
           eng.setCompositor(compositor);
         },

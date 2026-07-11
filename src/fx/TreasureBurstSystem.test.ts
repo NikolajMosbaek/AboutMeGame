@@ -9,6 +9,7 @@ import {
   TreasureBurstSystem,
   idolEmissiveAt,
 } from "./TreasureBurstSystem.ts";
+import { POINT_SPRITE_ALPHA_TEST } from "./pointSprite.ts";
 import type { FrameContext } from "../engine/types.ts";
 
 const CTX = (dt = 1 / 60): FrameContext =>
@@ -102,5 +103,69 @@ describe("TreasureBurstSystem — the completion spectacle", () => {
     const { scene, sys } = rig();
     expect(() => sys.dispose()).not.toThrow();
     expect(scene.children.find((o) => o.name === "treasure-burst")).toBeUndefined();
+  });
+
+  it("uses the shared soft-round point sprite (no more hard GL-point squares)", () => {
+    const { points } = rig();
+    const mat = points.material as THREE.PointsMaterial;
+    expect(mat.alphaTest).toBe(POINT_SPRITE_ALPHA_TEST);
+    expect(mat.transparent).toBe(true);
+  });
+});
+
+describe("TreasureBurstSystem — visual-overhaul slice 7 upgrade (sparkle + getFinaleGlow)", () => {
+  it("carries a per-mote vertex-colour sparkle attribute alongside position", () => {
+    const { points } = rig();
+    const color = points.geometry.getAttribute("color") as THREE.BufferAttribute;
+    expect(color).toBeDefined();
+    expect(color.count).toBe(MOTE_COUNT);
+    expect((points.material as THREE.PointsMaterial).vertexColors).toBe(true);
+  });
+
+  it("sparkle twinkles the colour over time (not a static multiplier)", () => {
+    const { quest, sys, points } = rig();
+    quest.set(true);
+    sys.update(CTX());
+    const color = points.geometry.getAttribute("color") as THREE.BufferAttribute;
+    const before = color.getX(0);
+    for (let i = 0; i < 30; i++) sys.update(CTX());
+    expect(color.getX(0)).not.toBe(before);
+    // Bounded — the twinkle only ever dims a mote, never brightens past 1.
+    for (let i = 0; i < MOTE_COUNT; i++) {
+      expect(color.getX(i)).toBeGreaterThan(0);
+      expect(color.getX(i)).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("getFinaleGlow() is 0 outside the finale", () => {
+    const { sys } = rig();
+    sys.update(CTX());
+    expect(sys.getFinaleGlow()).toBe(0);
+  });
+
+  it("getFinaleGlow() ramps up during the finale, tracking the mote fade-in", () => {
+    const { quest, sys } = rig();
+    quest.set(true);
+    sys.update(CTX());
+    expect(sys.getFinaleGlow()).toBeGreaterThan(0);
+    for (let i = 0; i < 60; i++) sys.update(CTX()); // most of the way through FADE_IN
+    expect(sys.getFinaleGlow()).toBeGreaterThan(0.5);
+    expect(sys.getFinaleGlow()).toBeLessThanOrEqual(1);
+  });
+
+  it("getFinaleGlow() drops back to 0 once the finale ends", () => {
+    const { quest, sys } = rig();
+    quest.set(true);
+    sys.update(CTX());
+    quest.set(false);
+    sys.update(CTX());
+    expect(sys.getFinaleGlow()).toBe(0);
+  });
+
+  it("getFinaleGlow() stays 0 under reduced motion (the sweep is suppressed too)", () => {
+    const { quest, sys } = rig({ reduced: true });
+    quest.set(true);
+    for (let i = 0; i < 30; i++) sys.update(CTX());
+    expect(sys.getFinaleGlow()).toBe(0);
   });
 });

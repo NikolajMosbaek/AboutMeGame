@@ -5,19 +5,23 @@ import { describe, expect, it } from "vitest";
 import { SOCIAL_PREVIEW_FILENAME, SOCIAL_PREVIEW_MAX_BYTES } from "./socialMeta";
 
 /*
- * F1 slice 1 (#129) — T3: the committed, rasterized social-preview PNG.
+ * F1 slice 1 (#129) — T3: the committed social-preview PNG.
  *
- * public/social-preview.svg (T2) is the authored source; this test proves the
- * committed public/<SOCIAL_PREVIEW_FILENAME> binary that gets emitted as the
- * og:image actually exists AND is a real 1200x630 PNG — not a placeholder, an
- * empty file, or a mis-sized re-export. The filename is single-sourced from
- * socialMeta (T1) so a rename cannot silently stale this check against the emit
- * check.
+ * Visual-overhaul slice 7 (polish) retired the flat vector `social-preview.svg`
+ * source (it depicted the pre-pivot "drive and fly" game) in favour of a REAL
+ * in-game screenshot — golden hour over the lagoon, sun disc + glint, clouds,
+ * textured terrain, real flora — captured by `scripts/render-social-preview.mjs`
+ * against a live `vite preview` server with a real GPU. That script's own fixed
+ * recipe (day-cycle offset + camera eye/target) is now the "regenerable source"
+ * a static vector file used to be; there is no second committed source file to
+ * test against. This test proves the committed public/<SOCIAL_PREVIEW_FILENAME>
+ * binary that gets emitted as the og:image actually exists AND is a real
+ * 1200x630 PNG — not a placeholder, an empty file, or a mis-sized re-export.
+ * The filename is single-sourced from socialMeta (T1) so a rename cannot
+ * silently stale this check against the emit check.
  *
- * The PNG is rasterized OFFLINE from the SVG via the already-present playwright
- * devDependency (see scripts/render-social-preview.mjs) — no runtime dependency,
- * no new dep. We read the width/height straight from the PNG's IHDR chunk rather
- * than trusting any image library, so this verifies the committed bytes.
+ * We read the width/height straight from the PNG's IHDR chunk rather than
+ * trusting any image library, so this verifies the committed bytes.
  */
 
 const pngPath = resolve(process.cwd(), "public", SOCIAL_PREVIEW_FILENAME);
@@ -52,12 +56,13 @@ describe("public/social-preview.png — committed rasterized card", () => {
     expect(height).toBe(630);
   });
 
-  it("stays a few tens of KB, so a bloated re-export fails independently of the 6 MB total cap", () => {
-    // The flat, few-colour, low-poly card must rasterize to a small file. The
-    // per-image ceiling is single-sourced in socialMeta (SOCIAL_PREVIEW_MAX_BYTES)
-    // and owned by the dedicated T4 guard (socialPreviewByteBound.test.ts); this
-    // identity test asserts the same bound against the same constant so the two
-    // cannot drift.
+  it("stays within the documented ceiling, so a bloated re-export fails independently of the 6 MB total cap", () => {
+    // The real in-game screenshot (re-encoded to a 256-colour palette PNG,
+    // see scripts/render-social-preview.mjs) must stay well under the
+    // documented ceiling. The per-image bound is single-sourced in socialMeta
+    // (SOCIAL_PREVIEW_MAX_BYTES) and owned by the dedicated T4 guard
+    // (socialPreviewByteBound.test.ts); this identity test asserts the same
+    // bound against the same constant so the two cannot drift.
     const { size } = statSync(pngPath);
     expect(size).toBeGreaterThan(0);
     expect(size).toBeLessThanOrEqual(SOCIAL_PREVIEW_MAX_BYTES);

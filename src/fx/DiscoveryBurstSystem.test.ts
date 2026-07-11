@@ -3,6 +3,7 @@ import * as THREE from "three";
 import { DiscoveryBurst, BURST_PARTICLES, BURST_DURATION } from "./discoveryBurst.ts";
 import { DiscoveryBurstSystem } from "./DiscoveryBurstSystem.ts";
 import { createDiscoveryStore } from "../discovery/discoveryStore.ts";
+import { POINT_SPRITE_ALPHA_TEST } from "./pointSprite.ts";
 import type { PlacedLandmark } from "../world/landmarks.ts";
 import type { FrameContext } from "../engine/types.ts";
 
@@ -45,6 +46,14 @@ describe("DiscoveryBurst (pooled particles)", () => {
     b.update(BURST_DURATION + 0.1);
     expect(b.active).toBe(false);
     expect(b.points.visible).toBe(false);
+    b.dispose();
+  });
+
+  it("uses the shared soft-round point sprite (no more hard GL-point squares)", () => {
+    const b = new DiscoveryBurst();
+    const mat = b.points.material as THREE.PointsMaterial;
+    expect(mat.alphaTest).toBe(POINT_SPRITE_ALPHA_TEST);
+    expect(mat.transparent).toBe(true);
     b.dispose();
   });
 

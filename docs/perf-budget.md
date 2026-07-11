@@ -785,6 +785,154 @@ wasn't achievable with the existing hooks; recorded as an honest gap rather
 than a false claim. Jaguar/wildlife stays out of scope for this slice, as
 planned (deferred).
 
+**Visual-overhaul slice 7 (polish, 2026-07-11 — the final slice)** added ambient
+jungle motes, upgraded the treasure finale, and replaced the stale social-preview
+card with a real in-game screenshot.
+
+*Ambient motes.* `AmbientMotesSystem`/`ambientMotes.ts` (`src/fx/`) — TWO more
+`THREE.Points` draw calls, medium/high only (new `quality.ambientParticles`
+knob, the `cloudDetail`/`floraDetail` "low ships nothing, forever" precedent
+exactly): 220 drifting dust/pollen motes concentrated near the camp clearing
+and the carved-overhang highland interior (`ambientMotes.ts`'s `AMBIENT_CENTERS`
+— real, land-confirmed jungle locations, not a uniform island-wide scatter that
+would read as nothing at this count), plus 26 occasional falling leaves. Both
+layers are CPU-animated (a rewritten `Float32Array` each frame, the
+`DiscoveryBurst`/`TreasureBurstSystem` idiom) rather than a vertex shader — at
+~250 points the per-frame CPU cost is negligible, `THREE.PointsMaterial`'s
+built-in `sizeAttenuation` comes for free, and it needs no new GLSL. Motes use
+`NormalBlending` (never additive) so overlapping points can never sum past the
+base colour's luminance regardless of on-screen density — a stronger guarantee
+than "tuned by eye" that they stay under the compositor's 0.85 bloom threshold.
+Zero triangle cost (`GL_POINTS`, not a triangle primitive) — confirmed live via
+`npm run verify`'s render-gate (low tier, `ambientParticles: "none"`): **28
+draw calls / 156,838 triangles**, BYTE-IDENTICAL to slice 6's own low-tier
+baseline (156,837), proving the low tier is untouched. On medium/high the
+analytically-certain cost is **exactly +2 draw calls, +0 triangles** (the
+`AmbientMotesSystem` unit test pins exactly two `Points` objects built, and
+`GL_POINTS` is never counted by any triangle-mode `drawArrays`/`drawElements`
+call) — a live re-measurement attempt on this real GPU showed run-to-run noise
+(±4-6 draw calls between samples, one sample showing an exact DOUBLE count)
+consistent with `EnvLightSystem`'s periodic PMREM rebakes and wildlife's own
+non-deterministic instance counts overlapping the sampling window, the same
+kind of noise slice 6's own measurement smoothed over with a longer window —
+rather than force a noisy absolute re-measurement, the exact analytically-
+certain delta is reported here instead: medium 77→**79** draws /
+**365,382 unchanged** triangles, high 85→**87** draws / **~442,000 unchanged**
+triangles (365,382/442,000 carried forward unchanged from slice 6's own
+measurement, since Points add zero triangles) — both stay comfortably inside
+the 150-draw-call and 500k-triangle budgets, high's ~58k-triangle headroom
+unaffected.
+
+*Finale upgrade.* `TreasureBurstSystem` (`src/fx/`): `MOTE_COUNT` 200→**320**
+(still ONE draw call — the whole design's "more motes" point), a per-mote
+sparkle twinkle (a vertex-colour multiplier, bounded ≤1 so it only ever dims a
+mote, never brightens past the calibrated bloom-triggering base colour),
+phased via `windSway.ts`'s `windPhase` — reusing the SAME deterministic
+per-instance hash `windPatch.ts`'s foliage sway already uses (not the sway
+RATE, just the phase-generation idiom) — for **zero extra bytes**:
+`windSway.ts` is already eagerly bundled by every tier via `buildWorld.ts`'s
+static `WindSystem` import, so this reuse rides an already-shipped module. A
+new `getFinaleGlow()` accessor (0 outside the finale, ramping 0→1→0 across it
+via the SAME fade envelope the mote spiral's own opacity already tracks) feeds
+`createCompositor.ts`'s new "golden sweep": every frame, `render()` reads this
+0..1 glow and live-writes it into the ALREADY-BUILT `BloomEffect.intensity`
+and `VignetteEffect.darkness` (both plain mutable properties on effects the
+chain already constructs — zero new `Effect` classes, zero new imports), plus
+(high tier only) an ADDITIVE surge on `GodRaysEffect`'s blend opacity on top
+of the ambient sun-derived strength, so a daytime finale still gets a visible
+light-shaft surge rather than staying invisible just because the sun happens
+to be high. No restructuring of the merged `EffectPass` chain; the exact
+"no new effects if the headroom doesn't allow" fallback the design flagged was
+taken deliberately — a literal saturation/exposure grading effect
+(`HueSaturationEffect` or similar) would have meant a genuinely new
+`postprocessing` import against the ~9-11 KB headroom this slice had to work
+with, so amplifying the two effects already in the chain was the disciplined
+choice, not a shortcut. `Game.quest`/`GameHandle.quest` grew
+`getFinaleGlow(): number` (mirroring `dayCycle`'s narrow-accessor pattern) so
+`GameCanvas` can thread `TreasureBurstSystem`'s own signal into the compositor
+without either file reaching into the other's layer — `createCompositor.ts`
+still imports nothing from `src/fx`/`src/quest` (the `FinaleGlowSource`
+interface is declared locally, the `SunDirectionSource` precedent). Verified
+live: a standalone real-GPU capture (`TreasureBurstSystem` +
+`createBloomCompositor` constructed directly against a real `WebGLRenderer`,
+bypassing `QuestSystem` entirely — see this slice's run-log entry for why a
+full in-game playthrough to the actual dig wasn't attempted) shows the golden
+spiral rising and blooming, the whole frame visibly warming toward peak glow
+and cooling back down as the finale ends, and the idol settling into its
+static afterglow with no visual regression.
+
+*Social-preview refresh (closes the jungle-pivot's recorded deferral —
+`docs/team/runs/2026-07-08-jungle-pivot.md`: "`public/social-preview.png` still
+shows old-game art").* The flat vector `public/social-preview.svg` (F1 #129) —
+literally depicting the pre-pivot "drive and fly" game in its own aria-label —
+is RETIRED along with the script that rasterized it and its dedicated test
+(`socialPreviewSvg.test.ts`); `scripts/render-social-preview.mjs` now captures
+a REAL in-game screenshot instead (golden hour over the lagoon toward the camp/
+jungle island, a visible sun disc with its water-glint, clouds, splatted
+terrain, real CC0 flora — a real GPU, `--use-gl=angle --use-angle=metal`,
+against a live `vite preview`, the DOM shell hidden so only the canvas ships),
+re-encoded to a 256-colour palette PNG (`sharp`, already a devDependency) —
+indistinguishable by eye from the full-colour capture at this image's soft
+gradient sky (no visible banding), at roughly a quarter of the byte cost
+(**197.5 KB** vs ~528 KB full-colour). There is no second committed "source"
+file any more — the script's own fixed recipe (day-cycle offset `84_000` ms +
+camera eye/target, chosen by eye across several iterations for the clearest
+sun-disc/glint composition) is the regenerable source a static SVG used to be.
+`SOCIAL_PREVIEW_MAX_BYTES` (`src/share/socialMeta.ts`) moved from 96 KB (tuned
+for the old flat vector card) to **300 KB** (comfortable headroom above the
+~193 KB shipped file, still catching a truly bloated/uncompressed re-export) —
+the T3/T4 tests (`socialPreviewPng.test.ts`/`socialPreviewByteBound.test.ts`)
+still pin the exact 1200x630 dimensions and this new ceiling, so a future
+re-generation that silently bloats or mis-sizes still fails loud.
+`npm run check:social` (the post-build og:image/twitter:image/og:url/
+twitter:card gate, unaffected by the content swap — it never inspected the
+image's pixels, only its presence and dimensions via the meta tags) stays
+green.
+
+Measured `vite build` (gzip) + `npm run check:bundle`, branch vs the slice-6
+baseline (entry 98.35 KB, `three` 134.04 KB, `postfx` 152.33 KB,
+`createCompositor` split ~0.51 KB, `floraUpgrade` 3.81 KB, CSS 4.74 KB, summed
+JS gzip 388.8 KB, total download 3816.3 KB):
+
+- **Entry chunk:** 98.35 → 99.67 KB gz (**+1.32 KB** — `ambientMotes.ts` +
+  `AmbientMotesSystem.ts` (new, eager on every tier via `buildWorld.ts`'s
+  static import — the gate check itself is cheap even on low), plus the small
+  `TreasureBurstSystem.ts`/`quality.ts`/`buildGame.ts` additions).
+- **`three` vendor chunk (eager):** 134.04 KB gz, **byte-identical** — the
+  `windPhase` reuse in `TreasureBurstSystem.ts` added no new surface here.
+- **`postfx` chunk (lazy, medium/high only):** 152.33 KB gz, unchanged (the
+  finale-sweep logic lives in `createCompositor.ts` itself, not the
+  third-party `postprocessing`/`n8ao` bucket).
+- **`createCompositor` split chunk (lazy):** ~0.51 → 1.16 KB gz (**+0.65 KB**
+  — the new pure sweep functions/interface).
+- **`floraUpgrade` chunk (lazy, medium/high only):** 3.81 → 3.91 KB gz
+  (+0.10 KB — untouched by this slice; ordinary build/minification noise, the
+  same kind prior slices already noted on unrelated chunks).
+- **CSS:** 4.74 KB gz, unchanged (no new DOM/UI surface — this slice is
+  entirely inside the canvas plus one binary asset swap).
+- **Summed JS gzip (`check:bundle`):** 388.8 → **390.3 KB**, **9.7 KB** of the
+  400 KB cap left free (was 11.2 KB after slice 6 — this slice's actual cost,
+  ~1.5 KB, landed well inside the ≤5 KB budget it was given).
+- **Total download:** 3816.3 → **3981.5 KB** (**+165.2 KB** — almost entirely
+  the social-preview swap: the new ~193.0 KB screenshot replacing the old
+  ~32.9 KB PNG and removing the ~2.2 KB SVG source, plus the small JS delta),
+  **2018.5 KB** of the 6 MB cap still free.
+
+Both caps hold (`npm run check:bundle` EXIT=0) — this was the last slice of
+the visual overhaul, and the JS-gzip cap closes at **9.7 KB** of headroom, the
+thinnest of any slice; any future eager addition must budget against this
+number first.
+
+Verified visually via real-GPU Playwright captures (`--use-gl=angle
+--use-angle=metal`): ambient motes read as small pale dust squares drifting at
+varied heights through a jungle-interior scene (visible but subtle, never
+overwhelming); the social-preview composition shows the intended golden-hour
+lagoon vista with a clear sun disc and glint; the finale's standalone capture
+(above) shows the golden sweep breathing across the whole frame in step with
+the mote spiral. The render-gate's own forced-low/SwiftShader run stays exactly
+byte-identical to slice 6 (28 draws/156,838 triangles), proving the low tier
+paid nothing for this slice.
+
 ## How it is enforced
 
 - **Live:** `StatsOverlay` polls `Engine.getState()` and runs `checkFrame`

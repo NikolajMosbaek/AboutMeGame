@@ -25,8 +25,10 @@ describe("socialMeta constants", () => {
     expect(CANONICAL_ORIGIN).toBe("https://nikolajmosbaek.github.io");
   });
 
-  it("sets a per-image byte ceiling in the tens-of-KB range (the T4 byte-bound guard's single source)", () => {
-    expect(SOCIAL_PREVIEW_MAX_BYTES).toBe(96 * 1024);
+  it("sets a per-image byte ceiling for the real in-game screenshot (the T4 byte-bound guard's single source)", () => {
+    // Visual-overhaul slice 7: 300 KB, comfortable headroom above the ~193 KB
+    // palette-quantized screenshot actually shipped.
+    expect(SOCIAL_PREVIEW_MAX_BYTES).toBe(300 * 1024);
   });
 });
 
