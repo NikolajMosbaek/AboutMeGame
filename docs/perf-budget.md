@@ -536,6 +536,155 @@ never-added-to-scene mesh. Re-verified visually at dawn AND dusk on high tier
 post-fix: the shaft now genuinely anchors at the sun disc's screen position in
 both, rather than a fixed point.
 
+**Visual-overhaul slice 6 (flora & fauna, 2026-07-11)** replaced `props.ts`'s
+procedural cylinder-trunk/cross-plane-foliage vegetation with real low-poly
+CC0 models (Kenney "Nature Kit", CC0 — `public/assets/LICENSES.md`) at the SAME
+seeded placements, plus a new wind-swayed grass layer. `props.ts` itself is
+**untouched** — the procedural meshes still build synchronously on every tier,
+byte-identical to before this slice, and render from frame one; the model
+upgrade is a background swap-in gated to medium/high
+(`quality.floraDetail === "full"`, a new knob following the
+`terrainDetail`/`waterDetail`/`cloudDetail` "low ships the untouched pre-slice
+look, forever" precedent exactly).
+
+*The headline finding: three's official `GLTFLoader` was too expensive for
+this budget, so this slice ships a custom minimal GLB parser instead.*
+Measuring `loadModel`'s real cost (rather than assuming a ~13 KB gz loader
+chunk was the whole story) found it also added **+11.7 KB gz to the ALWAYS-
+eager `three` vendor chunk** — `GLTFLoader` references three-core symbols
+(`Skeleton`/`Bone`/`AnimationClip`/`PropertyBinding`, full animation/skinning
+support) nothing else in this codebase uses, so once ANY caller made
+`loadModel` "live", those symbols could no longer be tree-shaken out of the
+`three` bucket `vite.config.ts`'s `manualChunks` pins by module id regardless
+of static-vs-dynamic import — ~25 KB total against the ~15.4 KB headroom left
+after slice 5, over budget. Since `scripts/process-models.mjs`'s own output is
+fully known and narrow (one mesh, one primitive, POSITION/NORMAL/COLOR_0,
+`KHR_mesh_quantization`, no images/materials/animations),
+`src/world/floraGlb.ts` parses it directly: a ~12-byte GLB header walk, a JSON
+chunk parse, and a generic accessor reader that de-interleaves
+`KHR_mesh_quantization`'s shared-stride buffer view and re-applies the mesh
+node's compensating scale/translation (the "quantization volume" the spec
+pairs with any normalized-integer accessor) — referencing nothing outside
+`THREE.BufferGeometry`/`BufferAttribute`, both already eager everywhere in
+this codebase, so it adds ZERO bytes to the `three` chunk. `assets.ts`'s
+`loadModel`/`GLTFLoader` seam is kept (unused by this slice, but still a real
+general utility for a future caller) — DYNAMICALLY imported now instead of a
+static top-level import, so a future caller pays this same eager-chunk cost
+only if THEY actually invoke it, not merely by the seam existing.
+
+*A real bug caught mid-build, load-bearing for anyone re-deriving this
+approach.* Applying the node's compensating scale (> 1, since it un-shrinks
+the quantization volume's [-1,1] range back to world size) via
+`BufferGeometry.scale()`/`.translate()` on a STILL-`normalized: true`
+position attribute corrupts the mesh: `BufferAttribute.setXYZ` re-quantizes
+any value written back through it, and a value pushed outside the signed
+int16's representable [-1,1] range silently integer-overflow-wraps (two's-
+complement), producing a wildly mis-scaled, barely-recognizable result with
+no thrown error. The fix: `floraGlb.ts` dequantizes POSITION into a plain
+`Float32Array` (`normalized: false`) FIRST, then applies the node transform —
+NORMAL stays quantized (a uniform node scale never changes vector direction,
+so it needs no transform) and COLOR_0 obviously needs none either.
+
+*Sourcing.* Quaternius (the design's first-choice source) was tried first and
+rejected: every pack's download button opens a Google Drive folder with no
+scriptable direct-file URL (browser JS or an authenticated Drive API call
+only) — exactly the "download mechanics defeat scripting" case the design doc
+anticipated. Kenney's donate-or-skip flow resolves to one stable curl-able
+zip once followed, so it was used instead (a scriptability finding, not a
+licensing one — both sources are CC0). 7 models were picked (2 canopy, 1 palm,
+2 understory, 2 rock; all under 200 triangles post-merge) and processed by
+`scripts/process-models.mjs` (`@gltf-transform/*`, devDependencies, build-time
+only): bakes each material's flat colour into `COLOR_0` — RECOLOURED by
+material name to this world's own warm-jungle tokens rather than Kenney's
+source colours (`leafsGreen`'s `baseColorFactor` reads nearer cyan than green
+— a real visual finding from an early Playwright screenshot showing washed-
+out, pale-cyan canopies) — merges every primitive into one draw call, bakes a
+rescale-to-world-units + ground-to-y=0 transform directly into the vertex
+data (not a node transform — an earlier cut applied it to the node and
+silently lost it, since `floraGlb.ts` never reads `nodes`/`scenes`), and
+quantizes.
+
+*Draw calls.* Canopy 2 (was 2 — trunk + foliage cross), palm 1 (was 2 — the
+whole curved-trunk-plus-frond-crown model merges into one draw call now),
+understory 2 (was 1 — two model variants), rock 2 (was 1), plus the new grass
+layer (+1) — **net +2** against the pre-slice 6 draw calls, comfortably inside
+the design's `≤12 new` budget. A real `render_game_to_text` sample measured 28
+draw calls / 156,838 triangles / 35 fps on software GL (the render-gate's own
+low-tier stand-in) — comfortably inside the 500k triangle budget.
+
+*Wind sway.* One `onBeforeCompile` vertex patch (`src/world/windPatch.ts`, the
+`waterPatch.ts` idiom) shared by every canopy/palm/understory/grass material:
+a horizontal offset scaled by height² above the instance's local origin (so a
+trunk near the ground barely moves while the canopy/tip sways), phased per-
+instance by a cheap GLSL hash of `instanceMatrix`'s translation (so
+neighbouring trees don't sway in lockstep), driven by one shared wrapped
+`uTime` (`src/world/windSystem.ts`, the `WaterSystem`/`StarfieldSystem`
+float32-precision-wrap discipline — `WIND_WRAP_PERIOD` derived the same way
+`WRAP_PERIOD`/`STAR_WRAP_PERIOD` are). The sway direction is a fixed LOCAL
+axis, not a world-consistent wind heading — a documented simplification (a
+"physically correct" version would un-rotate each instance's random yaw via
+`transpose(mat3(instanceMatrix))`); the cheaper version still reads as
+natural, non-uniform swaying since every instance already has a random yaw.
+Reduced motion holds the phase (never resets it), the `WaterSystem` contract.
+
+*Grass.* `src/world/grass.ts` — one `InstancedMesh` of small tapered crossed
+blade-clusters, vertex-coloured root-to-tip (no texture, no `alphaTest`
+cutout), seeded onto open ground by reusing `terrainSplat.ts`'s real
+`computeSplatWeights` (fed a neutral 0.5 noise sample — that function's own
+mottle term only ever swaps weight between jungleFloor/leafLitter, never
+touching rock/sand, so the neutral input is an EXACT reuse for "is this
+grass-plausible ground", not an approximation) plus a slope check. Density
+scales with `propDensity` like every other prop layer.
+
+Measured `vite build` (gzip) + `npm run check:bundle`, same method as prior
+slices (branch vs the slice-5 baseline: entry 98.03 KB, `three` 134.04 KB,
+`postfx` 152.33 KB, CSS 4.74 KB, summed JS gzip 384.6 KB, total download
+3770.1 KB):
+
+- **Entry chunk:** 98.03 → 98.35 KB gz (**+0.32 KB** — the `WindSystem`
+  registration + the tiny dynamic-`import()` call site in `buildWorld.ts`,
+  eager on every tier since the gate check itself is cheap even on low).
+- **`three` vendor chunk (eager):** 134.04 KB gz, **byte-identical** — the
+  custom `floraGlb.ts` parser (see above) is what makes this possible; the
+  official `GLTFLoader` path measured +11.7 KB gz here before the fix.
+- **`postfx` chunk (lazy, medium/high only):** 152.33 KB gz, unchanged
+  (untouched by this slice).
+- **`floraUpgrade` chunk (NEW, lazy, medium/high only):** **3.81 KB gz** —
+  `floraUpgrade.ts` + `floraGlb.ts` + `grass.ts` + `windPatch.ts` +
+  `windSway.ts`, all reached ONLY through `buildWorld.ts`'s dynamic
+  `import("./floraUpgrade.ts")`; no `manualChunks` entry was needed (nothing
+  here is a third-party library, so Vite's default splitting already isolates
+  it). The low tier never downloads this chunk or fetches a single model.
+- **CSS:** 4.74 KB gz, unchanged (no new DOM/UI surface).
+- **Summed JS gzip (`check:bundle`):** 384.6 → **388.8 KB**, **11.2 KB** of
+  the 400 KB cap left free (was 15.4 KB after slice 5 — this slice's actual
+  cost, ~+4.2 KB, landed close to that headroom but inside it).
+- **Total download:** 3770.1 → **3816.3 KB** (+46.2 KB — 41.1 KB of quantized
+  GLBs, 7 files, plus the small JS delta), **2183.7 KB** of the 6 MB cap
+  still free.
+
+Both caps hold (`npm run check:bundle` EXIT=0). JS-gzip headroom is now
+**11.2 KB** — thinner than ever; the next slice (polish/particles/finale
+upgrade) should budget against this number and, per this slice's own finding,
+measure any new library's REAL eager-chunk cost (not just its own chunk size)
+before committing to it.
+
+Verified visually via manual Playwright spot-checks (real GPU,
+`--use-gl=angle --use-angle=metal`, `quality: "high"` forced via
+`localStorage`) at noon and dusk over a camp vista, a jungle-interior slope,
+and a hilltop river panorama: canopy trees read as real layered-foliage trees
+(not cylinders+crosses) in warm jungle-green after the recolour fix, palms
+show distinct frond clusters, understory ferns/bushes ground the foreground,
+and distant canopy silhouettes read as a plausible forest carpet through the
+atmospheric fog at panorama distance. Wind sway is verified via unit tests
+(`windSway.test.ts`/`windPatch.test.ts`, against the real `THREE.ShaderLib`
+source) and code review, **not** independently confirmed as visible motion in
+a screenshot pair — the `__frameView__` automation hook resumes the live
+follow camera on the next `advanceTime`, so a same-camera two-frame diff
+wasn't achievable with the existing hooks; recorded as an honest gap rather
+than a false claim. Jaguar/wildlife stays out of scope for this slice, as
+planned (deferred).
+
 ## How it is enforced
 
 - **Live:** `StatsOverlay` polls `Engine.getState()` and runs `checkFrame`
