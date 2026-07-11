@@ -117,6 +117,19 @@ export interface QualityConfig {
    *  so one tier value serves both. 4 on low/medium, 8 on high where the extra
    *  samples are affordable. */
   textureAnisotropy: number;
+  /** Flora model detail (visual-overhaul slice 6): `"full"` (medium/high)
+   *  asynchronously loads the CC0 low-poly tree/palm/understory/rock GLBs
+   *  (`src/world/floraUpgrade.ts`, behind a LAZY dynamic import — see that
+   *  module's own doc for why) and swaps them in at the SAME seeded
+   *  `props.ts` placements, plus builds the wind-swayed grass layer
+   *  (`src/world/grass.ts`). `"none"` (low) never imports the upgrade chunk,
+   *  never fetches a model, never builds the grass layer: the world keeps the
+   *  EXACT pre-slice-6 procedural cylinder/cross-plane vegetation forever —
+   *  the same "low tier must not get slower than today" floor
+   *  `terrainDetail`/`waterDetail`/`cloudDetail` already hold. A bake-at-mount
+   *  knob (constructing the upgrade at all is the cost), so it "applies on
+   *  reload" like those. */
+  floraDetail: "none" | "full";
 }
 
 /**
@@ -147,6 +160,7 @@ export const QUALITY_TIERS: Record<DeviceTier, QualityConfig> = {
     waterDetail: "none",
     cloudDetail: "none",
     textureAnisotropy: 4,
+    floraDetail: "none",
   },
   medium: {
     tier: "medium",
@@ -163,6 +177,7 @@ export const QUALITY_TIERS: Record<DeviceTier, QualityConfig> = {
     waterDetail: "full",
     cloudDetail: "full",
     textureAnisotropy: 4,
+    floraDetail: "full",
   },
   high: {
     tier: "high",
@@ -179,6 +194,7 @@ export const QUALITY_TIERS: Record<DeviceTier, QualityConfig> = {
     waterDetail: "full",
     cloudDetail: "full",
     textureAnisotropy: 8,
+    floraDetail: "full",
   },
 };
 

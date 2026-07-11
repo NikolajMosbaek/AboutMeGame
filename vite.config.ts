@@ -39,6 +39,18 @@ export default defineConfig(({ command, isPreview }) => ({
         // stray eager import would drag `postfx` into the initial preload
         // graph, but never invisibly merge the bytes into `three`.
         manualChunks(id) {
+          // `GLTFLoader` (visual-overhaul slice 6, flora & fauna) is reached
+          // ONLY through the lazy `floraUpgrade.ts` chunk (`src/engine/assets.ts`
+          // itself now imports it dynamically too, for exactly this reason —
+          // see that file's own doc). Forcing it into the blanket `three/`
+          // match below would pin its ~24 KB gz into the ALWAYS-eager `three`
+          // bucket regardless of that laziness, since `manualChunks` assigns by
+          // module id, not by static/dynamic reachability — measured directly
+          // (`npm run build`: the `three` chunk jumped 134.04 → 157.9 KB gz
+          // before this exclusion). Falling through to `undefined` here lets
+          // Rollup's default splitting chunk it with its real (today, lazy-
+          // only) importer instead.
+          if (/node_modules\/three\/examples\/jsm\/loaders\/GLTFLoader\.js/.test(id)) return undefined;
           if (/node_modules\/three\//.test(id)) return "three";
           if (/node_modules\/(postprocessing|n8ao)\//.test(id)) return "postfx";
         },

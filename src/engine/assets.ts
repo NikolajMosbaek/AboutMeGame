@@ -15,8 +15,7 @@
 // caps total download); prefer compressed textures and low-poly glTF.
 
 import * as THREE from "three";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import type { GLTF } from "three/examples/jsm/loaders/GLTFLoader.js";
+import type { GLTF, GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 
 /** Resolve a `public/`-relative path to a runtime URL under the deploy base.
  *  `assetUrl("assets/textures/grass.png")` →
@@ -31,13 +30,32 @@ const textureCache = new Map<string, Promise<THREE.Texture>>();
 const gltfCache = new Map<string, Promise<GLTF>>();
 
 let _textureLoader: THREE.TextureLoader | null = null;
-let _gltfLoader: GLTFLoader | null = null;
+let _gltfLoaderPromise: Promise<GLTFLoader> | null = null;
 
 function textureLoader(): THREE.TextureLoader {
   return (_textureLoader ??= new THREE.TextureLoader());
 }
-function gltfLoader(): GLTFLoader {
-  return (_gltfLoader ??= new GLTFLoader());
+
+// `GLTFLoader` is imported DYNAMICALLY (never a static top-level `import`) —
+// a visual-overhaul slice 6 finding, kept as a standing defensive discipline
+// for this seam even though that slice's own flora models end up using the
+// narrower `src/world/floraGlb.ts` parser instead (see that module's header
+// doc: the full official `GLTFLoader` measured at +11.7 KB gz on the ALWAYS-
+// eager `three` vendor chunk on top of its own ~13 KB gz, because it
+// references three-core symbols — `Skeleton`/`AnimationClip`/etc. — nothing
+// else in this codebase uses, so they could no longer be tree-shaken out of
+// that eager bucket the moment ANY caller made `loadModel` "live"). Since
+// `assets.ts` is itself eagerly reachable (via `loadTexture`, used by
+// `terrain.ts`/`boundaries.ts`), a static `import { GLTFLoader }` here would
+// pay that cost the instant a FUTURE caller (this seam is still a real,
+// general glTF-loading utility) calls `loadModel` — dynamically importing it
+// keeps GLTFLoader's own code chunked with whichever importer actually
+// reaches it at runtime, without changing this module's public
+// `loadModel(path): Promise<GLTF>` contract.
+function gltfLoader(): Promise<GLTFLoader> {
+  return (_gltfLoaderPromise ??= import("three/examples/jsm/loaders/GLTFLoader.js").then(
+    (mod) => new mod.GLTFLoader(),
+  ));
 }
 
 /** Load (and cache) a texture by its `public/`-relative path, sRGB-tagged for
@@ -62,7 +80,7 @@ export function loadModel(path: string): Promise<GLTF> {
   const url = assetUrl(path);
   let pending = gltfCache.get(url);
   if (!pending) {
-    pending = gltfLoader().loadAsync(url);
+    pending = gltfLoader().then((loader) => loader.loadAsync(url));
     gltfCache.set(url, pending);
   }
   return pending;

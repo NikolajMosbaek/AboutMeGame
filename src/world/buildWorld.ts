@@ -12,6 +12,8 @@ import { buildAquatic } from "./aquatic.ts";
 import { ShadowFrustumSystem } from "./shadowFrustumSystem.ts";
 import { StarfieldSystem } from "./starfield.ts";
 import { CloudSystem } from "./clouds.ts";
+import { WindSystem, type WindUniforms } from "./windSystem.ts";
+import type { FloraUpgradeHandle } from "./floraUpgrade.ts";
 import { WORLD } from "./worldConfig.ts";
 import { QUALITY_TIERS, type QualityConfig } from "../perf/quality.ts";
 
@@ -102,6 +104,34 @@ export function buildWorld(
   const props = buildProps(terrain, quality.propDensity);
   scene.add(props.group);
 
+  // The CC0 flora model upgrade (visual-overhaul slice 6) — medium/high only
+  // (`quality.floraDetail === "full"`). `props.group` above already renders
+  // the FULL procedural vegetation synchronously, byte-identical to before
+  // this slice (`props.ts` is untouched); this is a background swap-in, never
+  // a gate on the world being visible. `floraUpgrade.ts` is reached ONLY
+  // through this dynamic `import()` (the `GameCanvas`/`loadCompositor` lazy-
+  // chunk idiom — see that module's own doc), so the low tier never downloads
+  // a byte of it. `windUniforms` is the one shared `{uTime}` handle every
+  // wind-patched flora/grass material binds by reference; `WindSystem` is
+  // registered only here, alongside the tiers that actually attach a wind-
+  // patched material (mirrors `ShadowFrustumSystem`'s `quality.shadows` gate:
+  // no point advancing a clock nothing reads).
+  let floraUpgradeCancelled = false;
+  let floraUpgradeHandle: FloraUpgradeHandle | null = null;
+  if (quality.floraDetail === "full") {
+    const windUniforms: WindUniforms = { uTime: { value: 0 } };
+    engine.addSystem(new WindSystem(windUniforms, reducedMotion));
+    import("./floraUpgrade.ts").then(
+      ({ upgradeFlora }) => {
+        if (floraUpgradeCancelled) return;
+        floraUpgradeHandle = upgradeFlora(props.group, terrain, quality.propDensity, windUniforms);
+      },
+      (err) => {
+        console.error("flora upgrade chunk failed to load — keeping procedural props:", err);
+      },
+    );
+  }
+
   // Aquatic life (#184): kelp beds + lily pads in the lagoon (2 draw calls,
   // deterministic). The sway system registers below, gated by reduced motion.
   const aquatic = buildAquatic(terrain);
@@ -125,6 +155,8 @@ export function buildWorld(
       getSunDirection: () => dayCycleSystem.getSunDirection(),
     },
     dispose() {
+      floraUpgradeCancelled = true; // an in-flight model load must not attach to a torn-down world
+      floraUpgradeHandle?.dispose();
       terrain.dispose();
       sky.dispose();
       boundaries.dispose();
