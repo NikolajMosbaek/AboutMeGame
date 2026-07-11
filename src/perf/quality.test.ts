@@ -36,6 +36,9 @@ describe("resolveQuality", () => {
     // slice 5). The sky dome atmosphere + starfield are NOT gated, so they're
     // not asserted here (every tier gets them).
     expect(low.cloudDetail).toBe("none");
+    // Low never upgrades to the CC0 flora models / grass layer (visual-
+    // overhaul slice 6) — the exact pre-slice-6 procedural vegetation forever.
+    expect(low.floraDetail).toBe("none");
   });
 
   it("the medium tier turns shadows on at a smaller map and caps DPR", () => {
@@ -60,6 +63,8 @@ describe("resolveQuality", () => {
     expect(med.waterDetail).toBe("full");
     // Medium gets the drifting cloud layer (visual-overhaul slice 5).
     expect(med.cloudDetail).toBe("full");
+    // Medium upgrades flora to the CC0 models + grass layer (slice 6).
+    expect(med.floraDetail).toBe("full");
   });
 
   it("the high tier is full quality", () => {
@@ -78,6 +83,7 @@ describe("resolveQuality", () => {
     expect(high.textureAnisotropy).toBe(8);
     expect(high.waterDetail).toBe("full");
     expect(high.cloudDetail).toBe("full");
+    expect(high.floraDetail).toBe("full");
   });
 
   it("monotonically scales every cost knob across the tiers", () => {
@@ -131,6 +137,11 @@ describe("resolveQuality", () => {
     expect(QUALITY_TIERS.low.cloudDetail).toBe("none");
     expect(QUALITY_TIERS.medium.cloudDetail).toBe("full");
     expect(QUALITY_TIERS.high.cloudDetail).toBe("full");
+    // Flora model detail (visual-overhaul slice 6) is off only at the bottom
+    // tier, same shape as terrainDetail/waterDetail/cloudDetail.
+    expect(QUALITY_TIERS.low.floraDetail).toBe("none");
+    expect(QUALITY_TIERS.medium.floraDetail).toBe("full");
+    expect(QUALITY_TIERS.high.floraDetail).toBe("full");
   });
 
   it("N8AO's artistic look (radius/falloff/intensity) is identical on medium and high", () => {

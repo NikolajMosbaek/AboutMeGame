@@ -46,3 +46,46 @@ near-miss return nothing usable as a seamless still-water ripple normal map
 paving-stone "wave" patterns — none are it), and Poly Haven's texture library
 has no "water" category at all. Recorded here, and in the slice's run-log
 entry, rather than silently shipping a mismatched substitute.
+
+## Flora models (visual-overhaul slice 6, 2026-07-11)
+
+Source: [Kenney "Nature Kit"](https://kenney.nl/assets/nature-kit) (CC0 1.0 —
+Kenney's own stated license for every asset pack: free to use in personal,
+educational and commercial projects; crediting Kenney/kenney.nl is appreciated
+but not mandatory). Direct download (found by following the site's donate-or-
+skip download flow, not guessable from the pack page's static HTML alone):
+
+```
+https://kenney.nl/media/pages/assets/nature-kit/37ac38a37b-1677698939/kenney_nature-kit.zip
+```
+
+**Quaternius (quaternius.com), the design doc's first-choice source, was tried
+first and rejected for this slice.** Every pack's "Just give me the download"
+button opens a Google Drive FOLDER
+(`drive.google.com/drive/folders/...`), which has no stable, scriptable
+direct-file URL — Google Drive folder listings require either browser JS
+rendering or an authenticated Drive API call. This is a scriptability finding,
+not a licensing one (Quaternius's own packs are also CC0).
+
+7 source models were selected from the kit's `Models/GLTF format/` — picked by
+inspecting every candidate's triangle count + bounding box
+(`gltf-transform inspect`) for a jungle-plausible silhouette at a low cost
+(all 7 are under 200 triangles post-merge) — and processed by
+`scripts/process-models.mjs` (`@gltf-transform/*` devDependencies, build-time
+only) into the quantized GLB payload `public/assets/models/flora/` ships. That
+script's own header comment records the full per-model pipeline (colour
+recolouring, merge, rescale, quantize).
+
+| Category | Output file | Source model |
+|---|---|---|
+| canopy tree A | canopy-a.glb | tree_default.glb |
+| canopy tree B | canopy-b.glb | tree_oak.glb |
+| palm | palm-a.glb | tree_palmTall.glb |
+| understory A | understory-a.glb | plant_bushDetailed.glb |
+| understory B | understory-b.glb | plant_flatTall.glb |
+| rock A | rock-a.glb | rock_largeA.glb |
+| rock B | rock-b.glb | rock_largeD.glb |
+
+CC0 statement (Kenney's FAQ, https://kenney.nl/faq): all assets are released
+under Creative Commons Zero (CC0) — free to use in any project, personal or
+commercial, with no attribution required.
