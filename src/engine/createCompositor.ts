@@ -3,6 +3,7 @@ import {
   BloomEffect,
   EffectComposer,
   EffectPass,
+  GodRaysEffect,
   RenderPass,
   SMAAEffect,
   ToneMappingEffect,
@@ -71,6 +72,104 @@ const BLOOM_LEVELS_MEDIUM = 6;
 /** Vignette look — a subtle frame darkening, not a stylistic statement. */
 const VIGNETTE_DARKNESS = 0.25;
 const VIGNETTE_OFFSET = 0.3;
+
+/** Duck-typed sun-direction accessor — `DayCycleSystem` (or any plain object
+ *  with this one method) satisfies it. Declared LOCALLY rather than imported
+ *  from `src/world/starfield.ts`'s identical-shaped interface, so this
+ *  engine-layer file never crosses into world/gameplay code — the same
+ *  layering `createRenderer.ts` already keeps (no `src/world` imports
+ *  anywhere in `src/engine`). */
+export interface SunDirectionSource {
+  getSunDirection(): THREE.Vector3;
+}
+
+/**
+ * World-unit distance the god-rays light-source mesh sits at along the sun
+ * direction — far enough to read as a sky-bound source, safely inside the
+ * camera's far plane (`buildWorld.ts` sets it to `WORLD.size * 2` = 1040
+ * world units) with margin. Not derived from `WORLD.size` — this file stays
+ * engine-only and never imports world config.
+ */
+const GOD_RAYS_DISTANCE = 850;
+/** Tiny, cheap light-source sphere — its own render cost is negligible
+ *  (8x8 segments); only its screen-space position matters to the effect. */
+const GOD_RAYS_MESH_RADIUS = 6;
+
+/**
+ * How much the god-rays effect contributes (the merged pass's per-effect
+ * blend opacity, 0..1) for sun-direction Y `sunDirY` (`= sin(elevation)`) —
+ * 0 at a comfortably high (noon-strength) sun, rising to a modest 0.6 ceiling
+ * as the sun gets low, so shafts read at dawn/dusk and are genuinely
+ * invisible at noon rather than a constant wash. The SAME "how low is the
+ * sun" shape `src/world/skyAtmosphere.ts`'s `lowSunFactor` already owns for
+ * the dome's limb glow — duplicated here in miniature (not imported) so this
+ * engine-layer file stays free of any `src/world` dependency.
+ */
+export function godRaysStrength(sunDirY: number): number {
+  const clamped = sunDirY < -1 ? -1 : sunDirY > 1 ? 1 : sunDirY;
+  const raised = clamped * 2 < 0 ? 0 : clamped * 2 > 1 ? 1 : clamped * 2;
+  return 0.6 * (1 - raised);
+}
+
+/** The god-rays effect + its private light-source mesh, bundled with the one
+ *  per-frame write (`update`) and its own disposal (the mesh's geometry and
+ *  material are owned here, NOT by `GodRaysEffect` itself — it only reads the
+ *  mesh it's given, so they need their own `dispose()`, separate from the
+ *  effect's own — which the merged `EffectPass` disposes when the composer
+ *  tears down). */
+export interface GodRays {
+  effect: GodRaysEffect;
+  /** Reposition the light source along unit direction `dir` and fade the
+   *  effect's contribution by how low the sun currently is — call once per
+   *  frame, before compositing. */
+  update(dir: THREE.Vector3): void;
+  /** Disposes ONLY the externally-owned mesh resources (geometry/material) —
+   *  `effect` itself is disposed by the merged `EffectPass`/`EffectComposer`
+   *  teardown, never here (double-disposing the same `GodRaysEffect` is
+   *  avoided by construction, not by a disposed-guard). */
+  dispose(): void;
+}
+
+/**
+ * Build the god-rays effect (visual-overhaul slice 5, high tier only) — a
+ * small, cheap sphere standing in for the sun as pmndrs `postprocessing`'s
+ * `GodRaysEffect` light source (its own internal pass tests it against the
+ * main scene's depth, so it reads as occluded behind terrain/props exactly
+ * like a real light shaft would). Subtle by design: `exposure`/`clampMax`
+ * keep the shaft contribution soft, and the LIVE `update()` fade
+ * (`godRaysStrength`) is what actually keeps it "near-invisible at noon,
+ * visible at dawn/dusk" — the constructor options alone are NOT time-of-day
+ * aware.
+ */
+function buildGodRays(camera: THREE.Camera): GodRays {
+  const geometry = new THREE.SphereGeometry(GOD_RAYS_MESH_RADIUS, 8, 8);
+  const material = new THREE.MeshBasicMaterial({ color: 0xfff4d6, toneMapped: false });
+  const lightMesh = new THREE.Mesh(geometry, material);
+  lightMesh.position.set(0, GOD_RAYS_DISTANCE, 0); // placeholder — update() repositions every frame
+
+  const effect = new GodRaysEffect(camera, lightMesh, {
+    samples: 40,
+    density: 0.92,
+    decay: 0.93,
+    weight: 0.35,
+    exposure: 0.35,
+    clampMax: 0.65,
+    blur: true,
+  });
+  effect.blendMode.opacity.value = 0; // starts invisible; the first update() sets the real value
+
+  return {
+    effect,
+    update(dir) {
+      lightMesh.position.copy(dir).multiplyScalar(GOD_RAYS_DISTANCE);
+      effect.blendMode.opacity.value = godRaysStrength(dir.y);
+    },
+    dispose() {
+      geometry.dispose();
+      material.dispose();
+    },
+  };
+}
 
 /**
  * Build the N8AO ambient-occlusion pass (visual-overhaul slice 2, medium/high
@@ -152,26 +251,40 @@ export function buildEffectStack(quality: QualityConfig): EffectStack {
 /**
  * Build the three passes the composer runs: a `RenderPass`, the N8AO
  * ambient-occlusion pass, and ONE merged `EffectPass` housing every fullscreen
- * effect (bloom, SMAA, vignette, tone mapping). Merging the LATTER into a
- * single `EffectPass` is the whole point of using pmndrs `postprocessing` over
- * the old pass-per-effect `EffectComposer` chain — it costs one fullscreen
- * fragment pass instead of four for that group, which is the mobile fill-rate
- * win; N8AO needs its own separate pass (it isn't a pmndrs `Effect` that could
- * merge into the `EffectPass`) and per n8ao's own README must sit BEFORE it —
- * ambient occlusion has to modulate the lit scene before bloom/tone-mapping
- * run, not after. Like `buildEffectStack`, constructing these needs no WebGL
- * context, so it is unit-tested headless.
+ * effect (bloom, SMAA, vignette, tone mapping, and — high tier only — god
+ * rays). Merging is the whole point of using pmndrs `postprocessing` over the
+ * old pass-per-effect `EffectComposer` chain — it costs one fullscreen
+ * fragment pass instead of several for that group, which is the mobile
+ * fill-rate win; N8AO needs its own separate pass (it isn't a pmndrs `Effect`
+ * that could merge into the `EffectPass`) and per n8ao's own README must sit
+ * BEFORE it — ambient occlusion has to modulate the lit scene before
+ * bloom/tone-mapping run, not after. God rays is listed FIRST among the
+ * merged effects (right after AO, before bloom) so its own scene-space light
+ * shafts still pick up bloom's glow rather than bypassing it. Like
+ * `buildEffectStack`, constructing these needs no WebGL context, so it is
+ * unit-tested headless.
  */
 export function buildPasses(
   scene: THREE.Scene,
   camera: THREE.Camera,
   quality: QualityConfig,
-): { renderPass: RenderPass; aoPass: N8AOPostPass; effectPass: EffectPass; stack: EffectStack } {
+): {
+  renderPass: RenderPass;
+  aoPass: N8AOPostPass;
+  effectPass: EffectPass;
+  stack: EffectStack;
+  /** Non-null only on the high tier — the effect + its light-source mesh,
+   *  with the per-frame `update()`/`dispose()` the caller must drive. */
+  godRays: GodRays | null;
+} {
   const stack = buildEffectStack(quality);
   const renderPass = new RenderPass(scene, camera);
   const aoPass = buildAOPass(scene, camera, quality);
-  const effectPass = new EffectPass(camera, stack.bloom, stack.smaa, stack.vignette, stack.toneMapping);
-  return { renderPass, aoPass, effectPass, stack };
+  const godRays = quality.tier === "high" ? buildGodRays(camera) : null;
+  const effectPass = godRays
+    ? new EffectPass(camera, godRays.effect, stack.bloom, stack.smaa, stack.vignette, stack.toneMapping)
+    : new EffectPass(camera, stack.bloom, stack.smaa, stack.vignette, stack.toneMapping);
+  return { renderPass, aoPass, effectPass, stack, godRays };
 }
 
 /**
@@ -190,17 +303,24 @@ export function buildPasses(
  * README's "Color Management"/"Tone Mapping" sections). `HalfFloatType`
  * buffers are what make this safe: `UnsignedByteType` buffers would clamp to
  * `[0,1]` before bloom/tone-mapping ever saw the light, per the same README.
+ *
+ * `sunSource` (visual-overhaul slice 5) is the god-rays light-source driver —
+ * on the high tier, `render()` repositions the light-source mesh and fades
+ * the effect's contribution from it every frame BEFORE compositing; absent
+ * or on any other tier, god rays is simply never built (`buildPasses`) and
+ * this parameter is inert.
  */
 export function createBloomCompositor(
   renderer: THREE.WebGLRenderer,
   scene: THREE.Scene,
   camera: THREE.Camera,
   quality: QualityConfig,
+  sunSource?: SunDirectionSource,
 ): Compositor {
   configureCompositorColor(renderer);
 
   const composer = new EffectComposer(renderer, { frameBufferType: THREE.HalfFloatType });
-  const { renderPass, aoPass, effectPass } = buildPasses(scene, camera, quality);
+  const { renderPass, aoPass, effectPass, godRays } = buildPasses(scene, camera, quality);
 
   composer.addPass(renderPass);
   composer.addPass(aoPass);
@@ -208,6 +328,7 @@ export function createBloomCompositor(
 
   return {
     render() {
+      if (godRays && sunSource) godRays.update(sunSource.getSunDirection());
       composer.render();
     },
 
@@ -227,9 +348,12 @@ export function createBloomCompositor(
       // `composer.dispose()` disposes every registered pass — the `RenderPass`,
       // `N8AOPostPass` (frees its render targets), and the merged `EffectPass`
       // (whose own `dispose()` disposes each of its effects in turn: bloom,
-      // SMAA, vignette, tone mapping) — so the whole stack is freed by this
-      // one call.
+      // SMAA, vignette, tone mapping, and — high tier — god rays) — so the
+      // whole stack is freed by this one call. `godRays.dispose()` additionally
+      // frees the light-source mesh's geometry/material, which `GodRaysEffect`
+      // never owned (see `GodRays`'s own doc for why this is not a double-free).
       composer.dispose();
+      godRays?.dispose();
     },
   };
 }

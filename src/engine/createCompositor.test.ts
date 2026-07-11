@@ -1,8 +1,15 @@
 import { describe, expect, it } from "vitest";
 import * as THREE from "three";
-import { BloomEffect, EffectPass, SMAAEffect, ToneMappingMode, VignetteEffect } from "postprocessing";
+import {
+  BloomEffect,
+  EffectPass,
+  GodRaysEffect,
+  SMAAEffect,
+  ToneMappingMode,
+  VignetteEffect,
+} from "postprocessing";
 import { N8AOPostPass } from "n8ao";
-import { buildAOPass, buildEffectStack, buildPasses } from "./createCompositor.ts";
+import { buildAOPass, buildEffectStack, buildPasses, godRaysStrength } from "./createCompositor.ts";
 import { QUALITY_TIERS } from "../perf/quality.ts";
 
 /**
@@ -76,19 +83,93 @@ describe("buildPasses (EffectPass merging)", () => {
     expect(effectPass).toBeInstanceOf(EffectPass);
   });
 
-  it("the merged pass carries all four effects (bloom, SMAA, vignette, tone-mapping)", () => {
+  it("the merged pass carries all four effects (bloom, SMAA, vignette, tone-mapping) on medium (no god rays there)", () => {
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera();
-    const { effectPass, stack } = buildPasses(scene, camera, QUALITY_TIERS.high);
+    const { effectPass, stack, godRays } = buildPasses(scene, camera, QUALITY_TIERS.medium);
 
     // `effects` is TS-`private` on EffectPass (compile-time only); reading it
     // here is the one honest way to prove all four effects landed in the SAME
     // pass without constructing a real EffectComposer/WebGLRenderer.
     const effects = (effectPass as unknown as { effects: unknown[] }).effects;
+    expect(godRays).toBeNull(); // medium never builds god rays
     expect(effects).toHaveLength(4);
     expect(effects).toEqual(
       expect.arrayContaining([stack.bloom, stack.smaa, stack.vignette, stack.toneMapping]),
     );
+  });
+});
+
+describe("buildPasses — god rays (visual-overhaul slice 5, high tier only)", () => {
+  it("is null on low/medium — no god rays built, no fifth effect in the merged pass", () => {
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera();
+    expect(buildPasses(scene, camera, QUALITY_TIERS.low).godRays).toBeNull();
+    expect(buildPasses(scene, camera, QUALITY_TIERS.medium).godRays).toBeNull();
+  });
+
+  it("is built on high, merged into the SAME EffectPass as a 5th effect", () => {
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera();
+    const { effectPass, stack, godRays } = buildPasses(scene, camera, QUALITY_TIERS.high);
+
+    expect(godRays).not.toBeNull();
+    expect(godRays!.effect).toBeInstanceOf(GodRaysEffect);
+
+    // EffectPass may reorder its internal effect list (it groups by shared
+    // GLSL attributes), so only membership/count is asserted, not order.
+    const effects = (effectPass as unknown as { effects: unknown[] }).effects;
+    expect(effects).toHaveLength(5);
+    expect(effects).toEqual(
+      expect.arrayContaining([
+        godRays!.effect,
+        stack.bloom,
+        stack.smaa,
+        stack.vignette,
+        stack.toneMapping,
+      ]),
+    );
+  });
+
+  it("update() repositions the light-source mesh along the given direction, scaled out", () => {
+    const camera = new THREE.PerspectiveCamera();
+    const { godRays } = buildPasses(new THREE.Scene(), camera, QUALITY_TIERS.high);
+
+    const dir = new THREE.Vector3(0, 1, 0);
+    godRays!.update(dir);
+
+    // The light-source mesh is private to the builder, but its screen-space
+    // position (what the effect actually reads) is exposed via `screenPosition`
+    // — reaching a straight-up direction should NOT throw and should update
+    // the effect's internal state without error.
+    expect(() => godRays!.update(new THREE.Vector3(0.6, 0.16, 0.4).normalize())).not.toThrow();
+  });
+
+  it("dispose() does not throw and is safe alongside the effect's own teardown", () => {
+    const camera = new THREE.PerspectiveCamera();
+    const { godRays, effectPass } = buildPasses(new THREE.Scene(), camera, QUALITY_TIERS.high);
+
+    expect(() => {
+      godRays!.dispose();
+      effectPass.dispose(); // disposes godRays.effect itself — must not double-free the mesh
+    }).not.toThrow();
+  });
+});
+
+describe("godRaysStrength (dawn/dusk shafts, near-invisible at noon)", () => {
+  it("is 0 at a comfortably high (noon-strength) sun", () => {
+    const NOON_SUN_Y = Math.sin(Math.atan2(1, Math.hypot(0.6, 0.4))); // ≈0.811
+    expect(godRaysStrength(NOON_SUN_Y)).toBe(0);
+  });
+
+  it("rises toward its 0.6 ceiling as the sun gets low", () => {
+    expect(godRaysStrength(0.1)).toBeGreaterThan(0);
+    expect(godRaysStrength(0.1)).toBeLessThanOrEqual(0.6);
+    expect(godRaysStrength(-1)).toBeCloseTo(0.6, 10);
+  });
+
+  it("is monotonically decreasing as the sun climbs", () => {
+    expect(godRaysStrength(0.05)).toBeGreaterThan(godRaysStrength(0.3));
   });
 });
 

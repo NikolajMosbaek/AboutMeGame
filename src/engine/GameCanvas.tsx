@@ -67,12 +67,14 @@ export interface GameHandle {
    *  edge the E key does, and `touchActive` gates mounting TouchActionButton.
    *  Optional so a minimal preview/test build without it still mounts. */
   input?: { pressInteract(): void; touchActive: boolean };
-  /** The day-cycle palette accessor (visual-overhaul slice 2) — when present,
-   *  GameCanvas builds `EnvLightSystem` directly against it (mirroring how it
-   *  owns the compositor: `PMREMGenerator` needs the real renderer, which
-   *  `buildWorld`/`buildGame` never touch, keeping them headless-testable).
-   *  Optional so a minimal preview/test build without it still mounts. */
-  dayCycle?: Pick<DayCycleSystem, "getPhase" | "getPalette">;
+  /** The day-cycle palette + sun-direction accessor (visual-overhaul slices 2
+   *  and 5) — when present, GameCanvas builds `EnvLightSystem` directly
+   *  against it and (high tier) feeds the compositor's god rays the live sun
+   *  direction (mirroring how it owns the compositor: `PMREMGenerator`/the
+   *  real renderer neither `buildWorld` nor `buildGame` ever touch, keeping
+   *  them headless-testable). Optional so a minimal preview/test build
+   *  without it still mounts. */
+  dayCycle?: Pick<DayCycleSystem, "getPhase" | "getPalette" | "getSunDirection">;
 }
 
 /** Loader for the post-processing module — the code-splitting seam. The default
@@ -190,11 +192,19 @@ export function GameCanvas({
 
     const eng = new Engine({ renderer, scene, camera });
     let cancelled = false;
+    const built = build(eng, container, quality);
+    if (built) setGame(built);
+
     if (quality.bloom) {
+      // `built?.dayCycle` (its `getSunDirection`) feeds the high-tier god-rays
+      // light source, visual-overhaul slice 5 — `built` is already assigned by
+      // now (this `.then()` body only ever runs after a real async chunk
+      // fetch, so the closure always sees the resolved value, never `undefined`
+      // from a stale reference).
       loadCompositor().then(
         ({ createBloomCompositor }) => {
           if (cancelled) return;
-          const compositor = createBloomCompositor(renderer, scene, camera, quality);
+          const compositor = createBloomCompositor(renderer, scene, camera, quality, built?.dayCycle);
           compositorRef.current = compositor;
           eng.setCompositor(compositor);
         },
@@ -206,8 +216,6 @@ export function GameCanvas({
         },
       );
     }
-    const built = build(eng, container, quality);
-    if (built) setGame(built);
 
     // The sky-driven IBL environment light (visual-overhaul slice 2) — built
     // directly here, like the compositor, because `PMREMGenerator` needs the
