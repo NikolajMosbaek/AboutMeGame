@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import * as THREE from "three";
 import { AmbientMotesSystem } from "./AmbientMotesSystem.ts";
 import { AMBIENT_LEAF_COUNT, AMBIENT_MOTE_COUNT } from "./ambientMotes.ts";
+import { POINT_SPRITE_ALPHA_TEST } from "./pointSprite.ts";
 import type { FrameContext } from "../engine/types.ts";
 
 const CTX = (dt = 1 / 60): FrameContext =>
@@ -36,6 +37,16 @@ describe("AmbientMotesSystem — 2 draw calls, always visible (no idle/active to
     const { motes } = rig();
     const mat = motes.material as THREE.PointsMaterial;
     expect(mat.blending).not.toBe(THREE.AdditiveBlending);
+  });
+
+  it("uses the shared soft-round point sprite on both clouds (no more hard GL-point squares)", () => {
+    const { motes, leaves } = rig();
+    const moteMat = motes.material as THREE.PointsMaterial;
+    const leafMat = leaves.material as THREE.PointsMaterial;
+    expect(moteMat.alphaTest).toBe(POINT_SPRITE_ALPHA_TEST);
+    expect(moteMat.transparent).toBe(true);
+    expect(leafMat.alphaTest).toBe(POINT_SPRITE_ALPHA_TEST);
+    expect(leafMat.transparent).toBe(true);
   });
 
   it("animates positions frame to frame under normal motion", () => {

@@ -22,6 +22,7 @@ import * as THREE from "three";
 import type { System, FrameContext } from "../engine/types.ts";
 import type { ReducedMotionSource } from "../world/buildWorld.ts";
 import { windPhase } from "../world/windSway.ts";
+import { POINT_SPRITE_ALPHA_TEST, makeSoftCircleSprite } from "./pointSprite.ts";
 
 /** Motes in the spiral. One draw call regardless. Bumped from 200 for the
  *  visual-overhaul slice 7 finale upgrade — "more motes" per the design, still
@@ -88,6 +89,9 @@ export class TreasureBurstSystem implements System {
   /** Each mote's fixed sparkle phase, hashed once at construction from its
    *  index via `windSway.ts`'s `windPhase` — deterministic, no per-frame cost. */
   private readonly sparklePhases: Float32Array;
+  /** Soft-round sprite (`pointSprite.ts`) — without it these motes rasterize
+   *  as literal hard squares. */
+  private readonly sprite: THREE.CanvasTexture | null;
 
   private wasActive = false;
   /** Latched at finale start, so the setting can't half-toggle mid-spectacle. */
@@ -113,9 +117,12 @@ export class TreasureBurstSystem implements System {
     this.geometry = new THREE.BufferGeometry();
     this.geometry.setAttribute("position", new THREE.BufferAttribute(this.positions, 3));
     this.geometry.setAttribute("color", new THREE.BufferAttribute(this.colors, 3));
+    this.sprite = makeSoftCircleSprite();
     this.material = new THREE.PointsMaterial({
       color: MOTE_COLOR,
       size: 0.55,
+      map: this.sprite,
+      alphaTest: POINT_SPRITE_ALPHA_TEST,
       transparent: true,
       opacity: 0,
       depthWrite: false,
@@ -213,5 +220,6 @@ export class TreasureBurstSystem implements System {
     this.points.removeFromParent();
     this.geometry.dispose();
     this.material.dispose();
+    this.sprite?.dispose();
   }
 }

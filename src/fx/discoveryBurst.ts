@@ -9,6 +9,7 @@
 // idle and never allocates mid-game — it stays well inside the perf budget.
 
 import * as THREE from "three";
+import { POINT_SPRITE_ALPHA_TEST, makeSoftCircleSprite } from "./pointSprite.ts";
 
 /** Particles in the pool. One draw call total; small enough to stay cheap. */
 export const BURST_PARTICLES = 40;
@@ -28,6 +29,9 @@ export class DiscoveryBurst {
   private readonly velocities: Float32Array;
   private readonly geometry: THREE.BufferGeometry;
   private readonly material: THREE.PointsMaterial;
+  /** Soft-round sprite (`pointSprite.ts`) — without it this fountain
+   *  rasterizes as literal hard squares. */
+  private readonly sprite: THREE.CanvasTexture | null;
   private age = BURST_DURATION; // start "finished" ⇒ idle/invisible
 
   constructor() {
@@ -35,8 +39,11 @@ export class DiscoveryBurst {
     this.velocities = new Float32Array(BURST_PARTICLES * 3);
     this.geometry = new THREE.BufferGeometry();
     this.geometry.setAttribute("position", new THREE.BufferAttribute(this.positions, 3));
+    this.sprite = makeSoftCircleSprite();
     this.material = new THREE.PointsMaterial({
       size: 1.6,
+      map: this.sprite,
+      alphaTest: POINT_SPRITE_ALPHA_TEST,
       transparent: true,
       opacity: 0,
       depthWrite: false,
@@ -100,5 +107,6 @@ export class DiscoveryBurst {
   dispose(): void {
     this.geometry.dispose();
     this.material.dispose();
+    this.sprite?.dispose();
   }
 }

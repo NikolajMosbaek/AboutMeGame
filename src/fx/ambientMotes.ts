@@ -214,8 +214,14 @@ export function leafPosition(
  *  colour regardless of how many stack on screen, unlike the burst/discovery
  *  effects, which deliberately use additive blending to guarantee blooming. */
 export const MOTE_COLOR = 0xd8c9a0;
-export const MOTE_OPACITY = 0.5;
-export const MOTE_SIZE = 0.5;
+/** Retuned (visual-overhaul slice 7, coordinator polish pass): the square,
+ *  unmapped points read as too big/bright even at vista range in the social-
+ *  preview screenshot. Now soft-round (`pointSprite.ts`) AND smaller/dimmer —
+ *  barely-there dust that only really registers when it drifts close to the
+ *  camera or catches light, not a scattering of pale blobs across the whole
+ *  hillside. */
+export const MOTE_OPACITY = 0.32;
+export const MOTE_SIZE = 0.32;
 
 /** Leaf colours — a warm dry-brown and a duller olive, alternated by index
  *  parity so the small layer reads as mixed leaf litter, not one flat hue. */

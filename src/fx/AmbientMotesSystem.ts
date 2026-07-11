@@ -12,6 +12,7 @@
 import * as THREE from "three";
 import type { FrameContext, System } from "../engine/types.ts";
 import type { ReducedMotionSource } from "../world/buildWorld.ts";
+import { POINT_SPRITE_ALPHA_TEST, makeSoftCircleSprite } from "./pointSprite.ts";
 import {
   AMBIENT_CENTERS,
   AMBIENT_LEAF_COUNT,
@@ -44,12 +45,14 @@ export class AmbientMotesSystem implements System {
   private readonly moteGeometry: THREE.BufferGeometry;
   private readonly moteMaterial: THREE.PointsMaterial;
   private readonly motePoints: THREE.Points;
+  private readonly moteSprite: THREE.CanvasTexture | null;
 
   private readonly leafPositions: Float32Array;
   private readonly leafColors: Float32Array;
   private readonly leafGeometry: THREE.BufferGeometry;
   private readonly leafMaterial: THREE.PointsMaterial;
   private readonly leafPoints: THREE.Points;
+  private readonly leafSprite: THREE.CanvasTexture | null;
 
   private t = 0;
 
@@ -68,9 +71,12 @@ export class AmbientMotesSystem implements System {
     this.motePositions = new Float32Array(AMBIENT_MOTE_COUNT * 3);
     this.moteGeometry = new THREE.BufferGeometry();
     this.moteGeometry.setAttribute("position", new THREE.BufferAttribute(this.motePositions, 3));
+    this.moteSprite = makeSoftCircleSprite();
     this.moteMaterial = new THREE.PointsMaterial({
       color: MOTE_COLOR,
       size: MOTE_SIZE,
+      map: this.moteSprite,
+      alphaTest: POINT_SPRITE_ALPHA_TEST,
       transparent: true,
       opacity: MOTE_OPACITY,
       depthWrite: false,
@@ -96,8 +102,11 @@ export class AmbientMotesSystem implements System {
     this.leafGeometry = new THREE.BufferGeometry();
     this.leafGeometry.setAttribute("position", new THREE.BufferAttribute(this.leafPositions, 3));
     this.leafGeometry.setAttribute("color", new THREE.BufferAttribute(this.leafColors, 3));
+    this.leafSprite = makeSoftCircleSprite();
     this.leafMaterial = new THREE.PointsMaterial({
       size: LEAF_SIZE,
+      map: this.leafSprite,
+      alphaTest: POINT_SPRITE_ALPHA_TEST,
       transparent: true,
       opacity: LEAF_OPACITY,
       depthWrite: false,
@@ -144,8 +153,10 @@ export class AmbientMotesSystem implements System {
     this.motePoints.removeFromParent();
     this.moteGeometry.dispose();
     this.moteMaterial.dispose();
+    this.moteSprite?.dispose();
     this.leafPoints.removeFromParent();
     this.leafGeometry.dispose();
     this.leafMaterial.dispose();
+    this.leafSprite?.dispose();
   }
 }

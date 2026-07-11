@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest";
+import * as THREE from "three";
 import {
   AMBIENT_CENTERS,
   AMBIENT_LEAF_COUNT,
   AMBIENT_MOTE_COUNT,
   AMBIENT_WRAP_PERIOD,
+  LEAF_COLOR_A,
+  LEAF_COLOR_B,
   LEAF_FALL_BOTTOM,
   LEAF_FALL_TOP,
+  MOTE_COLOR,
   MOTE_HEIGHT_MAX,
   MOTE_HEIGHT_MIN,
   buildLeafSeeds,
@@ -13,6 +17,14 @@ import {
   leafPosition,
   motePosition,
 } from "./ambientMotes.ts";
+
+// Rec. 709 relative-luma weights — the exact same formula
+// `landmarks.test.ts`'s bloom-source pin (lines 66-90) uses against the
+// compositor's 0.85 bloom-luminance threshold.
+function luma(hex: number): number {
+  const c = new THREE.Color(hex);
+  return 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+}
 
 const FLAT_HEIGHT = 4;
 const flatHeightAt = () => FLAT_HEIGHT;
@@ -111,5 +123,29 @@ describe("buildLeafSeeds / leafPosition — falling leaves", () => {
     expect(p1.x).toBeCloseTo(p0.x, 4);
     expect(p1.y).toBeCloseTo(p0.y, 4);
     expect(p1.z).toBeCloseTo(p0.z, 4);
+  });
+});
+
+// Reviewer follow-up (visual-overhaul slice 7, polish): MOTE_COLOR/LEAF_COLOR_A
+// /LEAF_COLOR_B have no `landmarks.test.ts`-style numeric guard of their own —
+// nothing fails if a future palette tweak silently pushed one of these across
+// the compositor's 0.85 bloom-luminance threshold. These three are NOT
+// bloom sources by design (motes/leaves render `NormalBlending`, never
+// additive — see the MOTE_COLOR doc comment above), so this pins the SAME
+// invariant `landmarks.test.ts`'s bloom-source test proves from the other
+// side: comfortably below 0.85, not just "happens not to cross it".
+describe("MOTE_COLOR / LEAF_COLOR_A / LEAF_COLOR_B — pinned below the bloom threshold", () => {
+  const SAFETY_MARGIN = 0.05; // must clear the threshold by at least this much
+
+  it("MOTE_COLOR's luma sits safely below the compositor's 0.85 bloom threshold", () => {
+    expect(luma(MOTE_COLOR)).toBeLessThan(0.85 - SAFETY_MARGIN);
+  });
+
+  it("LEAF_COLOR_A's luma sits safely below the compositor's 0.85 bloom threshold", () => {
+    expect(luma(LEAF_COLOR_A)).toBeLessThan(0.85 - SAFETY_MARGIN);
+  });
+
+  it("LEAF_COLOR_B's luma sits safely below the compositor's 0.85 bloom threshold", () => {
+    expect(luma(LEAF_COLOR_B)).toBeLessThan(0.85 - SAFETY_MARGIN);
   });
 });

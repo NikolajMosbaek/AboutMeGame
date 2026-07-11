@@ -9,6 +9,7 @@ import {
   TreasureBurstSystem,
   idolEmissiveAt,
 } from "./TreasureBurstSystem.ts";
+import { POINT_SPRITE_ALPHA_TEST } from "./pointSprite.ts";
 import type { FrameContext } from "../engine/types.ts";
 
 const CTX = (dt = 1 / 60): FrameContext =>
@@ -102,6 +103,13 @@ describe("TreasureBurstSystem — the completion spectacle", () => {
     const { scene, sys } = rig();
     expect(() => sys.dispose()).not.toThrow();
     expect(scene.children.find((o) => o.name === "treasure-burst")).toBeUndefined();
+  });
+
+  it("uses the shared soft-round point sprite (no more hard GL-point squares)", () => {
+    const { points } = rig();
+    const mat = points.material as THREE.PointsMaterial;
+    expect(mat.alphaTest).toBe(POINT_SPRITE_ALPHA_TEST);
+    expect(mat.transparent).toBe(true);
   });
 });
 
