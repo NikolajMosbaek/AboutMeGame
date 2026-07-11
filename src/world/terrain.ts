@@ -70,22 +70,30 @@ function uniformSuffix(channel: SplatChannel): string {
  * gameplay-relevant sample (movement, props, sites, wildlife) reads the exact
  * same height field as before.
  *
- * What DOES change is the surface: vertex colours still band the surface
- * river-mud → jungle floor → deep jungle → highland rock by elevation (the
- * same `colorForHeight`), but they now serve as a MACRO TINT over 4 real CC0
- * ground textures (jungle floor / leaf litter / rock / sand,
- * `public/assets/LICENSES.md`), splatted by a per-vertex blend
+ * What DOES change, on medium/high (`terrainDetail === "full"`): vertex
+ * colours still band the surface river-mud → jungle floor → deep jungle →
+ * highland rock by elevation (the same `colorForHeight`), but they now serve
+ * as a MACRO TINT over 4 real CC0 ground textures (jungle floor / leaf litter
+ * / rock / sand, `public/assets/LICENSES.md`), splatted by a per-vertex blend
  * (`terrainSplat.ts`) driven by the same height bands plus slope (steep
  * ground reads as rock regardless of elevation) and noise (mottling the
- * jungle-floor/leaf-litter split, same idiom as the old lightness mottle). The
- * mesh is smooth-shaded (`computeVertexNormals`, no more `flatShading`) so the
- * normal-mapped detail (medium/high) has a continuous surface to perturb.
+ * jungle-floor/leaf-litter split, same idiom as the old lightness mottle),
+ * plus a 4-sample tangent-space normal-map blend. The mesh is smooth-shaded
+ * (`computeVertexNormals`, no more `flatShading`) so that detail has a
+ * continuous surface to perturb. The low tier (`terrainDetail === "none"`)
+ * gets NONE of this: no texture fetch, no shader patch, no smooth-shading
+ * upgrade beyond what the geometry already does — it renders the exact
+ * vertex-colour terrain that shipped before this slice, full stop (the
+ * render gate's own finding: CI's software-GL runner, standing in for the low
+ * tier's real ≤2-core devices, timed out on the texture path — the design's
+ * floor is "low tier must not get slower than today").
  *
- * Texture loading is ASYNC: `buildTerrain` returns immediately with the
- * vertex-colour look rendering (today's look, unchanged) while the 4 (+4
- * normal, medium/high) textures load in the background; `texturesReady`
- * resolves once they attach (or the load fails and is logged) — see
- * `attachTerrainTextures`.
+ * On "full" tiers, texture loading is ASYNC: `buildTerrain` returns
+ * immediately with the vertex-colour look rendering (today's look, unchanged)
+ * while the 4 albedo + 4 normal textures load in the background;
+ * `texturesReady` resolves once they attach (or the load fails and is logged)
+ * — see `attachTerrainTextures`. On the "none" tier, `texturesReady` resolves
+ * immediately and no fetch ever happens.
  */
 export function buildTerrain(
   quality: Pick<QualityConfig, "terrainDetail" | "terrainAnisotropy"> = QUALITY_TIERS.high,
@@ -226,13 +234,20 @@ export function buildTerrain(
 }
 
 /**
- * Load the 4 albedo (+4 normal, `terrainDetail === "full"`) ground textures and
- * attach them to the terrain material in ONE atomic step: builds the uniform
- * bag, wires `mat.onBeforeCompile`/`customProgramCacheKey` from
- * `makeTerrainMaterialPatch`, and flips `mat.needsUpdate` — the single
- * recompile the design accepts happening once, at load. Never rejects: a
- * failed load is logged and the vertex-colour look simply never upgrades
- * (same degrade-quietly idiom `GameCanvas`'s lazy compositor load follows).
+ * Load the 4 albedo + 4 normal ground textures and attach them to the terrain
+ * material in ONE atomic step: builds the uniform bag, wires
+ * `mat.onBeforeCompile`/`customProgramCacheKey` from `makeTerrainMaterialPatch`,
+ * and flips `mat.needsUpdate` — the single recompile the design accepts
+ * happening once, at load. Never rejects: a failed load is logged and the
+ * vertex-colour look simply never upgrades (same degrade-quietly idiom
+ * `GameCanvas`'s lazy compositor load follows).
+ *
+ * On the low tier (`terrainDetail === "none"`) this is a no-op: no fetch, no
+ * material touch at all — `texturesReady` resolves immediately with the
+ * material exactly as `buildTerrain` left it. That's the whole point (see
+ * `terrainDetail`'s doc in `quality.ts`): CI's render gate found the albedo-
+ * only path too heavy for software rasterization (and for the real ≤2-core
+ * devices low tier represents), so low ships zero terrain-texture cost.
  *
  * `isDisposed` guards the unmount race: if `Terrain.dispose()` ran while the
  * load was in flight, the just-uploaded textures are disposed instead of
@@ -250,13 +265,13 @@ function attachTerrainTextures(
   isDisposed: () => boolean,
   outAttachedTextures: THREE.Texture[],
 ): Promise<void> {
-  const hasNormalMaps = quality.terrainDetail === "full";
+  if (quality.terrainDetail === "none") {
+    return Promise.resolve();
+  }
 
   return Promise.all([
     Promise.all(SPLAT_CHANNELS.map((ch) => loadTerrainTexture(albedoPath(ch)))),
-    hasNormalMaps
-      ? Promise.all(SPLAT_CHANNELS.map((ch) => loadTerrainTexture(normalPath(ch))))
-      : Promise.resolve<THREE.Texture[]>([]),
+    Promise.all(SPLAT_CHANNELS.map((ch) => loadTerrainTexture(normalPath(ch)))),
   ])
     .then(([albedoTextures, normalTextures]) => {
       if (isDisposed()) {
@@ -271,20 +286,18 @@ function attachTerrainTextures(
         tex.anisotropy = quality.terrainAnisotropy;
         uniforms[`uAlbedo${uniformSuffix(ch)}`] = { value: tex };
       });
-      if (hasNormalMaps) {
-        SPLAT_CHANNELS.forEach((ch, i) => {
-          const tex = normalTextures[i];
-          tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-          tex.anisotropy = quality.terrainAnisotropy;
-          // Normal-map data is NOT perceptual colour — it must never go
-          // through an sRGB decode, so override `loadTexture`'s colour-map
-          // default (docs/asset-pipeline.md's sRGB-tagging is for albedo).
-          tex.colorSpace = THREE.NoColorSpace;
-          uniforms[`uNormal${uniformSuffix(ch)}`] = { value: tex };
-        });
-      }
+      SPLAT_CHANNELS.forEach((ch, i) => {
+        const tex = normalTextures[i];
+        tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+        tex.anisotropy = quality.terrainAnisotropy;
+        // Normal-map data is NOT perceptual colour — it must never go
+        // through an sRGB decode, so override `loadTexture`'s colour-map
+        // default (docs/asset-pipeline.md's sRGB-tagging is for albedo).
+        tex.colorSpace = THREE.NoColorSpace;
+        uniforms[`uNormal${uniformSuffix(ch)}`] = { value: tex };
+      });
 
-      const patch = makeTerrainMaterialPatch({ hasNormalMaps, uniforms });
+      const patch = makeTerrainMaterialPatch({ uniforms });
       mat.onBeforeCompile = patch.onBeforeCompile;
       mat.customProgramCacheKey = patch.customProgramCacheKey;
       mat.needsUpdate = true;

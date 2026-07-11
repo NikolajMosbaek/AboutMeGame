@@ -62,7 +62,7 @@ wins — only `"auto"` follows detection (`resolveQuality`'s contract).
 | `bloom` | **off** | on | on | Threshold post-processing pass that makes the emissive site accents (and later fireflies) glow; fill-rate spend, not draw/triangle; off on low to protect mobile fill rate. **Shipped** behind the renderer seam — pmndrs `postprocessing`'s mipmap-blur `BloomEffect`, merged with SMAA/vignette/tone-mapping into ONE `EffectPass` in `src/engine/createCompositor.ts` (visual-overhaul slice 1, replacing the earlier three-examples `UnrealBloomPass` chain); applies on reload. |
 | `envDynamic` | **off** | on | on | Whether the sky-driven PMREM environment light (`EnvLightSystem`, visual-overhaul slice 2) regenerates as the day cycle moves. Every tier gets the environment map itself (a real per-tier lighting upgrade, not gated); low bakes it ONCE at load (the golden-hour keyframe) and never touches it again — a free visual upgrade with zero steady-state cost. Applies on reload (bake-at-mount). |
 | `ao.qualityMode` | n/a (no compositor) | `"Performance"` | `"Medium"` | N8AO's sample-count preset (visual-overhaul slice 2) — medium/high only, inside the same lazy `postfx` chunk as bloom. `aoRadius`/`distanceFalloff`/`intensity`/`halfRes` are the SAME on both tiers (tuned once for this world's scale); only the preset differs. Applies on reload. |
-| `terrainDetail` | **"albedo"** | "full" | "full" | Visual-overhaul slice 3 (PBR terrain splatting): `"full"` compiles the 4-sample tangent-space normal-map blend into the terrain's `onBeforeCompile` patch (`src/world/terrainMaterialPatch.ts`); `"albedo"` (low) omits that block at BUILD TIME — the compiled program references no normal sampler at all, so low pays for 4 texture samples/fragment, never 8. Every tier gets the real splatted albedo (no tier renders flat vertex-colour-only terrain any more); this only gates the normal-map fill-rate spend. Applies on reload (bake-at-mount, like `shadowMapSize`). |
+| `terrainDetail` | **"none"** | "full" | "full" | Visual-overhaul slice 3 (PBR terrain splatting): `"full"` (medium/high) fetches the 4 albedo + 4 normal ground textures and compiles the full splat blend (including the tangent-space normal-map pass) into the terrain's `onBeforeCompile` patch (`src/world/terrainMaterialPatch.ts`) — 8 texture samples/fragment steady-state. `"none"` (low) never fetches, never patches, never recompiles: the terrain keeps the plain vertex-colour `MeshStandardMaterial` exactly as it rendered before this slice. The render-gate CI job caught the original `"albedo"` (4-texture, low-cost-looking) design as still too heavy for the software-GL runner (texture fetches + mipmap generation + a mid-boot shader recompile) — the low tier's floor is "never slower than today," so it gets no terrain textures at all rather than a cheaper variant. Applies on reload (bake-at-mount, like `shadowMapSize`). |
 | `terrainAnisotropy` | 4 | 4 | 8 | Anisotropic filtering level for the terrain's splat textures — three clamps to the device's real max at bind time, so this is always safe to request. A cheap fill-rate knob; only high spends the extra samples. |
 
 **Low tier vs the mobile budget.** Low is tuned to comfortably clear the
@@ -210,23 +210,39 @@ units/repeat). The mesh is now smooth-shaded (`computeVertexNormals`, no more
 `flatShading`); the old elevation-band vertex colour survives unchanged as a
 macro tint (three's own `diffuseColor.rgb *= vColor` in `color_fragment` runs
 on the splatted albedo for free, by anchor ordering alone — no extra GLSL).
-Normal maps (medium/high, `quality.terrainDetail === "full"`) blend via a
-screen-space-derivative tangent frame (no precomputed UV tangents needed); low
-tier omits that block entirely at build time (`quality.terrainDetail ===
-"albedo"`) so it never pays for the extra 4 samples/fragment. Texture loading
-is async through the existing cached `loadTexture` seam: the terrain renders
-its (unchanged) vertex-colour look the instant `buildTerrain` returns and
-upgrades in place with ONE material recompile when the textures attach
-(`Terrain.texturesReady`) — verified visually (below), not just asserted in
-tests.
+Normal maps blend via a screen-space-derivative tangent frame (no precomputed
+UV tangents needed). Texture loading is async through the existing cached
+`loadTexture` seam: on the tiers that fetch anything at all (medium/high,
+`quality.terrainDetail === "full"`), the terrain renders its (unchanged)
+vertex-colour look the instant `buildTerrain` returns and upgrades in place
+with ONE material recompile when the textures attach (`Terrain.texturesReady`)
+— verified visually (below), not just asserted in tests.
 
-*Draw calls / triangles.* Zero change — this patches the ONE existing terrain
-`MeshStandardMaterial` in place (`waterPatch.ts`'s discipline: no second mesh,
-no `ShaderMaterial`), so draw calls and triangle count are unaffected; the
-spend is entirely fill-rate (extra texture samples/fragment: 4 albedo every
-tier, +4 normal on medium/high) — the fill-rate-first mitigation order (cap
-DPR → draw calls → overdraw/shadows → triangles) still applies if a device
-struggles with the extra sampling.
+**Post-render-gate fix (2026-07-11): low tier ships NO terrain textures.** The
+slice originally shipped a third `"albedo"` tier (low: 4 albedo samples,
+normal-map block omitted at build time; medium/high: the full 8-sample blend).
+CI's render-gate job (software-GL/SwiftShader, the low tier's own forcing
+signal per this doc's override above) timed out on `page.screenshot` — the
+"cheap" albedo path still cost 4×1K texture fetches, mipmap generation, and a
+mid-boot shader recompile, too heavy for a CPU rasterizer and, per the design
+doc's own floor ("low tier must not get slower than today"), too heavy for the
+real ≤2-core devices low stands in for. The fix is at the product level, not
+the gate: `terrainDetail` lost its `"albedo"` value; low is now `"none"` (never
+fetches, never patches, never recompiles — the exact pre-slice-3 vertex-colour
+material) and medium/high are the only tiers that pay for splatting at all,
+now always the full 8-sample variant (the `hasNormalMaps: false` branch in
+`terrainMaterialPatch.ts` was deleted as an uncalled mode once no caller
+remained). The render gate, which forces low tier, now exercises exactly the
+path every device it represents gets: the plain vertex-colour terrain,
+unchanged.
+
+*Draw calls / triangles.* Zero change on the tiers that splat at all — this
+patches the ONE existing terrain `MeshStandardMaterial` in place
+(`waterPatch.ts`'s discipline: no second mesh, no `ShaderMaterial`), so draw
+calls and triangle count are unaffected; the spend is entirely fill-rate (8
+texture samples/fragment on medium/high, zero on low) — the fill-rate-first
+mitigation order (cap DPR → draw calls → overdraw/shadows → triangles) still
+applies if a device struggles with the extra sampling.
 
 *Texture payload.* 8 WebP files — 4 albedo @ q80 (lossy VP8, 1024x1024) + 4
 normal maps (lossless VP8L, 512x512, `scripts/process-textures.mjs`) — totalling
@@ -259,8 +275,10 @@ photographic (noisy) source is dramatically bigger than lossy, measured at
 (fixing the corruption) but halves their resolution to 512x512 (albedo stays
 1024): the 4 normal maps now total ~2.0 MB, only **+0.36 MB** over the old
 (corrupted) lossy baseline. This trades some normal-map surface detail for
-correctness, but only on the medium/high tiers that sample it at all (low is
-albedo-only) — the perf-budget doc already records the normal-map contribution
+correctness, but only on the medium/high tiers that sample it at all (low
+shipped no normal maps at the time of this fix, and — after the render-gate
+fix below — ships no terrain textures of any kind) — the perf-budget doc
+already records the normal-map contribution
 as "a subtle normal-map lighting nuance, not a colour/texture change" at this
 world's scale, so a lower-resolution but correctly-encoded map reads better
 than a full-resolution corrupted one. Verify the encoding with the RIFF fourCC
@@ -301,19 +319,20 @@ necessary.
 
 **Quality-tier verification.** `npm run verify`'s render gate runs on software
 WebGL (`docs/perf-budget.md`'s own software-renderer override), which forces
-the LOW tier — so the automated gate exercises the `terrainDetail: "albedo"`
-path, not medium/high. Medium/high (`terrainDetail: "full"`, normal maps) were
-verified manually: a real Chromium `vite preview` session with
-`localStorage`-forced `quality: "low"` vs the default (auto → high on this
-machine) confirmed both paths render correctly — the low-tier screenshots are
-visually near-indistinguishable from high at this scale (expected: the
-difference is a subtle normal-map lighting nuance, not a colour/texture
-change), confirming the low path never regressed to a slower OR a worse-looking
-result. This is the honest limitation the design doc anticipated: no
-in-repo tooling exists to force a quality tier through the *official*
-`npm run verify` orchestrator (`scripts/verify-game.mjs` takes no such flag),
-so the medium/high confirmation is a manual spot-check, not a repeatable CI
-assertion.
+the LOW tier — so the automated gate exercises the `terrainDetail: "none"`
+path (the plain vertex-colour terrain, post-fix) every time, by construction.
+That is exactly the point of the fix above: the gate now proves the low tier
+never touches the splat path at all, rather than proving a "cheap" variant of
+it fits in 30s of CPU rasterization. Medium/high (`terrainDetail: "full"`,
+albedo + normal maps) were verified manually: a real Chromium `vite preview`
+session with `localStorage`-forced `quality: "low"` vs the default (auto →
+high on this machine) confirmed both paths render correctly — the low-tier
+screenshot is the untextured vertex-colour look, high's shows the splatted
+ground textures, and neither regressed to a slower result. This is the honest
+limitation the design doc anticipated: no in-repo tooling exists to force a
+quality tier through the *official* `npm run verify` orchestrator
+(`scripts/verify-game.mjs` takes no such flag), so the medium/high
+confirmation is a manual spot-check, not a repeatable CI assertion.
 
 ## How it is enforced
 

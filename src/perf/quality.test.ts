@@ -24,9 +24,11 @@ describe("resolveQuality", () => {
     expect(low.bloom).toBe(false);
     // Low still gets the env-light IBL (all tiers), just never regenerates.
     expect(low.envDynamic).toBe(false);
-    // Low still gets textured (splatted) terrain — just albedo-only, no
-    // normal-map blend (visual-overhaul slice 3).
-    expect(low.terrainDetail).toBe("albedo");
+    // Low gets NO terrain textures at all — the plain vertex-colour terrain,
+    // unchanged from before this slice (the render gate's own finding:
+    // CI's software-GL runner, the low tier's real ≤2-core-device stand-in,
+    // timed out on even the albedo-only splat path).
+    expect(low.terrainDetail).toBe("none");
   });
 
   it("the medium tier turns shadows on at a smaller map and caps DPR", () => {
@@ -93,9 +95,9 @@ describe("resolveQuality", () => {
     expect(QUALITY_TIERS.low.envDynamic).toBe(false);
     expect(QUALITY_TIERS.medium.envDynamic).toBe(true);
     expect(QUALITY_TIERS.high.envDynamic).toBe(true);
-    // Terrain normal-map detail is off only at the bottom tier; anisotropy
-    // scales monotonically too.
-    expect(QUALITY_TIERS.low.terrainDetail).toBe("albedo");
+    // Terrain textures (albedo + normal-map splat) are off entirely only at
+    // the bottom tier; anisotropy scales monotonically too.
+    expect(QUALITY_TIERS.low.terrainDetail).toBe("none");
     expect(QUALITY_TIERS.medium.terrainDetail).toBe("full");
     expect(QUALITY_TIERS.high.terrainDetail).toBe("full");
     expect(order[1].terrainAnisotropy).toBeGreaterThanOrEqual(order[0].terrainAnisotropy);

@@ -107,7 +107,7 @@ export function computeSplatWeights(height: number, slope: number, noise: number
   // conservative (jungleFloor+leafLitter is invariant under it).
   const mottle = (noise - 0.5) * 2 * MOTTLE_STRENGTH; // -MOTTLE_STRENGTH..+MOTTLE_STRENGTH
   const combined = jungleFloor + leafLitter;
-  let swap = mottle * combined;
+  const swap = mottle * combined;
   let jf = jungleFloor - swap;
   let ll = leafLitter + swap;
   if (jf < 0) {

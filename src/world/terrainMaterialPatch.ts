@@ -9,18 +9,24 @@ import type * as THREE from "three";
 // vertex attribute (`splatWeight`, `SPLAT_CHANNELS` order: r=jungleFloor,
 // g=leafLitter, b=rock, a=sand).
 //
-// Two things happen per fragment:
-//   - ALBEDO (every tier): 4 texture samples at a world-XZ planar UV, blended
-//     by the interpolated `vSplatWeight`, written into `diffuseColor.rgb`
-//     right after `#include <map_fragment>` — BEFORE `#include
-//     <color_fragment>` runs, so three's own vertex-colour multiply
-//     (`diffuseColor.rgb *= vColor`, already wired by `vertexColors: true`)
-//     applies to the blended albedo for free. That IS the "macro tint": no
-//     extra code needed here, just correct anchor ordering.
-//   - NORMAL (medium/high only, gated by `hasNormalMaps`): 4 tangent-space
-//     normal samples, blended the same way, rotated into the fragment's local
-//     frame and written into `normal` right after `#include
-//     <normal_fragment_maps>` (same anchor `waterPatch.ts` uses for
+// This patch is medium/high only (`quality.terrainDetail === "full"`): the low
+// tier gets NO terrain textures at all (`terrainDetail === "none"`,
+// `terrain.ts`'s `attachTerrainTextures` never even calls this module — see
+// its own doc for why: the render gate's software-GL/SwiftShader runner, the
+// low tier's real ≤2-core-device stand-in, timed out on a lighter albedo-only
+// variant this module used to also build; the design's floor is "low tier
+// must not get slower than today", so it keeps today's plain vertex-colour
+// terrain instead). One variant now, always both passes:
+//   - ALBEDO: 4 texture samples at a world-XZ planar UV, blended by the
+//     interpolated `vSplatWeight`, written into `diffuseColor.rgb` right after
+//     `#include <map_fragment>` — BEFORE `#include <color_fragment>` runs, so
+//     three's own vertex-colour multiply (`diffuseColor.rgb *= vColor`,
+//     already wired by `vertexColors: true`) applies to the blended albedo for
+//     free. That IS the "macro tint": no extra code needed here, just correct
+//     anchor ordering.
+//   - NORMAL: 4 tangent-space normal samples, blended the same way, rotated
+//     into the fragment's local frame and written into `normal` right after
+//     `#include <normal_fragment_maps>` (same anchor `waterPatch.ts` uses for
 //     view/normal-dependent code) so lighting sees the perturbed surface.
 //     Since the terrain has no baked UV-space vertex tangents, the frame is
 //     built on the fly from screen-space derivatives — the classic
@@ -31,14 +37,6 @@ import type * as THREE from "three";
 //     /`USE_ANISOTROPY`, none of which this patch sets — so a small transcript
 //     is declared locally rather than depending on an internal that won't be
 //     compiled into this program).
-//
-// `hasNormalMaps: false` (low tier) omits the whole normal block AT BUILD
-// TIME: the compiled program references no normal sampler/uniform at all (the
-// same "no dangling uniform" discipline `waterPatch.ts`'s no-foam variant
-// follows), so the low path is genuinely the cheaper one, not just an unused
-// branch. `customProgramCacheKey` returns a distinct constant per variant so
-// three's shader-program cache never confuses the two, or either with the
-// water/props MeshStandard programs.
 
 /** World units per texture repeat for the planar XZ UV — the one art tunable
  *  this patch owns (parallel to `waterPatch.ts`'s `FRESNEL_POWER`): judged
@@ -50,14 +48,10 @@ export const TERRAIN_TILE_SIZE = 6;
 type UniformValue = { value: unknown };
 
 export interface TerrainMaterialPatchOptions {
-  /** Whether to compile the 4-sample tangent-space normal blend (medium/high —
-   *  `quality.terrainDetail === "full"`). `false` (low, and the default) omits
-   *  the block entirely: no normal sampler/uniform reaches the program text. */
-  hasNormalMaps: boolean;
-  /** Uniform bag merged onto `shader.uniforms` — the 4 albedo samplers, and
-   *  (only when `hasNormalMaps`) the 4 normal samplers. The caller owns the
-   *  `THREE.Texture` values (loaded async via the cached `loadTexture` seam),
-   *  so this patch never constructs or names a loader itself. */
+  /** Uniform bag merged onto `shader.uniforms` — the 4 albedo samplers and the
+   *  4 normal samplers. The caller owns the `THREE.Texture` values (loaded
+   *  async via the cached `loadTexture` seam), so this patch never constructs
+   *  or names a loader itself. */
   uniforms: Record<string, UniformValue>;
 }
 
@@ -76,10 +70,10 @@ const VERTEX_WORLDPOS_BODY =
 const FRAG_MAP_ANCHOR = "#include <map_fragment>";
 const FRAG_NORMAL_ANCHOR = "#include <normal_fragment_maps>";
 
-// Screen-space-derivative TBN, used only when normal maps are compiled in — a
-// local transcript of the well-known "Normal Mapping Without Precomputed
-// Tangents" technique (see this module's doc comment) so the patch depends on
-// no internal three helper that may not even be emitted into this program.
+// Screen-space-derivative TBN — a local transcript of the well-known "Normal
+// Mapping Without Precomputed Tangents" technique (see this module's doc
+// comment) so the patch depends on no internal three helper that may not even
+// be emitted into this program.
 const TANGENT_FRAME_FN =
   "mat3 terrainTangentFrame( vec3 eyePos, vec3 surfNormal, vec2 uv ) {\n" +
   "\tvec3 q0 = dFdx( eyePos );\n" +
@@ -96,60 +90,57 @@ const TANGENT_FRAME_FN =
   "\treturn mat3( T * scale, B * scale, N );\n" +
   "}\n";
 
+const FRAG_DECL =
+  "varying vec4 vSplatWeight;\n" +
+  "varying vec2 vWorldXZ;\n" +
+  `const float TERRAIN_TILE_SIZE = ${TERRAIN_TILE_SIZE.toFixed(1)};\n` +
+  "uniform sampler2D uAlbedoJungleFloor;\n" +
+  "uniform sampler2D uAlbedoLeafLitter;\n" +
+  "uniform sampler2D uAlbedoRock;\n" +
+  "uniform sampler2D uAlbedoSand;\n" +
+  "uniform sampler2D uNormalJungleFloor;\n" +
+  "uniform sampler2D uNormalLeafLitter;\n" +
+  "uniform sampler2D uNormalRock;\n" +
+  "uniform sampler2D uNormalSand;\n" +
+  TANGENT_FRAME_FN;
+
+const ALBEDO_BODY =
+  "\t{\n" +
+  "\t\tvec2 uvSplat = vWorldXZ / TERRAIN_TILE_SIZE;\n" +
+  "\t\tvec3 splatAlbedo =\n" +
+  "\t\t\ttexture2D( uAlbedoJungleFloor, uvSplat ).rgb * vSplatWeight.x +\n" +
+  "\t\t\ttexture2D( uAlbedoLeafLitter, uvSplat ).rgb * vSplatWeight.y +\n" +
+  "\t\t\ttexture2D( uAlbedoRock, uvSplat ).rgb * vSplatWeight.z +\n" +
+  "\t\t\ttexture2D( uAlbedoSand, uvSplat ).rgb * vSplatWeight.w;\n" +
+  "\t\tdiffuseColor.rgb = splatAlbedo;\n" +
+  "\t}\n";
+
+const NORMAL_BODY =
+  "\t{\n" +
+  "\t\tvec2 uvSplat = vWorldXZ / TERRAIN_TILE_SIZE;\n" +
+  "\t\tvec3 n0 = texture2D( uNormalJungleFloor, uvSplat ).xyz * 2.0 - 1.0;\n" +
+  "\t\tvec3 n1 = texture2D( uNormalLeafLitter, uvSplat ).xyz * 2.0 - 1.0;\n" +
+  "\t\tvec3 n2 = texture2D( uNormalRock, uvSplat ).xyz * 2.0 - 1.0;\n" +
+  "\t\tvec3 n3 = texture2D( uNormalSand, uvSplat ).xyz * 2.0 - 1.0;\n" +
+  "\t\tvec3 blendedN = normalize(\n" +
+  "\t\t\tn0 * vSplatWeight.x + n1 * vSplatWeight.y + n2 * vSplatWeight.z + n3 * vSplatWeight.w\n" +
+  "\t\t);\n" +
+  "\t\tmat3 terrainTBN = terrainTangentFrame( -vViewPosition, normal, uvSplat );\n" +
+  "\t\tnormal = normalize( terrainTBN * blendedN );\n" +
+  "\t}\n";
+
 /**
  * Build the `onBeforeCompile` / `customProgramCacheKey` pair that patches the
  * terrain `MeshStandardMaterial`. Pure and synchronous: only mutates the
  * `shader.vertexShader` / `shader.fragmentShader` strings and merges
  * `uniforms` — no WebGL context needed, so it is unit-tested headless against
  * the real `THREE.ShaderLib` source (same discipline as `waterPatch.ts`).
+ *
+ * Medium/high only — the low tier never calls this (see this module's doc
+ * comment); there is no cheaper variant to select between.
  */
 export function makeTerrainMaterialPatch(options: TerrainMaterialPatchOptions): TerrainMaterialPatch {
-  const { hasNormalMaps, uniforms } = options;
-
-  const fragDecl =
-    (hasNormalMaps ? "#define HAS_TERRAIN_NORMALMAPS\n" : "") +
-    "varying vec4 vSplatWeight;\n" +
-    "varying vec2 vWorldXZ;\n" +
-    `const float TERRAIN_TILE_SIZE = ${TERRAIN_TILE_SIZE.toFixed(1)};\n` +
-    "uniform sampler2D uAlbedoJungleFloor;\n" +
-    "uniform sampler2D uAlbedoLeafLitter;\n" +
-    "uniform sampler2D uAlbedoRock;\n" +
-    "uniform sampler2D uAlbedoSand;\n" +
-    (hasNormalMaps
-      ? "uniform sampler2D uNormalJungleFloor;\n" +
-        "uniform sampler2D uNormalLeafLitter;\n" +
-        "uniform sampler2D uNormalRock;\n" +
-        "uniform sampler2D uNormalSand;\n" +
-        TANGENT_FRAME_FN
-      : "");
-
-  const albedoBody =
-    "\t{\n" +
-    "\t\tvec2 uvSplat = vWorldXZ / TERRAIN_TILE_SIZE;\n" +
-    "\t\tvec3 splatAlbedo =\n" +
-    "\t\t\ttexture2D( uAlbedoJungleFloor, uvSplat ).rgb * vSplatWeight.x +\n" +
-    "\t\t\ttexture2D( uAlbedoLeafLitter, uvSplat ).rgb * vSplatWeight.y +\n" +
-    "\t\t\ttexture2D( uAlbedoRock, uvSplat ).rgb * vSplatWeight.z +\n" +
-    "\t\t\ttexture2D( uAlbedoSand, uvSplat ).rgb * vSplatWeight.w;\n" +
-    "\t\tdiffuseColor.rgb = splatAlbedo;\n" +
-    "\t}\n";
-
-  const normalBody = hasNormalMaps
-    ? "#ifdef HAS_TERRAIN_NORMALMAPS\n" +
-      "\t{\n" +
-      "\t\tvec2 uvSplat = vWorldXZ / TERRAIN_TILE_SIZE;\n" +
-      "\t\tvec3 n0 = texture2D( uNormalJungleFloor, uvSplat ).xyz * 2.0 - 1.0;\n" +
-      "\t\tvec3 n1 = texture2D( uNormalLeafLitter, uvSplat ).xyz * 2.0 - 1.0;\n" +
-      "\t\tvec3 n2 = texture2D( uNormalRock, uvSplat ).xyz * 2.0 - 1.0;\n" +
-      "\t\tvec3 n3 = texture2D( uNormalSand, uvSplat ).xyz * 2.0 - 1.0;\n" +
-      "\t\tvec3 blendedN = normalize(\n" +
-      "\t\t\tn0 * vSplatWeight.x + n1 * vSplatWeight.y + n2 * vSplatWeight.z + n3 * vSplatWeight.w\n" +
-      "\t\t);\n" +
-      "\t\tmat3 terrainTBN = terrainTangentFrame( -vViewPosition, normal, uvSplat );\n" +
-      "\t\tnormal = normalize( terrainTBN * blendedN );\n" +
-      "\t}\n" +
-      "#endif\n"
-    : "";
+  const { uniforms } = options;
 
   const onBeforeCompile = (shader: THREE.WebGLProgramParametersWithUniforms) => {
     Object.assign(shader.uniforms, uniforms);
@@ -164,20 +155,18 @@ export function makeTerrainMaterialPatch(options: TerrainMaterialPatchOptions): 
       VERTEX_WORLDPOS_ANCHOR + "\n" + VERTEX_WORLDPOS_BODY,
     );
 
-    shader.fragmentShader = fragDecl + shader.fragmentShader;
+    shader.fragmentShader = FRAG_DECL + shader.fragmentShader;
     shader.fragmentShader = shader.fragmentShader.replace(
       FRAG_MAP_ANCHOR,
-      FRAG_MAP_ANCHOR + "\n" + albedoBody,
+      FRAG_MAP_ANCHOR + "\n" + ALBEDO_BODY,
     );
-    if (hasNormalMaps) {
-      shader.fragmentShader = shader.fragmentShader.replace(
-        FRAG_NORMAL_ANCHOR,
-        FRAG_NORMAL_ANCHOR + "\n" + normalBody,
-      );
-    }
+    shader.fragmentShader = shader.fragmentShader.replace(
+      FRAG_NORMAL_ANCHOR,
+      FRAG_NORMAL_ANCHOR + "\n" + NORMAL_BODY,
+    );
   };
 
-  const customProgramCacheKey = () => `terrain-${hasNormalMaps ? "full" : "albedo"}-v1`;
+  const customProgramCacheKey = () => "terrain-full-v1";
 
   return { onBeforeCompile, customProgramCacheKey };
 }

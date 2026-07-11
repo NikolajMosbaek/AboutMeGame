@@ -1,7 +1,6 @@
 import * as THREE from "three";
 import { describe, expect, it, vi } from "vitest";
 import { buildTerrain, type TerrainTextureLoader } from "./terrain.ts";
-import { SPLAT_CHANNELS } from "./terrainSplat.ts";
 
 // Visual-overhaul slice 3 (PBR terrain splatting): the geometry-side splat
 // attribute and the async texture-attach path, both runnable headless (a stub
@@ -68,30 +67,25 @@ describe("buildTerrain — material (smooth-shaded, vertex-colour macro tint)", 
   });
 });
 
-describe("buildTerrain — async texture attach (upgrade in place)", () => {
-  it("loads exactly the 4 albedo textures on the albedo-only tier, attaches the patch, never touches normal paths", async () => {
+describe("buildTerrain — no terrain textures on the low tier (terrainDetail: \"none\")", () => {
+  it("never fetches any texture and leaves the material untouched", async () => {
     const { load, calls } = stubLoader();
-    const terrain = buildTerrain({ terrainDetail: "albedo", terrainAnisotropy: 4 }, load);
-    const before = terrain.mesh.material as THREE.MeshStandardMaterial;
-    const beforeCompile = before.onBeforeCompile;
+    const terrain = buildTerrain({ terrainDetail: "none", terrainAnisotropy: 4 }, load);
+    const mat = terrain.mesh.material as THREE.MeshStandardMaterial;
+    const beforeCompile = mat.onBeforeCompile;
 
     await terrain.texturesReady;
 
-    expect(calls).toHaveLength(4);
-    for (const ch of SPLAT_CHANNELS) {
-      expect(calls.some((p) => p.includes(ch === "jungleFloor" ? "jungle-floor" : ch === "leafLitter" ? "leaf-litter" : ch))).toBe(true);
-    }
-    expect(calls.every((p) => p.endsWith("-albedo.webp"))).toBe(true);
-    expect(calls.some((p) => p.endsWith("-normal.webp"))).toBe(false);
-
-    const mat = terrain.mesh.material as THREE.MeshStandardMaterial;
-    expect(mat.onBeforeCompile).not.toBe(beforeCompile);
-    expect(typeof mat.customProgramCacheKey).toBe("function");
-    expect((mat.customProgramCacheKey as () => string)()).toBe("terrain-albedo-v1");
+    expect(calls).toHaveLength(0);
+    expect(mat.onBeforeCompile).toBe(beforeCompile);
+    expect(mat.onBeforeCompile).toBe(THREE.Material.prototype.onBeforeCompile);
+    expect(mat.vertexColors).toBe(true);
 
     terrain.dispose();
   });
+});
 
+describe("buildTerrain — async texture attach (upgrade in place)", () => {
   it("loads 4 albedo + 4 normal textures on the full tier, tagging normals NoColorSpace and setting anisotropy/repeat wrap", async () => {
     const { load, calls } = stubLoader();
     const terrain = buildTerrain({ terrainDetail: "full", terrainAnisotropy: 8 }, load);
@@ -137,7 +131,7 @@ describe("buildTerrain — async texture attach (upgrade in place)", () => {
       return tex;
     };
 
-    const terrain = buildTerrain({ terrainDetail: "albedo", terrainAnisotropy: 4 }, load);
+    const terrain = buildTerrain({ terrainDetail: "full", terrainAnisotropy: 4 }, load);
     const mat = terrain.mesh.material as THREE.MeshStandardMaterial;
     const beforeCompile = mat.onBeforeCompile;
 
@@ -149,7 +143,7 @@ describe("buildTerrain — async texture attach (upgrade in place)", () => {
     expect(mat.onBeforeCompile).toBe(beforeCompile);
     // ...and every texture that finished loading afterward was disposed, not
     // left to leak as an orphaned GPU upload.
-    expect(loaded).toHaveLength(4);
+    expect(loaded).toHaveLength(8); // 4 albedo + 4 normal
     for (const tex of loaded) {
       expect(tex.isTexture).toBe(true); // sanity: a real Texture, not a mock
     }

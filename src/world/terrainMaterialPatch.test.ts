@@ -22,9 +22,14 @@ function stripGlslComments(src: string): string {
   return src.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
 }
 
-describe("makeTerrainMaterialPatch — shared (albedo, every tier)", () => {
+// One variant now (medium/high only — the low tier never calls this module at
+// all, see `terrainMaterialPatch.ts`'s doc comment and `terrain.textures.test.ts`'s
+// "none" tier coverage): always both the albedo blend and the tangent-space
+// normal-map blend.
+
+describe("makeTerrainMaterialPatch — albedo blend", () => {
   it("returns an onBeforeCompile fn and a string customProgramCacheKey", () => {
-    const patch = makeTerrainMaterialPatch({ hasNormalMaps: false, uniforms: {} });
+    const patch = makeTerrainMaterialPatch({ uniforms: {} });
     expect(typeof patch.onBeforeCompile).toBe("function");
     expect(typeof patch.customProgramCacheKey).toBe("function");
     expect(typeof patch.customProgramCacheKey()).toBe("string");
@@ -32,7 +37,7 @@ describe("makeTerrainMaterialPatch — shared (albedo, every tier)", () => {
 
   it("injects the splatWeight attribute and vWorldXZ/vSplatWeight varyings", () => {
     const shader = freshShader();
-    makeTerrainMaterialPatch({ hasNormalMaps: false, uniforms: {} }).onBeforeCompile(
+    makeTerrainMaterialPatch({ uniforms: {} }).onBeforeCompile(
       shader as unknown as THREE.WebGLProgramParametersWithUniforms,
     );
     const vs = stripGlslComments(shader.vertexShader);
@@ -49,7 +54,7 @@ describe("makeTerrainMaterialPatch — shared (albedo, every tier)", () => {
 
   it("blends 4 albedo samples by vSplatWeight and writes diffuseColor.rgb BEFORE color_fragment", () => {
     const shader = freshShader();
-    makeTerrainMaterialPatch({ hasNormalMaps: false, uniforms: {} }).onBeforeCompile(
+    makeTerrainMaterialPatch({ uniforms: {} }).onBeforeCompile(
       shader as unknown as THREE.WebGLProgramParametersWithUniforms,
     );
     const fs = stripGlslComments(shader.fragmentShader);
@@ -78,7 +83,7 @@ describe("makeTerrainMaterialPatch — shared (albedo, every tier)", () => {
     expect(TERRAIN_TILE_SIZE).toBeGreaterThanOrEqual(5);
     expect(TERRAIN_TILE_SIZE).toBeLessThanOrEqual(8);
     const shader = freshShader();
-    makeTerrainMaterialPatch({ hasNormalMaps: false, uniforms: {} }).onBeforeCompile(
+    makeTerrainMaterialPatch({ uniforms: {} }).onBeforeCompile(
       shader as unknown as THREE.WebGLProgramParametersWithUniforms,
     );
     const fs = stripGlslComments(shader.fragmentShader);
@@ -90,7 +95,6 @@ describe("makeTerrainMaterialPatch — shared (albedo, every tier)", () => {
     const shader = freshShader();
     const tex = {} as THREE.Texture;
     makeTerrainMaterialPatch({
-      hasNormalMaps: false,
       uniforms: { uAlbedoJungleFloor: { value: tex } },
     }).onBeforeCompile(shader as unknown as THREE.WebGLProgramParametersWithUniforms);
     expect(shader.uniforms.uAlbedoJungleFloor.value).toBe(tex);
@@ -98,7 +102,7 @@ describe("makeTerrainMaterialPatch — shared (albedo, every tier)", () => {
 
   it("anchors onto real three chunks (no fabricated stub) and keeps them present", () => {
     const shader = freshShader();
-    makeTerrainMaterialPatch({ hasNormalMaps: false, uniforms: {} }).onBeforeCompile(
+    makeTerrainMaterialPatch({ uniforms: {} }).onBeforeCompile(
       shader as unknown as THREE.WebGLProgramParametersWithUniforms,
     );
     expect(shader.vertexShader).toContain("#include <color_vertex>");
@@ -108,41 +112,13 @@ describe("makeTerrainMaterialPatch — shared (albedo, every tier)", () => {
   });
 });
 
-describe("makeTerrainMaterialPatch — albedo-only variant (low tier, hasNormalMaps: false)", () => {
-  it("references NO normal sampler / tangent-frame helper at all (no dangling reference)", () => {
+describe("makeTerrainMaterialPatch — normal-map blend", () => {
+  it("blends 4 tangent-space normal samples via a locally-declared tangent frame", () => {
     const shader = freshShader();
-    makeTerrainMaterialPatch({ hasNormalMaps: false, uniforms: {} }).onBeforeCompile(
+    makeTerrainMaterialPatch({ uniforms: {} }).onBeforeCompile(
       shader as unknown as THREE.WebGLProgramParametersWithUniforms,
     );
     const fs = stripGlslComments(shader.fragmentShader);
-    expect(fs).not.toContain("uNormalJungleFloor");
-    expect(fs).not.toContain("uNormalLeafLitter");
-    expect(fs).not.toContain("uNormalRock");
-    expect(fs).not.toContain("uNormalSand");
-    expect(fs).not.toContain("terrainTangentFrame");
-    expect(fs).not.toMatch(/#define\s+HAS_TERRAIN_NORMALMAPS/);
-  });
-
-  it("adds no new sampler2D beyond the 4 albedo ones (matches base + 4 exactly)", () => {
-    const shader = freshShader();
-    makeTerrainMaterialPatch({ hasNormalMaps: false, uniforms: {} }).onBeforeCompile(
-      shader as unknown as THREE.WebGLProgramParametersWithUniforms,
-    );
-    const patchedFs = stripGlslComments(shader.fragmentShader);
-    const baseFs = stripGlslComments(THREE.ShaderLib.standard.fragmentShader);
-    const countSamplers = (s: string) => (s.match(/\bsampler2D\b/g) ?? []).length;
-    expect(countSamplers(patchedFs)).toBe(countSamplers(baseFs) + 4);
-  });
-});
-
-describe("makeTerrainMaterialPatch — full variant (medium/high, hasNormalMaps: true)", () => {
-  it("defines HAS_TERRAIN_NORMALMAPS and blends 4 tangent-space normal samples", () => {
-    const shader = freshShader();
-    makeTerrainMaterialPatch({ hasNormalMaps: true, uniforms: {} }).onBeforeCompile(
-      shader as unknown as THREE.WebGLProgramParametersWithUniforms,
-    );
-    const fs = stripGlslComments(shader.fragmentShader);
-    expect(fs).toMatch(/#define\s+HAS_TERRAIN_NORMALMAPS/);
     for (const sampler of [
       "uNormalJungleFloor",
       "uNormalLeafLitter",
@@ -157,7 +133,7 @@ describe("makeTerrainMaterialPatch — full variant (medium/high, hasNormalMaps:
 
   it("adds 8 sampler2D total (4 albedo + 4 normal) beyond the base program", () => {
     const shader = freshShader();
-    makeTerrainMaterialPatch({ hasNormalMaps: true, uniforms: {} }).onBeforeCompile(
+    makeTerrainMaterialPatch({ uniforms: {} }).onBeforeCompile(
       shader as unknown as THREE.WebGLProgramParametersWithUniforms,
     );
     const patchedFs = stripGlslComments(shader.fragmentShader);
@@ -168,7 +144,7 @@ describe("makeTerrainMaterialPatch — full variant (medium/high, hasNormalMaps:
 
   it("injects the normal blend AFTER normal_fragment_maps (normal/vViewPosition already in scope)", () => {
     const shader = freshShader();
-    makeTerrainMaterialPatch({ hasNormalMaps: true, uniforms: {} }).onBeforeCompile(
+    makeTerrainMaterialPatch({ uniforms: {} }).onBeforeCompile(
       shader as unknown as THREE.WebGLProgramParametersWithUniforms,
     );
     const fs = shader.fragmentShader;
@@ -180,15 +156,11 @@ describe("makeTerrainMaterialPatch — full variant (medium/high, hasNormalMaps:
 });
 
 describe("makeTerrainMaterialPatch — program cache key", () => {
-  it("returns a constant, distinct-per-variant, non-empty, namespaced key", () => {
-    const albedo1 = makeTerrainMaterialPatch({ hasNormalMaps: false, uniforms: {} }).customProgramCacheKey();
-    const albedo2 = makeTerrainMaterialPatch({ hasNormalMaps: false, uniforms: {} }).customProgramCacheKey();
-    const full = makeTerrainMaterialPatch({ hasNormalMaps: true, uniforms: {} }).customProgramCacheKey();
-    expect(albedo1).toBe(albedo2);
-    expect(albedo1).not.toBe(full);
-    expect(albedo1).not.toBe("");
-    expect(full).not.toBe("");
-    expect(albedo1).toMatch(/^terrain-/);
-    expect(full).toMatch(/^terrain-/);
+  it("returns a constant, non-empty, namespaced key", () => {
+    const key1 = makeTerrainMaterialPatch({ uniforms: {} }).customProgramCacheKey();
+    const key2 = makeTerrainMaterialPatch({ uniforms: {} }).customProgramCacheKey();
+    expect(key1).toBe(key2);
+    expect(key1).not.toBe("");
+    expect(key1).toMatch(/^terrain-/);
   });
 });
