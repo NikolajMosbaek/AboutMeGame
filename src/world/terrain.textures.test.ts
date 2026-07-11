@@ -155,6 +155,27 @@ describe("buildTerrain — async texture attach (upgrade in place)", () => {
     }
   });
 
+  it("disposes every attached texture when dispose() runs on the happy path (no unmount race)", async () => {
+    const loaded: THREE.Texture[] = [];
+    const load: TerrainTextureLoader = async (_path) => {
+      const tex = new THREE.Texture();
+      loaded.push(tex);
+      return tex;
+    };
+
+    const terrain = buildTerrain({ terrainDetail: "full", terrainAnisotropy: 4 }, load);
+    await terrain.texturesReady;
+
+    expect(loaded).toHaveLength(8); // 4 albedo + 4 normal, attached (not disposed yet)
+    const spies = loaded.map((tex) => vi.spyOn(tex, "dispose"));
+
+    terrain.dispose();
+
+    for (const spy of spies) {
+      expect(spy).toHaveBeenCalledTimes(1);
+    }
+  });
+
   it("never rejects on a load failure — logs and keeps the vertex-colour fallback", async () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const load: TerrainTextureLoader = async () => {

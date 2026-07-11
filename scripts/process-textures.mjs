@@ -29,10 +29,35 @@
 // under `public/assets/textures/terrain/` is. Re-running the script reuses an
 // already-cached zip instead of re-downloading it.
 //
-// Per texture: `<Stem>_Color.jpg` → resize 1024x1024 → WebP q80 → `<name>-
-// albedo.webp`; `<Stem>_NormalGL.jpg` (OpenGL +Y-up convention, matching
-// WebGL/three) → resize 1024x1024 → WebP q90 → `<name>-normal.webp`. The
-// normal map is encoded with NO colour-space conversion — sharp's resize
+// Per texture: `<Stem>_Color.jpg` → resize 1024x1024 → WebP q80 (lossy) →
+// `<name>-albedo.webp`; `<Stem>_NormalGL.jpg` (OpenGL +Y-up convention,
+// matching WebGL/three) → resize 512x512 → WebP LOSSLESS (VP8L, not VP8) →
+// `<name>-normal.webp`. Lossless is non-negotiable here: VP8's lossy path
+// runs the image through 4:2:0 chroma-subsampled YUV, which smears per-channel
+// normal-map data (directional vectors, not perceptual colour) into blotchy,
+// muted relief — a review finding on this slice (the committed files were
+// briefly VP8 lossy before this fix; confirm with the RIFF fourCC at byte
+// offset 12 reading `VP8L`, not `VP8 ` — macOS `file` doesn't distinguish the
+// two, `xxd -s 12 -l 4` does).
+//
+// The normal map's resolution is HALVED (512, not the albedo's 1024) as the
+// budget trade for going lossless: lossless WebP on a photographic (noisy)
+// source is dramatically bigger than lossy — measured at 1024x1024, the 4
+// normal maps totalled ~8.0 MB lossless vs ~1.7 MB lossy, which alone blows
+// the 6 MB total-download cap (`docs/perf-budget.md`) by ~3.7 MB. At 512x512
+// lossless the 4 normal maps total ~2.0 MB (+~0.36 MB over the old lossy
+// baseline) — comfortably inside the cap. This costs some normal-map surface
+// detail, but only on the medium/high tiers that use it at all (low renders
+// albedo-only, `quality.terrainDetail === "albedo"`), and the perf-budget doc
+// already records the normal-map contribution as "a subtle normal-map
+// lighting nuance, not a colour/texture change" at this world's scale — a
+// lower-resolution but CORRECTLY encoded (no chroma-smear) normal map reads
+// better than a full-resolution corrupted one. Albedo stays at 1024 lossy;
+// three samples the two textures at the same world-XZ UV independently of
+// their respective texel resolutions, so the mismatch is not a rendering
+// concern.
+//
+// The normal map is ALSO encoded with NO colour-space conversion — sharp's resize
 // operates on the raw stored bytes (no automatic gamma/ICC re-interpretation),
 // which is exactly what's wanted: normal-map channels are directional data,
 // not perceptual colour, and must reach the GPU byte-for-byte. The runtime
@@ -59,8 +84,8 @@ const OUT_DIR = resolve(REPO_ROOT, "public/assets/textures/terrain");
 const CACHE_DIR = process.env.TERRAIN_TEXTURE_CACHE ?? join(tmpdir(), "lost-idol-terrain-textures");
 
 const SIZE = 1024;
+const NORMAL_SIZE = 512;
 const ALBEDO_QUALITY = 80;
-const NORMAL_QUALITY = 90;
 
 /** The 4 splat channels, matching `SPLAT_CHANNELS` in `src/world/terrainSplat.ts`
  *  and the `TEXTURE_STEM` map in `src/world/terrain.ts` — keep all three in
@@ -125,8 +150,8 @@ async function processOne({ name, assetId }) {
 
   const normalOut = join(OUT_DIR, `${name}-normal.webp`);
   await sharp(normalGL)
-    .resize(SIZE, SIZE, { fit: "cover" })
-    .webp({ quality: NORMAL_QUALITY })
+    .resize(NORMAL_SIZE, NORMAL_SIZE, { fit: "cover" })
+    .webp({ lossless: true })
     .toFile(normalOut);
 
   for (const f of [albedoOut, normalOut]) {

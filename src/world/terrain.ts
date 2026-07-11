@@ -205,7 +205,12 @@ export function buildTerrain(
   mesh.name = "terrain";
 
   let disposed = false;
-  const texturesReady = attachTerrainTextures(mat, quality, loadTerrainTexture, () => disposed);
+  // Populated by `attachTerrainTextures` the moment it attaches (the happy
+  // path) so `dispose()` below can release the GPU-uploaded textures too —
+  // the unmount-race branch already disposes its own load-in-flight textures,
+  // this array only ever fills on a successful attach.
+  const attachedTextures: THREE.Texture[] = [];
+  const texturesReady = attachTerrainTextures(mat, quality, loadTerrainTexture, () => disposed, attachedTextures);
 
   return {
     mesh,
@@ -215,6 +220,7 @@ export function buildTerrain(
       disposed = true;
       geo.dispose();
       mat.dispose();
+      for (const tex of attachedTextures) tex.dispose();
     },
   };
 }
@@ -231,12 +237,18 @@ export function buildTerrain(
  * `isDisposed` guards the unmount race: if `Terrain.dispose()` ran while the
  * load was in flight, the just-uploaded textures are disposed instead of
  * attached to a dead material — no GPU leak from a fast mount/unmount.
+ *
+ * `outAttachedTextures` collects every texture on a successful attach (the
+ * `props.ts` explicit-texture-dispose convention) so the caller's
+ * `Terrain.dispose()` can release them too on the happy path — the unmount-
+ * race branch above disposes its own textures directly and never pushes here.
  */
 function attachTerrainTextures(
   mat: THREE.MeshStandardMaterial,
   quality: Pick<QualityConfig, "terrainDetail" | "terrainAnisotropy">,
   loadTerrainTexture: TerrainTextureLoader,
   isDisposed: () => boolean,
+  outAttachedTextures: THREE.Texture[],
 ): Promise<void> {
   const hasNormalMaps = quality.terrainDetail === "full";
 
@@ -276,6 +288,7 @@ function attachTerrainTextures(
       mat.onBeforeCompile = patch.onBeforeCompile;
       mat.customProgramCacheKey = patch.customProgramCacheKey;
       mat.needsUpdate = true;
+      outAttachedTextures.push(...albedoTextures, ...normalTextures);
     })
     .catch((err: unknown) => {
       console.error("terrain textures failed to load — keeping the vertex-colour fallback:", err);

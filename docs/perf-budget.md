@@ -228,21 +228,44 @@ tier, +4 normal on medium/high) — the fill-rate-first mitigation order (cap
 DPR → draw calls → overdraw/shadows → triangles) still applies if a device
 struggles with the extra sampling.
 
-*Texture payload.* 8 WebP files (4 albedo @ q80, 4 normal @ q90, all resized to
-1024x1024 by `scripts/process-textures.mjs`), **2701.0 KB** total, counted at
-RAW bytes (already-compressed binary, `docs/perf-budget.md`'s conservative
-convention) toward the 6 MB initial-download cap:
+*Texture payload.* 8 WebP files — 4 albedo @ q80 (lossy VP8, 1024x1024) + 4
+normal maps (lossless VP8L, 512x512, `scripts/process-textures.mjs`) — totalling
+**3065.7 KB**, counted at RAW bytes (already-compressed binary, `docs/perf-budget.md`'s
+conservative convention) toward the 6 MB initial-download cap:
 
 | File | Bytes (KB) |
 |---|---|
 | jungle-floor-albedo.webp | 213.7 |
-| jungle-floor-normal.webp | 541.6 |
+| jungle-floor-normal.webp | 596.6 |
 | leaf-litter-albedo.webp | 427.5 |
-| leaf-litter-normal.webp | 593.2 |
+| leaf-litter-normal.webp | 575.6 |
 | rock-albedo.webp | 155.9 |
-| rock-normal.webp | 163.5 |
+| rock-normal.webp | 421.4 |
 | sand-albedo.webp | 213.4 |
-| sand-normal.webp | 392.2 |
+| sand-normal.webp | 461.6 |
+
+**Post-merge review fix (2026-07-11): normal maps were re-encoded lossless.**
+The numbers above (and this doc's original slice-3 measurement below) reflect
+the FIX; they are not the numbers first shipped. The original pipeline encoded
+`*-normal.webp` with `sharp`'s default `lossless: false` (VP8 lossy, q90) at
+1024x1024 — a code-review finding caught that VP8's lossy path always runs
+through 4:2:0 chroma-subsampled YUV, which smears per-channel normal-map data
+(directional vectors, not perceptual colour) into blotchy, muted relief on the
+medium/high tiers. The direct fix — `.webp({ lossless: true })` at the
+existing 1024x1024 — is CORRECT but not affordable as-is: lossless WebP on a
+photographic (noisy) source is dramatically bigger than lossy, measured at
+~8.0 MB for the 4 normal maps alone (vs ~1.7 MB lossy), which alone blows the
+6 MB total-download cap by ~3.7 MB. The shipped fix keeps the maps lossless
+(fixing the corruption) but halves their resolution to 512x512 (albedo stays
+1024): the 4 normal maps now total ~2.0 MB, only **+0.36 MB** over the old
+(corrupted) lossy baseline. This trades some normal-map surface detail for
+correctness, but only on the medium/high tiers that sample it at all (low is
+albedo-only) — the perf-budget doc already records the normal-map contribution
+as "a subtle normal-map lighting nuance, not a colour/texture change" at this
+world's scale, so a lower-resolution but correctly-encoded map reads better
+than a full-resolution corrupted one. Verify the encoding with the RIFF fourCC
+at byte offset 12 (`xxd -s 12 -l 4 -p file.webp` → `5650384c` / `VP8L`, not
+`VP8 `) — macOS `file` does not distinguish VP8 from VP8L.
 
 Measured `vite build` (gzip) + `npm run check:bundle`, same method as slices
 1-2 (branch vs the slice-2 baseline: entry 92.51 KB, `three` 133.26 KB,
@@ -261,15 +284,20 @@ Measured `vite build` (gzip) + `npm run check:bundle`, same method as slices
 - **`postfx` chunk (lazy, medium/high only):** 151.72 → 151.07 KB (-0.65 KB,
   untouched by this slice — build noise).
 - **CSS:** unchanged, 4.54 KB.
-- **Summed JS gzip (`check:bundle`):** 376.7 → **379.7 KB**, **20.3 KB** of the
+- **Summed JS gzip (`check:bundle`):** 376.7 → **379.8 KB**, **20.2 KB** of the
   400 KB cap left free (was 23.3 KB after slice 2 — the splat patch fit inside
-  the ~20 KB the design flagged as remaining, at +3.0 KB actual). **Total
-  download:** 417.9 KB → **3187.6 KB** (the +2701 KB texture payload plus the
-  small JS delta), **2812.4 KB** of the 6 MB cap still free.
+  the ~20 KB the design flagged as remaining, at +3.1 KB actual). **Total
+  download:** 417.9 KB → **3561.1 KB** (the post-fix +3065.7 KB texture payload
+  plus the small JS delta), **2438.9 KB** of the 6 MB cap still free (measured
+  directly via `npm run check:bundle`).
 
-Both caps hold (`npm run check:bundle` EXIT=0), but JS-gzip headroom is now
-**very** thin (20.3 KB) — the next slice that adds meaningful JS (water normal
+Both caps hold (`npm run check:bundle` EXIT=0). JS-gzip headroom is still
+**very** thin (20.2 KB) — the next slice that adds meaningful JS (water normal
 maps, flora GLB decoding) should budget against this number, not slice 2's.
+Total-download headroom is comfortable again post-fix (2438.9 KB) — the
+naive "just add `lossless: true` at 1024x1024" fix would have left it at
+**-3731.7 KB** (over budget), which is why the resolution trade above was
+necessary.
 
 **Quality-tier verification.** `npm run verify`'s render gate runs on software
 WebGL (`docs/perf-budget.md`'s own software-renderer override), which forces
