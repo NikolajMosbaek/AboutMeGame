@@ -1,53 +1,108 @@
-// F1 slice 1 (#129) — T3: rasterize the committed social-preview SVG source to
-// the emitted PNG, OFFLINE, using the already-present playwright devDependency.
-// No runtime dependency and no new dependency: this is an authoring-time tool
-// run by hand when the card art changes, never at build or runtime.
+// Social-preview capture (visual-overhaul slice 7, polish — closes the
+// jungle-pivot's recorded deferral: "public/social-preview.png still shows
+// old-game art", docs/team/runs/2026-07-08-jungle-pivot.md). No runtime
+// dependency and no new dependency: this is an authoring-time tool run by
+// hand against a REAL GPU whenever the card art changes, never at build or
+// runtime (mirrors this file's own pre-slice-7 role, when it rasterized the
+// now-retired vector `public/social-preview.svg`).
 //
-//   node scripts/render-social-preview.mjs
+//   npm run preview   # in one terminal — serves the production build
+//   node scripts/render-social-preview.mjs [url] [out]
 //
-// It loads public/social-preview.svg into a headless Chromium page sized to the
-// exact 1200x630 unfurl frame at deviceScaleFactor 1 (so the PNG is emitted at
-// precisely 1200x630, matching og:image:width/height), screenshots the page,
-// and writes public/social-preview.png. We ship the PNG (not the SVG) as the
-// og:image because SVG og:image is unreliable across Facebook/X/LinkedIn/Slack
-// crawlers; the SVG stays committed as the regenerable source.
-import { readFileSync, writeFileSync } from "node:fs";
+// Unlike the retired SVG source, the new card is a REAL screenshot of the
+// running game — golden hour over the lagoon toward the camp/jungle island,
+// with a visible sun disc, its water-glint, drifting clouds, the splatted
+// terrain and real CC0 flora. There is no static vector "source" to commit
+// any more; the regenerable source IS this script's fixed recipe below (the
+// day-cycle offset + camera eye/target), so re-running it against any build
+// reproduces the same framing deterministically — the same
+// `window.advanceTime`/`window.__frameView__` automation hooks
+// `scripts/verify-game.mjs` already drives the game with.
+//
+// The DOM shell (HUD, meters, prompts) is hidden via a style override before
+// the shot (marketing art, not a gameplay screenshot) — only the WebGL
+// `<canvas>` is captured. Output is written at the exact 1200x630 unfurl
+// frame (matching index.html's `og:image:width`/`height`) by sizing the
+// browser viewport to it directly, then re-encoded as a 256-colour palette
+// PNG (`scripts/process-textures.mjs`'s `sharp` devDependency) — indistinguishable
+// by eye from the full-colour capture (the hazy gradient sky shows no visible
+// banding at 256 colours) at roughly a quarter of the byte cost, which is what
+// keeps `SOCIAL_PREVIEW_MAX_BYTES` (`src/share/socialMeta.ts`) affordable.
+import { writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { chromium } from "playwright";
+import sharp from "sharp";
 
 const WIDTH = 1200;
 const HEIGHT = 630;
 
+// The recipe: golden hour (dayCycle.ts's exact GOLDEN_T keyframe is t=90s of
+// the 180s loop; 84s — 91% of the way from noon to golden — was chosen by eye
+// over the exact keyframe because the lower, slightly-earlier sun sits right
+// behind the lagoon from this vantage, throwing its glint straight down the
+// water toward camera) and a camera eye/target pair south-west of the lagoon
+// looking north-east across it toward the camp-side jungle, framing the sun
+// disc, its glint and the palm-lined far shore together.
+const DAY_CYCLE_MS = 84_000;
+const EYE = [-48, 22, 166];
+const TARGET = [12, 8, 82];
+
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(scriptDir, "..");
-const svgPath = resolve(repoRoot, "public/social-preview.svg");
-const pngPath = resolve(repoRoot, "public/social-preview.png");
 
-const svg = readFileSync(svgPath, "utf8");
+const args = process.argv.slice(2);
+const url = args.find((a) => !a.startsWith("--")) ?? "http://localhost:4173/";
+const pngPath = resolve(repoRoot, args[1] ?? "public/social-preview.png");
 
-// Zero all default page margins/scroll so the SVG fills the viewport 1:1 and
-// the screenshot is exactly WIDTHxHEIGHT with no white gutter.
-const html = `<!doctype html><html><head><meta charset="utf-8"><style>
-  *{margin:0;padding:0}
-  html,body{width:${WIDTH}px;height:${HEIGHT}px;overflow:hidden;background:transparent}
-  svg{display:block}
-</style></head><body>${svg}</body></html>`;
-
-const browser = await chromium.launch();
+const browser = await chromium.launch({
+  // Real GPU rendering (not the CI render-gate's SwiftShader software stand-
+  // in) — this is a marketing screenshot, so it must show the actual lit,
+  // textured, atmospheric look, not the software-rasterizer fallback.
+  args: ["--use-gl=angle", "--use-angle=metal"],
+});
 try {
-  const page = await browser.newPage({
-    viewport: { width: WIDTH, height: HEIGHT },
-    deviceScaleFactor: 1,
+  const page = await browser.newPage({ viewport: { width: WIDTH, height: HEIGHT } });
+  const consoleErrors = [];
+  page.on("console", (m) => {
+    if (m.type() === "error") consoleErrors.push(m.text());
   });
-  await page.setContent(html, { waitUntil: "networkidle" });
-  const buffer = await page.screenshot({
-    type: "png",
-    clip: { x: 0, y: 0, width: WIDTH, height: HEIGHT },
+  page.on("pageerror", (e) => consoleErrors.push(String(e)));
+
+  await page.goto(url, { waitUntil: "networkidle", timeout: 30_000 });
+  const cta = page.getByRole("button", { name: /^(begin the expedition|continue)$/i });
+  if (await cta.count()) await cta.first().click();
+  await page.waitForFunction(() => typeof window.advanceTime === "function", {
+    timeout: 15_000,
   });
-  writeFileSync(pngPath, buffer);
-  console.log(`Wrote ${pngPath} (${WIDTH}x${HEIGHT}, ${buffer.length} bytes)`);
+  const gotIt = page.getByRole("button", { name: /got it, let's go/i });
+  if (await gotIt.count()) {
+    await gotIt.first().click();
+    await page.waitForTimeout(100);
+  }
+
+  // Hide the DOM shell (HUD/meters/prompts/nav) — only the canvas ships.
+  await page.addStyleTag({
+    content: ".game-canvas-container > *:not(canvas) { display: none !important; }",
+  });
+
+  await page.evaluate((ms) => window.advanceTime(ms), DAY_CYCLE_MS);
+  await page.evaluate(([eye, target]) => window.__frameView__(eye, target), [EYE, TARGET]);
+  await page.waitForTimeout(150); // let the frame settle (compositor/AO warm-up)
+
+  if (consoleErrors.length) {
+    console.error("Console errors during capture:\n" + consoleErrors.join("\n"));
+    process.exitCode = 1;
+  }
+
+  const canvas = page.locator(".game-canvas-container canvas");
+  const raw = await canvas.screenshot({ type: "png" });
+  const optimized = await sharp(raw)
+    .png({ palette: true, colors: 256, compressionLevel: 9 })
+    .toBuffer();
+  writeFileSync(pngPath, optimized);
+  console.log(`Wrote ${pngPath} (${WIDTH}x${HEIGHT}, ${optimized.length} bytes)`);
 } finally {
   await browser.close();
 }
