@@ -29,6 +29,9 @@ describe("resolveQuality", () => {
     // CI's software-GL runner, the low tier's real ≤2-core-device stand-in,
     // timed out on even the albedo-only splat path).
     expect(low.terrainDetail).toBe("none");
+    // Low ships byte-identical water to before this slice: no ripple normal
+    // maps, no depth absorption, no foam breakup (visual-overhaul slice 4).
+    expect(low.waterDetail).toBe("none");
   });
 
   it("the medium tier turns shadows on at a smaller map and caps DPR", () => {
@@ -48,6 +51,9 @@ describe("resolveQuality", () => {
     // Medium gets full terrain detail (normal maps) at a modest anisotropy.
     expect(med.terrainDetail).toBe("full");
     expect(med.terrainAnisotropy).toBe(4);
+    // Medium also gets the water ripple/depth-absorption detail (needs
+    // waterDisplacement, which is also on here).
+    expect(med.waterDetail).toBe("full");
   });
 
   it("the high tier is full quality", () => {
@@ -64,6 +70,7 @@ describe("resolveQuality", () => {
     // High gets full terrain detail at the sharpest anisotropy.
     expect(high.terrainDetail).toBe("full");
     expect(high.terrainAnisotropy).toBe(8);
+    expect(high.waterDetail).toBe("full");
   });
 
   it("monotonically scales every cost knob across the tiers", () => {
@@ -102,6 +109,16 @@ describe("resolveQuality", () => {
     expect(QUALITY_TIERS.high.terrainDetail).toBe("full");
     expect(order[1].terrainAnisotropy).toBeGreaterThanOrEqual(order[0].terrainAnisotropy);
     expect(order[2].terrainAnisotropy).toBeGreaterThanOrEqual(order[1].terrainAnisotropy);
+    // Water ripple/depth-absorption detail (visual-overhaul slice 4) is off
+    // only at the bottom tier, same shape as terrainDetail.
+    expect(QUALITY_TIERS.low.waterDetail).toBe("none");
+    expect(QUALITY_TIERS.medium.waterDetail).toBe("full");
+    expect(QUALITY_TIERS.high.waterDetail).toBe("full");
+    // Every tier that has waterDetail:"full" also has waterDisplacement:true —
+    // the patch's own defensive AND-gate assumes this pairing.
+    for (const cfg of order) {
+      if (cfg.waterDetail === "full") expect(cfg.waterDisplacement).toBe(true);
+    }
   });
 
   it("N8AO's artistic look (radius/falloff/intensity) is identical on medium and high", () => {

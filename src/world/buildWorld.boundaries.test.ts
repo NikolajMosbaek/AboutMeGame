@@ -33,22 +33,23 @@ function stubRenderer(): RendererLike {
 describe("buildWorld → boundaries heightAt seam (#116, T8)", () => {
   afterEach(() => buildBoundaries.mockClear());
 
-  it("calls buildBoundaries with (terrain.heightAt, quality.waterDisplacement)", () => {
+  it("calls buildBoundaries with (terrain.heightAt, quality.waterDisplacement, quality.waterDetail === \"full\")", () => {
     const engine = new Engine({ renderer: stubRenderer() });
     const world = buildWorld(engine);
 
     expect(buildBoundaries).toHaveBeenCalledTimes(1);
-    const [heightArg, dispArg, ...rest] = buildBoundaries.mock.calls[0];
-    // G1 slice 3: the boundaries seam is threaded with TWO positional args —
-    // the heightAt fn and the resolved waterDisplacement flag (kept a plain
-    // function arg, not folded into an options object).
+    const [heightArg, dispArg, detailArg, ...rest] = buildBoundaries.mock.calls[0];
+    // Visual-overhaul slice 4 added a THIRD positional arg (the resolved
+    // ripple-detail flag) alongside the slice-3 pair — still plain function
+    // args, not folded into an options object.
     expect(rest).toHaveLength(0);
     expect(typeof heightArg).toBe("function");
     // The exact function the terrain exposes, not a copy — so the baked
     // ground-height texture reads the real coastline.
     expect(heightArg).toBe(world.terrain.heightAt);
-    // The default quality is high, which animates the water.
+    // The default quality is high, which animates the water and gets ripple detail.
     expect(dispArg).toBe(true);
+    expect(detailArg).toBe(true);
 
     world.dispose();
     engine.dispose();

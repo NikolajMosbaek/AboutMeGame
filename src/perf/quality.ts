@@ -85,6 +85,18 @@ export interface QualityConfig {
    *  changes `customProgramCacheKey`/skips the fetch entirely), so it applies
    *  on reload like `shadowMapSize`/`fog`. */
   terrainDetail: "none" | "full";
+  /** Water ripple-normal-map detail (visual-overhaul slice 4): `"full"`
+   *  (medium/high) loads a single ripple-normal texture and patches the
+   *  water's `onBeforeCompile` (`src/world/waterPatch.ts`) with two scrolling
+   *  samples of it — combined with the existing analytic wave normal for
+   *  per-fragment sparkle, a physically-plausible depth-based colour
+   *  absorption term, and a raggedized foam edge. `"none"` (low) never
+   *  fetches, never patches: the water stays byte-identical to the pre-slice-4
+   *  look (following the `terrainDetail` precedent exactly — same low-tier
+   *  floor, same bake-at-mount/"applies on reload" cost shape). Requires
+   *  `waterDisplacement` to also be on (`boundaries.ts`/`waterPatch.ts` AND
+   *  the two together defensively); every tier that has one has the other. */
+  waterDetail: "none" | "full";
   /** Anisotropic filtering level for the terrain's 4 splat textures (both
    *  albedo and, on `"full"`, normal maps) — a cheap fill-rate knob (three
    *  clamps it to the device's real max at bind time, so requesting more than
@@ -118,6 +130,7 @@ export const QUALITY_TIERS: Record<DeviceTier, QualityConfig> = {
     envDynamic: false,
     ao: { ...AO_LOOK, qualityMode: "Performance", halfRes: true },
     terrainDetail: "none",
+    waterDetail: "none",
     terrainAnisotropy: 4,
   },
   medium: {
@@ -132,6 +145,7 @@ export const QUALITY_TIERS: Record<DeviceTier, QualityConfig> = {
     envDynamic: true,
     ao: { ...AO_LOOK, qualityMode: "Performance", halfRes: true },
     terrainDetail: "full",
+    waterDetail: "full",
     terrainAnisotropy: 4,
   },
   high: {
@@ -146,6 +160,7 @@ export const QUALITY_TIERS: Record<DeviceTier, QualityConfig> = {
     envDynamic: true,
     ao: { ...AO_LOOK, qualityMode: "Medium", halfRes: true },
     terrainDetail: "full",
+    waterDetail: "full",
     terrainAnisotropy: 8,
   },
 };

@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { WATER_DEEP, WATER_SHALLOW } from "./waterSurface.ts";
-import { FOAM_COLOR, srgbTupleToLinear } from "./waterUniforms.ts";
+import {
+  WATER_DEEP,
+  WATER_DEEP_DETAIL,
+  WATER_SHALLOW,
+  WATER_SHALLOW_DETAIL,
+} from "./waterSurface.ts";
+import {
+  FOAM_COLOR,
+  WATER_DEEP_DETAIL_LINEAR,
+  WATER_SHALLOW_DETAIL_LINEAR,
+  srgbTupleToLinear,
+} from "./waterUniforms.ts";
 
 // T1 — colour-space transport. The renderer outputs SRGBColorSpace with
 // ACESFilmicToneMapping, so MeshStandard fragment math runs in LINEAR before
@@ -59,6 +69,23 @@ describe("srgbTupleToLinear (sRGB -> linear transport)", () => {
     expect(a).not.toBe(b); // fresh tuple each call — no shared scratch leak
     for (let c = 0; c < 3; c++) {
       expect(a[c]).toBe(b[c]);
+    }
+  });
+});
+
+describe("WATER_SHALLOW_DETAIL_LINEAR / WATER_DEEP_DETAIL_LINEAR (visual-overhaul slice 4)", () => {
+  it("are the srgbTupleToLinear transport of the detail-tier palette, not re-declared", () => {
+    expect(WATER_SHALLOW_DETAIL_LINEAR).toEqual(srgbTupleToLinear(WATER_SHALLOW_DETAIL));
+    expect(WATER_DEEP_DETAIL_LINEAR).toEqual(srgbTupleToLinear(WATER_DEEP_DETAIL));
+  });
+
+  it("keep every channel finite and in-gamut [0,1]", () => {
+    for (const lin of [WATER_SHALLOW_DETAIL_LINEAR, WATER_DEEP_DETAIL_LINEAR]) {
+      for (let c = 0; c < 3; c++) {
+        expect(Number.isFinite(lin[c])).toBe(true);
+        expect(lin[c]).toBeGreaterThanOrEqual(0);
+        expect(lin[c]).toBeLessThanOrEqual(1);
+      }
     }
   });
 });

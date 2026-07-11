@@ -5,19 +5,36 @@ import { describe, expect, it } from "vitest";
 import {
   A1,
   A2,
+  DEPTH_ABSORPTION_RATE,
   DIR2_X,
   DIR2_Z,
   FOAM_DEPTH_END,
   FOAM_DEPTH_START,
   K1,
   K2,
+  RIPPLE_HEADING_1_COS,
+  RIPPLE_HEADING_1_SIN,
+  RIPPLE_HEADING_2_COS,
+  RIPPLE_HEADING_2_SIN,
+  RIPPLE_SPEED_1,
+  RIPPLE_SPEED_2,
+  RIPPLE_TILE_1,
+  RIPPLE_TILE_2,
   S1,
   S2,
   WATER_DEEP,
+  WATER_DEEP_DETAIL,
   WATER_SHALLOW,
+  WATER_SHALLOW_DETAIL,
   WRAP_PERIOD,
   clamp01,
+  depthAbsorption,
+  depthAbsorptionGlsl,
+  detailWaterRamp,
   glslFloat,
+  rippleGlsl,
+  rippleUV,
+  rippleWorldSlope,
   shorelineFoam,
   smoothstep,
   waterColor,
@@ -330,6 +347,196 @@ describe("single source of truth — no second literal copy of the wave constant
       ).toBe(1);
     });
   }
+});
+
+describe("rippleUV / rippleWorldSlope (visual-overhaul slice 4 ripple detail)", () => {
+  it("heading (1,0) is a pure axis-aligned scale + scroll (no rotation)", () => {
+    const [u, v] = rippleUV(10, -4, 2, 5, 1, 0, 0.5);
+    expect(u).toBeCloseTo(10 / 5 + 1 * (2 * 0.5), 9);
+    expect(v).toBeCloseTo(-4 / 5, 9);
+  });
+
+  it("rotates world (x,z) by the given heading before scaling by tile", () => {
+    // heading (0.8, 0.6): u = (x*0.8 + z*0.6)/tile, v = (-x*0.6 + z*0.8)/tile.
+    const [u, v] = rippleUV(10, 4, 0, 2, 0.8, 0.6, 0.3);
+    expect(u).toBeCloseTo((10 * 0.8 + 4 * 0.6) / 2, 9);
+    expect(v).toBeCloseTo((-10 * 0.6 + 4 * 0.8) / 2, 9);
+  });
+
+  it("scrolls linearly with t along the heading direction", () => {
+    const a = rippleUV(0, 0, 0, 5, 0.8, 0.6, 0.3);
+    const b = rippleUV(0, 0, 1, 5, 0.8, 0.6, 0.3);
+    expect(b[0] - a[0]).toBeCloseTo(0.8 * 0.3, 9);
+    expect(b[1] - a[1]).toBeCloseTo(0.6 * 0.3, 9);
+  });
+
+  it("rippleWorldSlope is the inverse rotation of the heading (identity at heading (1,0))", () => {
+    expect(rippleWorldSlope(0.3, -0.2, 1, 0)).toEqual([-0.3, 0.2]);
+  });
+
+  it("rippleWorldSlope round-trips a slope rotated in by the SAME heading back to world axes", () => {
+    // Rotate a world slope (dx,dz) INTO the (0.8,0.6) tangent frame the same
+    // way rippleUV rotates a position, decode it back out, and recover the
+    // original (dx,dz) — proving the two rotations are exact inverses.
+    const dx = 0.12;
+    const dz = -0.07;
+    const cos = 0.8;
+    const sin = 0.6;
+    // Forward rotation (matches rippleUV's position rotation): tangent-space
+    // decodedX/Y such that rippleWorldSlope(decodedX, decodedY, cos, sin) ==
+    // (dx, dz). Solve decodedX/decodedY from the (linear, orthogonal) inverse.
+    const decodedX = -dx * cos - dz * sin;
+    const decodedY = dx * sin - dz * cos;
+    const [outDx, outDz] = rippleWorldSlope(decodedX, decodedY, cos, sin);
+    expect(outDx).toBeCloseTo(dx, 9);
+    expect(outDz).toBeCloseTo(dz, 9);
+  });
+
+  it("is deterministic — a second identical call returns the same tuple", () => {
+    expect(rippleUV(3.3, -7.1, 4.2, 5, 0.8, 0.6, 0.3)).toEqual(
+      rippleUV(3.3, -7.1, 4.2, 5, 0.8, 0.6, 0.3),
+    );
+  });
+});
+
+describe("ripple wrap-closure (RIPPLE_SPEED_1/2 derived to close the UV wrap at WRAP_PERIOD)", () => {
+  it("sample 1 (heading (1,0)) scrolls an exact integer number of UV units over one WRAP_PERIOD", () => {
+    const a = rippleUV(17, -3, 0, RIPPLE_TILE_1, RIPPLE_HEADING_1_COS, RIPPLE_HEADING_1_SIN, RIPPLE_SPEED_1);
+    const b = rippleUV(
+      17,
+      -3,
+      WRAP_PERIOD,
+      RIPPLE_TILE_1,
+      RIPPLE_HEADING_1_COS,
+      RIPPLE_HEADING_1_SIN,
+      RIPPLE_SPEED_1,
+    );
+    expect(b[0] - a[0]).toBeCloseTo(Math.round(b[0] - a[0]), 6);
+    expect(b[1] - a[1]).toBeCloseTo(0, 9);
+  });
+
+  it("sample 2 (heading (0.8,0.6)) scrolls an exact integer number of UV units on BOTH axes over one WRAP_PERIOD", () => {
+    const a = rippleUV(-9, 21, 0, RIPPLE_TILE_2, RIPPLE_HEADING_2_COS, RIPPLE_HEADING_2_SIN, RIPPLE_SPEED_2);
+    const b = rippleUV(
+      -9,
+      21,
+      WRAP_PERIOD,
+      RIPPLE_TILE_2,
+      RIPPLE_HEADING_2_COS,
+      RIPPLE_HEADING_2_SIN,
+      RIPPLE_SPEED_2,
+    );
+    const du = b[0] - a[0];
+    const dv = b[1] - a[1];
+    expect(du).toBeCloseTo(Math.round(du), 6);
+    expect(dv).toBeCloseTo(Math.round(dv), 6);
+  });
+});
+
+describe("rippleGlsl (shared emitter for both ripple samples)", () => {
+  const glsl = rippleGlsl();
+
+  it("defines callable rippleUV and rippleWorldSlope GLSL functions", () => {
+    expect(glsl).toMatch(/vec2\s+rippleUV\s*\(/);
+    expect(glsl).toMatch(/vec2\s+rippleWorldSlope\s*\(/);
+  });
+
+  it("is generic (parametric) — bakes NO tile/heading/speed constant into the function body", () => {
+    // The two call sites (waterPatch.ts) pass RIPPLE_TILE_1/2 etc as arguments;
+    // the shared function body itself must reference only its parameters.
+    for (const v of [RIPPLE_TILE_1, RIPPLE_HEADING_2_COS, RIPPLE_SPEED_1]) {
+      expect(glsl).not.toContain(glslFloat(v));
+    }
+  });
+
+  it("is deterministic — a second emit is byte-identical", () => {
+    expect(rippleGlsl()).toBe(glsl);
+  });
+});
+
+describe("depthAbsorption / detailWaterRamp (visual-overhaul slice 4 depth colour)", () => {
+  it("is 0 at the shoreline (depth <= 0)", () => {
+    expect(depthAbsorption(0)).toBe(0);
+    expect(depthAbsorption(-3)).toBe(0);
+  });
+
+  it("increases monotonically with depth and stays below 1", () => {
+    const samples = [0, 0.5, 1, 1.5, 2.6, 3.2, 20];
+    let prev = -1;
+    for (const d of samples) {
+      const v = depthAbsorption(d);
+      expect(v).toBeGreaterThan(prev);
+      expect(v).toBeLessThan(1);
+      prev = v;
+    }
+  });
+
+  it("matches the closed form 1 - exp(-depth * DEPTH_ABSORPTION_RATE)", () => {
+    expect(depthAbsorption(2)).toBeCloseTo(1 - Math.exp(-2 * DEPTH_ABSORPTION_RATE), 9);
+  });
+
+  it("detailWaterRamp takes the max of the (clamped) fresnel and depth terms", () => {
+    // Shallow water (low depthAbsorption) read head-on (fresnel=0): ramp stays low.
+    expect(detailWaterRamp(0, 0)).toBeCloseTo(0, 9);
+    // Deep water read head-on: the depth term dominates even at fresnel=0.
+    expect(detailWaterRamp(0, 10)).toBeGreaterThan(0.9);
+    // Shallow water at a grazing angle: the fresnel term dominates.
+    expect(detailWaterRamp(0.9, 0)).toBeCloseTo(0.9, 9);
+  });
+
+  it("detailWaterRamp stays in [0,1] for degenerate/out-of-range input", () => {
+    for (const fresnel of [-5, 0, 0.5, 1, 5, NaN]) {
+      for (const depth of [-5, 0, 1.5, 100, NaN]) {
+        const v = detailWaterRamp(fresnel, depth);
+        expect(Number.isFinite(v)).toBe(true);
+        expect(v).toBeGreaterThanOrEqual(0);
+        expect(v).toBeLessThanOrEqual(1);
+      }
+    }
+  });
+
+  it("is deterministic", () => {
+    expect(depthAbsorption(1.7)).toBe(depthAbsorption(1.7));
+    expect(detailWaterRamp(0.3, 1.7)).toBe(detailWaterRamp(0.3, 1.7));
+  });
+});
+
+describe("depthAbsorptionGlsl (shared emitter)", () => {
+  it("defines a callable depthAbsorption GLSL function carrying DEPTH_ABSORPTION_RATE by value", () => {
+    const glsl = depthAbsorptionGlsl();
+    expect(glsl).toMatch(/float\s+depthAbsorption\s*\(\s*float\s+depth\s*\)/);
+    expect(glsl).toContain(glslFloat(DEPTH_ABSORPTION_RATE));
+  });
+
+  it("is deterministic — a second emit is byte-identical", () => {
+    expect(depthAbsorptionGlsl()).toBe(depthAbsorptionGlsl());
+  });
+});
+
+describe("detail-tier palette (WATER_SHALLOW_DETAIL / WATER_DEEP_DETAIL)", () => {
+  it("is a distinct, more saturated turquoise/teal pair from the base low-tier palette", () => {
+    for (let c = 0; c < 3; c++) {
+      expect(Number.isFinite(WATER_SHALLOW_DETAIL[c])).toBe(true);
+      expect(Number.isFinite(WATER_DEEP_DETAIL[c])).toBe(true);
+      expect(WATER_SHALLOW_DETAIL[c]).toBeGreaterThanOrEqual(0);
+      expect(WATER_SHALLOW_DETAIL[c]).toBeLessThanOrEqual(1);
+      expect(WATER_DEEP_DETAIL[c]).toBeGreaterThanOrEqual(0);
+      expect(WATER_DEEP_DETAIL[c]).toBeLessThanOrEqual(1);
+    }
+    // Never the base pair — it must be its own, distinct tuning.
+    expect(WATER_SHALLOW_DETAIL).not.toEqual(WATER_SHALLOW);
+    expect(WATER_DEEP_DETAIL).not.toEqual(WATER_DEEP);
+    // The shallow tone reads as turquoise (green ~ blue, both well above red),
+    // not the base ocean-blue token (green << blue there).
+    expect(WATER_SHALLOW_DETAIL[1]).toBeGreaterThan(WATER_SHALLOW_DETAIL[0]);
+    expect(WATER_SHALLOW_DETAIL[2]).toBeGreaterThan(WATER_SHALLOW_DETAIL[0]);
+  });
+
+  it("the deep tone is darker than the shallow tone (every channel)", () => {
+    for (let c = 0; c < 3; c++) {
+      expect(WATER_DEEP_DETAIL[c]).toBeLessThan(WATER_SHALLOW_DETAIL[c]);
+    }
+  });
 });
 
 describe("water palette", () => {
