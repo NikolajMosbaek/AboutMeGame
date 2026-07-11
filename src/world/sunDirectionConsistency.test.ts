@@ -30,6 +30,8 @@ function fakeDome(): THREE.ShaderMaterial {
     uniforms: {
       topColor: { value: new THREE.Color(0xffffff) },
       bottomColor: { value: new THREE.Color(0xffffff) },
+      sunDirection: { value: new THREE.Vector3() },
+      sunColor: { value: new THREE.Color(0xffffff) },
     },
   } as unknown as THREE.ShaderMaterial;
 }

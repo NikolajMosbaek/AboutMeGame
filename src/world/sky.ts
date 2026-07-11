@@ -1,5 +1,13 @@
 import * as THREE from "three";
 import { WORLD } from "./worldConfig.ts";
+import {
+  FOG_DENSITY_BASE,
+  HAZE_FALLOFF,
+  HAZE_STRENGTH,
+  SUN_DISC_INNER,
+  SUN_DISC_OUTER,
+  SUN_HALO_POWER,
+} from "./skyAtmosphere.ts";
 
 export interface Sky {
   /** Add to the scene: the sky dome + lights. */
@@ -7,9 +15,11 @@ export interface Sky {
   /**
    * The gradient dome's material — the live seam for the sky colours. A
    * per-frame writer (the day cycle, G3) drives the gradient by mutating the
-   * uniform values IN PLACE: `dome.uniforms.topColor.value`/`bottomColor.value`
-   * are `THREE.Color`s (use `.copy()`/`.set()`), `offset.value`/`exponent.value`
-   * are numbers. ONLY `.uniforms.<name>.value` in-place mutation is supported —
+   * uniform values IN PLACE: `dome.uniforms.topColor.value`/`bottomColor.value`/
+   * `sunColor.value` are `THREE.Color`s (use `.copy()`/`.set()`),
+   * `dome.uniforms.sunDirection.value` is a `THREE.Vector3` (use `.copy()`/
+   * `.set()`), `offset.value`/`exponent.value`/`sunDiscStrength.value` are
+   * numbers. ONLY `.uniforms.<name>.value` in-place mutation is supported —
    * never reassign `.uniforms` and never call `dome.dispose()` (the Sky owns it).
    * After `dispose()` this references a disposed material and must not be read.
    */
@@ -37,16 +47,37 @@ export interface Sky {
 
 const SKY_TOP = new THREE.Color(0x3a78c2); // upper sky blue
 const SKY_BOTTOM = new THREE.Color(0xcfe4f2); // pale horizon haze
+/** Default sun direction/colour the dome shows before any per-frame writer
+ *  touches it — the same NOON direction/colour `sky.ts`'s static sun ships
+ *  (`(0.6,1,0.4)` normalized, `#fff1d6`), so a construction-only preview (a
+ *  test, or a frame before `DayCycleSystem`'s first update) still shows the
+ *  shipped NOON look rather than an arbitrary default. */
+const NOON_SUN_DIRECTION = new THREE.Vector3(0.6, 1, 0.4).normalize();
+const NOON_SUN_COLOR = new THREE.Color(0xfff1d6);
 
 /**
  * Build a gradient sky-dome `ShaderMaterial` — top→bottom shaded in view
- * space, uniforms `topColor`/`bottomColor`/`offset`/`exponent` mutable in
- * place (the day cycle's live per-frame writer, `DayCycleSystem`, drives the
- * visible dome this way). Factored out of `buildSky` so `EnvLightSystem`
- * (visual-overhaul slice 2) can build its OWN independent instance — same
- * shader, different uniform values it controls itself — for the private mini
- * scene it bakes the sky-driven IBL environment map from, without duplicating
- * this GLSL a second time or coupling to the live visible dome's material.
+ * space, uniforms `topColor`/`bottomColor`/`sunColor`/`offset`/`exponent`/
+ * `sunDirection`/`sunDiscStrength` mutable in place (the day cycle's live
+ * per-frame writer, `DayCycleSystem`, drives the visible dome this way).
+ * Factored out of `buildSky` so `EnvLightSystem` (visual-overhaul slice 2)
+ * can build its OWN independent instance — same shader, different uniform
+ * values it controls itself — for the private mini scene it bakes the
+ * sky-driven IBL environment map from, without duplicating this GLSL a
+ * second time or coupling to the live visible dome's material.
+ *
+ * Visual-overhaul slice 5 upgraded the flat two-colour gradient to a
+ * Preetham/Rayleigh-FLAVOURED atmosphere (see `skyAtmosphere.ts` for the pure
+ * reference math each GLSL term below is a direct transcription of, the
+ * `waterSurface.ts`/`waterPatch.ts` idiom): a horizon-haze band that bleeds
+ * extra `bottomColor` in near the horizon, a sharp sun disc, and a broad
+ * Mie-style forward-scattering halo that warms toward amber as the sun gets
+ * low. `sunDiscStrength` (default 1) lets a caller mute the disc/halo terms
+ * entirely without touching the gradient itself — `EnvLightSystem`'s private
+ * bake-scene copy sets it to 0 so the PMREM environment map's calibrated
+ * energy budget (its own dedicated sun-glow disc mesh) is unaffected by this
+ * slice; the gradient/haze terms (which only ever blend toward the palette's
+ * own colours) still upgrade the bake for free.
  */
 export function buildDomeMaterial(): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
@@ -57,6 +88,9 @@ export function buildDomeMaterial(): THREE.ShaderMaterial {
       bottomColor: { value: SKY_BOTTOM.clone() },
       offset: { value: 20 },
       exponent: { value: 0.7 },
+      sunDirection: { value: NOON_SUN_DIRECTION.clone() },
+      sunColor: { value: NOON_SUN_COLOR.clone() },
+      sunDiscStrength: { value: 1 },
     },
     vertexShader: `
       varying vec3 vWorldPos;
@@ -70,11 +104,34 @@ export function buildDomeMaterial(): THREE.ShaderMaterial {
       uniform vec3 bottomColor;
       uniform float offset;
       uniform float exponent;
+      uniform vec3 sunDirection;
+      uniform vec3 sunColor;
+      uniform float sunDiscStrength;
       varying vec3 vWorldPos;
       void main() {
-        float h = normalize(vWorldPos + vec3(0.0, offset, 0.0)).y;
+        vec3 dir = normalize(vWorldPos + vec3(0.0, offset, 0.0));
+        float h = dir.y;
         float t = pow(max(h, 0.0), exponent);
-        gl_FragColor = vec4(mix(bottomColor, topColor, t), 1.0);
+        vec3 col = mix(bottomColor, topColor, t);
+
+        // Horizon haze band (skyAtmosphere.ts's hazeFactor): extra bottomColor
+        // bleeding in near h = 0, falling off toward the zenith/nadir.
+        float haze = exp(-abs(h) * ${HAZE_FALLOFF.toFixed(3)}) * ${HAZE_STRENGTH.toFixed(3)};
+        col = mix(col, bottomColor, haze);
+
+        // Sun disc (sharp rim) + Mie-style forward-scattering halo, warming
+        // toward amber as the sun nears the horizon (skyAtmosphere.ts's
+        // sunDiscFactor/sunHaloFactor/lowSunFactor).
+        vec3 sun = normalize(sunDirection);
+        float cosAngle = dot(dir, sun);
+        float disc = smoothstep(${SUN_DISC_INNER.toFixed(6)}, ${SUN_DISC_OUTER.toFixed(6)}, cosAngle);
+        float halo = pow(clamp(cosAngle, 0.0, 1.0), ${SUN_HALO_POWER.toFixed(1)});
+        float lowSun = 1.0 - clamp(sun.y * 2.0, 0.0, 1.0);
+        vec3 limb = mix(sunColor, sunColor * vec3(1.35, 0.82, 0.55), lowSun);
+        col += halo * limb * (0.5 + 0.7 * lowSun) * sunDiscStrength;
+        col = mix(col, sunColor * 1.6, disc * sunDiscStrength);
+
+        gl_FragColor = vec4(col, 1.0);
       }`,
   });
 }
@@ -141,8 +198,10 @@ export function buildSky(scene: THREE.Scene, quality: SkyQuality = DEFAULT_SKY_Q
   // The live fog instance — the SAME object assigned to scene.fog, returned as
   // `fog` so a per-frame writer mutates it directly (`fog.color.copy(...)`)
   // instead of hunting the scene. FogExp2 deep-copies its colour, so `horizon`
-  // is a detached snapshot and is NOT a live-fog handle.
-  const fog = quality.fog ? new THREE.FogExp2(horizon.getHex(), 0.0022) : null;
+  // is a detached snapshot and is NOT a live-fog handle. Density starts at
+  // `FOG_DENSITY_BASE` (the shipped `0.0022`, held at the NOON sun elevation —
+  // slice 5's `DayCycleSystem` retunes it live per phase from here).
+  const fog = quality.fog ? new THREE.FogExp2(horizon.getHex(), FOG_DENSITY_BASE) : null;
   if (fog) scene.fog = fog;
 
   return {

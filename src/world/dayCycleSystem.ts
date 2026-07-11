@@ -15,16 +15,25 @@
 // once instead of holding the construction-time noon.
 //
 // Zero new geometry / draw calls / triangles / asset bytes: it only mutates the
-// existing sun light, dome shader uniforms and fog colour IN PLACE. Each colour
-// is written through the destination holder's own `setRGB(...srgbTuple,
-// SRGBColorSpace)` — no temporary `Color` is allocated per frame, the holder
-// objects are never swapped, `dome.uniforms` is never reassigned, and
-// `dome.dispose()` is never called (the Sky owns the material).
+// existing sun light, dome shader uniforms and fog colour/density IN PLACE.
+// Each colour is written through the destination holder's own `setRGB(...
+// srgbTuple, SRGBColorSpace)` — no temporary `Color` is allocated per frame,
+// the holder objects are never swapped, `dome.uniforms` is never reassigned,
+// and `dome.dispose()` is never called (the Sky owns the material).
+//
+// Visual-overhaul slice 5 (atmosphere) extended the dome write set: the
+// gradient's `sunDirection`/`sunColor` uniforms (feeding the dome shader's own
+// sun disc/halo — `sky.ts`'s `buildDomeMaterial`) are written from the SAME
+// `sunDirection` scratch vector and `sunColor` tuple already computed for the
+// light/position writes above, and the live fog's `density` (not just its
+// colour) is retuned per phase via the pure `fogDensityForElevation`
+// (`skyAtmosphere.ts`) so the fog agrees with the dome's own horizon haze.
 
 import * as THREE from "three";
 import type { FrameContext, System } from "../engine/types.ts";
 import type { ReducedMotionSource } from "./buildWorld.ts";
 import { dayPalette, GOLDEN_T, type DayPalette } from "./dayCycle.ts";
+import { fogDensityForElevation } from "./skyAtmosphere.ts";
 import { WORLD } from "./worldConfig.ts";
 
 /**
@@ -125,8 +134,17 @@ export class DayCycleSystem implements System {
     this.dome.uniforms.topColor.value.setRGB(...p.domeTop, THREE.SRGBColorSpace);
     this.dome.uniforms.bottomColor.value.setRGB(...p.domeBottom, THREE.SRGBColorSpace);
 
-    // --- Fog: live handle only; null on the low tier (fog disabled) ----------
+    // --- Dome atmosphere (visual-overhaul slice 5): sun disc/halo direction +
+    // colour, the SAME reused `sunDirection` vector already written above (no
+    // second allocation, no re-derivation). ---------------------------------
+    this.dome.uniforms.sunDirection.value.copy(this.sunDirection);
+    this.dome.uniforms.sunColor.value.setRGB(...p.sunColor, THREE.SRGBColorSpace);
+
+    // --- Fog: live handle only; null on the low tier (fog disabled). Density
+    // (slice 5, item 5) is retuned per phase so the fog agrees with the dome's
+    // own horizon-haze look instead of sitting at one flat value. ------------
     this.fog?.color.setRGB(...p.fogColor, THREE.SRGBColorSpace);
+    if (this.fog) this.fog.density = fogDensityForElevation(p.sunElevation);
   }
 
   // No describe() — the loop fraction churns every frame, so contributing it
