@@ -4,10 +4,12 @@ import {
   FISH_BODY_HALF_LENGTH,
   FISH_COUNT,
   FISH_SWAY_SPEED,
+  FISH_SWAY_WRAP_PERIOD,
   FLEE_DURATION,
   FLEE_RADIUS,
   FishSystem,
   MIN_POOL_DEPTH,
+  fishSwayPhase,
   initialFishState,
   makeFishSwayPatch,
   selectPools,
@@ -209,6 +211,177 @@ describe("makeFishSwayPatch", () => {
     const b = makeFishSwayPatch({ uTime: { value: 0 } }).customProgramCacheKey();
     expect(a).toBe(b);
     expect(typeof a).toBe("string");
+  });
+
+  // Review finding 2: the sway phase must be a STABLE per-fish value, not a
+  // hash of the fish's (constantly moving) instance-matrix translation.
+  it("reads the phase from a per-instance aSwayPhase attribute, not a hash of instanceMatrix translation", () => {
+    const shader = freshShader();
+    makeFishSwayPatch({ uTime: { value: 0 } }).onBeforeCompile(
+      shader as unknown as THREE.WebGLProgramParametersWithUniforms,
+    );
+    expect(shader.vertexShader).toContain("attribute float aSwayPhase;");
+    expect(shader.vertexShader).toMatch(/sin\(\s*uTime \* FISH_SWAY_SPEED \+ aSwayPhase\s*\)/);
+    // The old bug: hashing instanceMatrix[3] (the fish's CURRENT position) is
+    // gone entirely — never re-derived per frame from something that moves.
+    expect(shader.vertexShader).not.toContain("instanceMatrix[3]");
+  });
+});
+
+describe("fishSwayPhase (per-fish-index tail-sway phase, review finding 2)", () => {
+  it("is deterministic and index-seeded, not position-seeded", () => {
+    expect(fishSwayPhase(0)).toBe(fishSwayPhase(0));
+    expect(fishSwayPhase(3)).toBe(fishSwayPhase(3));
+  });
+
+  it("spreads phases across [0, 2π) rather than clustering", () => {
+    const phases = Array.from({ length: FISH_COUNT }, (_, i) => fishSwayPhase(i));
+    for (const p of phases) {
+      expect(p).toBeGreaterThanOrEqual(0);
+      expect(p).toBeLessThan(Math.PI * 2);
+    }
+    expect(new Set(phases).size).toBe(FISH_COUNT); // no two fish share a phase
+  });
+});
+
+describe("FishSystem's aSwayPhase attribute (review finding 2)", () => {
+  const terrain = buildTerrain();
+  const waterDepthAt = (x: number, z: number) => 0 - terrain.heightAt(x, z);
+
+  it("is created once at construction and never rewritten by update()", () => {
+    const scene = new THREE.Scene();
+    const session = { paused: false };
+    const sys = new FishSystem(scene, waterDepthAt, player(0, 0), session);
+    const mesh = scene.children.find((o) => o.name === "wildlife-fish") as THREE.InstancedMesh;
+
+    const attr = mesh.geometry.getAttribute("aSwayPhase") as THREE.InstancedBufferAttribute;
+    expect(attr).toBeDefined();
+    expect(attr.count).toBe(FISH_COUNT);
+    const before = attr.array.slice();
+    const versionBefore = attr.version;
+
+    for (let i = 0; i < 120; i++) sys.update(FRAME);
+
+    // Same attribute object, untouched contents, untouched version — no
+    // per-frame re-hash/re-upload (the bug this replaces re-derived the phase
+    // from a moving position every frame).
+    expect(mesh.geometry.getAttribute("aSwayPhase")).toBe(attr);
+    expect(attr.array).toEqual(before);
+    expect(attr.version).toBe(versionBefore);
+  });
+});
+
+// Review finding 3: the GLSL clock (`uTime`) must wrap on a period that
+// closes the sway's own sine term on a whole cycle, exactly like
+// windSystem/waterSystem/starfield already do — an unwrapped accumulator
+// loses float32 precision on a long-lived tab.
+describe("FISH_SWAY_WRAP_PERIOD (review finding 3)", () => {
+  it("closes the single sine term on exactly one whole 2π cycle", () => {
+    const cycles = (FISH_SWAY_WRAP_PERIOD * FISH_SWAY_SPEED) / (Math.PI * 2);
+    expect(cycles).toBeCloseTo(1, 10);
+  });
+
+  it("keeps the sway offset continuous across the wrap, for any per-fish phase", () => {
+    const phase = fishSwayPhase(7);
+    const t = 1.2345;
+    const before = Math.sin(t * FISH_SWAY_SPEED + phase);
+    const after = Math.sin((t + FISH_SWAY_WRAP_PERIOD) * FISH_SWAY_SPEED + phase);
+    expect(after).toBeCloseTo(before, 6);
+  });
+
+  it("FishSystem wraps its live uTime modulo FISH_SWAY_WRAP_PERIOD instead of growing unbounded", () => {
+    const terrain = buildTerrain();
+    const waterDepthAt = (x: number, z: number) => 0 - terrain.heightAt(x, z);
+    const scene = new THREE.Scene();
+    const session = { paused: false };
+    const sys = new FishSystem(scene, waterDepthAt, player(0, 0), session);
+    // The uTime `{value}` bag is a private field, but it's the SAME object
+    // identity `makeFishSwayPatch`'s `onBeforeCompile` merges onto the real
+    // compiled shader (`Object.assign(shader.uniforms, uniforms)`) — reading
+    // it here is reading exactly what the GPU would see, the `starfield.test.ts`
+    // "peek at the live uniform" idiom, just without a real WebGL compile.
+    const sysWithUniforms = sys as unknown as { swayUniforms: { uTime: { value: number } } };
+
+    // A single big step, several whole periods long: an unwrapped accumulator
+    // would just keep growing; a wrapped one lands back inside [0, PERIOD).
+    sys.update({ ...FRAME, dt: FISH_SWAY_WRAP_PERIOD * 2.5 });
+    expect(sysWithUniforms.swayUniforms.uTime.value).toBeGreaterThanOrEqual(0);
+    expect(sysWithUniforms.swayUniforms.uTime.value).toBeLessThan(FISH_SWAY_WRAP_PERIOD);
+    expect(sysWithUniforms.swayUniforms.uTime.value).toBeCloseTo(0.5 * FISH_SWAY_WRAP_PERIOD, 6);
+
+    // Landing exactly on a whole period wraps back to (very close to) 0, the
+    // same "closes seamlessly" invariant asserted algebraically above.
+    const sys2 = new FishSystem(scene, waterDepthAt, player(0, 0), { paused: false });
+    const sys2WithUniforms = sys2 as unknown as { swayUniforms: { uTime: { value: number } } };
+    sys2.update({ ...FRAME, dt: FISH_SWAY_WRAP_PERIOD });
+    expect(sys2WithUniforms.swayUniforms.uTime.value).toBeCloseTo(0, 6);
+  });
+});
+
+// Review finding 1: the rendered heading must always point along the fish's
+// ACTUAL frame-to-frame motion, in both patrol and flee — not just the flee
+// branch. Runs the REAL FishSystem (not stepFish in isolation) so the
+// assertion covers the full render pipeline (instance quaternion vs the
+// position delta read back off the instance matrix).
+describe("facing matches actual velocity direction (review finding 1)", () => {
+  const terrain = buildTerrain();
+  const waterDepthAt = (x: number, z: number) => 0 - terrain.heightAt(x, z);
+
+  it("keeps rendered forward aligned with real motion through a full patrol wander cycle AND a flee burst", () => {
+    const scene = new THREE.Scene();
+    const session = { paused: false };
+    const farPlayer = player(10_000, 10_000);
+    const sys = new FishSystem(scene, waterDepthAt, farPlayer, session);
+    const mesh = scene.children.find((o) => o.name === "wildlife-fish") as THREE.InstancedMesh;
+
+    const dt = 1 / 60;
+    const fishIndex = 0; // pools[0] === {LAGOON.x, LAGOON.z} (LAGOON_POOL_OFFSETS[0] is {0,0})
+    const m = new THREE.Matrix4();
+    const pos = new THREE.Vector3();
+    const prevPos = new THREE.Vector3();
+    const quat = new THREE.Quaternion();
+    const scale = new THREE.Vector3();
+    const forward = new THREE.Vector3();
+    const vel = new THREE.Vector3();
+    let minDot = Infinity;
+    let checked = 0;
+
+    function step() {
+      sys.update({ scene, camera: new THREE.PerspectiveCamera(), dt, elapsed: 0 });
+      mesh.getMatrixAt(fishIndex, m);
+      m.decompose(pos, quat, scale);
+    }
+
+    step();
+    prevPos.copy(pos);
+
+    const checkFrame = () => {
+      vel.subVectors(pos, prevPos);
+      if (vel.lengthSq() > 1e-10) {
+        vel.normalize();
+        forward.set(0, 0, 1).applyQuaternion(quat).normalize();
+        minDot = Math.min(minDot, forward.dot(vel));
+        checked++;
+      }
+      prevPos.copy(pos);
+    };
+
+    // Patrol: run past one full wander cycle (~10.5s at the reviewer's own
+    // measured period) so every phase of the Lissajous drift is sampled.
+    for (let i = 0; i < Math.ceil(11 / dt); i++) {
+      step();
+      checkFrame();
+    }
+
+    // Flee burst: move the player onto the fish's own pool.
+    farPlayer.state.position.set(LAGOON.x, 0, LAGOON.z);
+    for (let i = 0; i < Math.ceil(2 / dt); i++) {
+      step();
+      checkFrame();
+    }
+
+    expect(checked).toBeGreaterThan(0);
+    expect(minDot).toBeGreaterThanOrEqual(0.95);
   });
 });
 

@@ -75,13 +75,39 @@ export interface FishState {
   mode: FishMode;
   /** Seconds spent fleeing (patrol mode keeps this at 0). */
   timer: number;
-  /** Patrol wander heading, radians — drifts continuously while patrolling. */
+  /** Patrol wander CLOCK, radians — drifts continuously while patrolling. This
+   *  is the Lissajous drive angle, NOT the fish's facing (see {@link heading}):
+   *  the actual velocity also carries the centre-pull term, so it is not
+   *  simply `(cos(angle), sin(angle))`. */
   angle: number;
+  /**
+   * The direction this step's motion actually points, `atan2(vx, vz)` of the
+   * frame's real velocity — ONE convention for both patrol and flee, fed
+   * straight to the render `Euler(0, heading, 0)` Y-rotation. three's yaw maps
+   * local +Z forward to world `(sin heading, cos heading)`, which is exactly
+   * `(vx, vz)` normalized when `heading = atan2(vx, vz)` — so the rendered
+   * forward always matches the true motion vector, never just the wander
+   * clock (review finding 1: using `angle` directly as heading made the fish
+   * swim sideways/backwards over the wander cycle, since velocity is
+   * `(cos(angle), sin(angle))` but yaw-forward is `(sin(angle), cos(angle))`
+   * — those only agree at `sin(2*angle) = 1`).
+   */
+  heading: number;
 }
 
 export function initialFishState(pool: Pool, index: number): FishState {
   const angle = (index / FISH_COUNT) * Math.PI * 2;
-  return { x: pool.x + Math.cos(angle) * 2, z: pool.z + Math.sin(angle) * 2, mode: "patrol", timer: 0, angle };
+  return {
+    x: pool.x + Math.cos(angle) * 2,
+    z: pool.z + Math.sin(angle) * 2,
+    mode: "patrol",
+    timer: 0,
+    angle,
+    // First frame's dominant velocity term is (cos(angle), sin(angle)) *
+    // PATROL_SPEED (the centre-pull is a small correction at this radius), so
+    // seed heading with the SAME atan2(vx, vz) convention `stepFish` uses.
+    heading: Math.atan2(Math.cos(angle), Math.sin(angle)),
+  };
 }
 
 /**
@@ -140,7 +166,11 @@ export function stepFish(
     vz = Math.sin(angle) * PATROL_SPEED + toCenterZ * pull * 0.4;
   }
 
-  return { x: state.x + vx * dt, z: state.z + vz * dt, mode, timer, angle };
+  // ONE heading convention for both modes — the actual velocity direction,
+  // never a raw state field re-purposed as facing (review finding 1).
+  const heading = Math.atan2(vx, vz);
+
+  return { x: state.x + vx * dt, z: state.z + vz * dt, mode, timer, angle, heading };
 }
 
 const FISH_COLOR = 0x121f26;
@@ -228,16 +258,50 @@ function buildFishGeometry(): THREE.BufferGeometry {
 // far a vertex sits toward the REAR of the body (local -Z, where the tail fin
 // attaches), so only the tail/rear third visibly wags while the head stays
 // put — a swimming beat, not a rigid glide. Every fish shares one `uTime`
-// (this system's own held clock, mirroring `BirdsSystem`'s), with a per-
-// instance phase pulled from `instanceMatrix`'s own translation (the same
-// hash idiom `windPatch.ts` uses for per-instance wind phase) so twelve fish
-// don't all beat their tails in lockstep.
+// (this system's own held clock, mirroring `BirdsSystem`'s).
+//
+// Per-instance phase (review finding 2): `windPatch.ts`'s hash-from-
+// `instanceMatrix[3].xz` idiom only decorrelates neighbours that never move —
+// static props. A fish's translation changes every frame, so hashing it fed a
+// DIFFERENT, uncorrelated phase into the sine each frame — noise, not a
+// stable per-fish beat. Fixed the `starfield.ts` way instead: a per-instance
+// `aSwayPhase` `InstancedBufferAttribute`, seeded once (by the fish's STABLE
+// array index, via {@link fishSwayPhase}, the same sine-hash trick as
+// `windSway.ts`'s `windPhase` but on an index rather than a re-randomizing
+// world position) at construction and never rewritten in `update()`.
 export const FISH_SWAY_SPEED = 5.2; // rad/s-ish beat frequency
 export const FISH_SWAY_STRENGTH = 0.1; // world-unit lateral sway at the tail tip
 export const FISH_SWAY_EXPONENT = 2; // biases the wag toward the rear third only
 /** Local-Z span the cone's body occupies (±0.5, see `buildFishGeometry`) —
  *  the tail-weight ramp's zero point (nose) vs full point (tail). */
 export const FISH_BODY_HALF_LENGTH = 0.5;
+
+// --- Time wrap (float32 precision guard — the windSystem/waterSystem/
+// starfield precedent) ---
+// The sway is a single sine term, `sin(uTime * FISH_SWAY_SPEED + aSwayPhase)`
+// — exactly `windSway.ts`'s single-term case, not `waterSurface.ts`'s two-term
+// GCD derivation. It completes one whole cycle every `2π / FISH_SWAY_SPEED`
+// time units, so wrapping the live accumulator modulo that period is
+// seamless: `sin((t + P) * FISH_SWAY_SPEED + phase) === sin(t *
+// FISH_SWAY_SPEED + phase)` for ANY per-fish `phase`, since `phase` is
+// additive inside the same sine argument the wrap divides out of cleanly —
+// per-fish continuity holds regardless of which fish's phase is plugged in.
+/** Shared continuous wrap period (seconds) for the tail-sway clock — the
+ *  smallest `T` with `T * FISH_SWAY_SPEED` a whole multiple of `2π`. */
+export const FISH_SWAY_WRAP_PERIOD = (2 * Math.PI) / FISH_SWAY_SPEED;
+
+/**
+ * Deterministic per-fish-index tail-sway phase, radians in `[0, 2π)` — the
+ * same sine-hash ("hash11") trick `windSway.ts`'s `windPhase` uses, but seeded
+ * by the fish's STABLE array index rather than its world position (a fish's
+ * position changes every frame, which is exactly the bug this replaces — see
+ * this section's header doc). Baked once per fish into the `aSwayPhase`
+ * `InstancedBufferAttribute` at construction; never recomputed per frame.
+ */
+export function fishSwayPhase(index: number): number {
+  const h = Math.sin(index * 12.9898 + 78.233) * 43758.5453;
+  return (h - Math.floor(h)) * Math.PI * 2;
+}
 
 interface FishSwayPatch {
   onBeforeCompile: (shader: THREE.WebGLProgramParametersWithUniforms) => void;
@@ -249,6 +313,7 @@ interface FishSwayPatch {
  *  `windPatch.ts` discipline. */
 export function makeFishSwayPatch(uniforms: { uTime: { value: number } }): FishSwayPatch {
   const decl =
+    "attribute float aSwayPhase;\n" +
     "uniform float uTime;\n" +
     `const float FISH_SWAY_SPEED = ${glslFloat(FISH_SWAY_SPEED)};\n` +
     `const float FISH_SWAY_STRENGTH = ${glslFloat(FISH_SWAY_STRENGTH)};\n` +
@@ -259,9 +324,7 @@ export function makeFishSwayPatch(uniforms: { uTime: { value: number } }): FishS
     "\t{\n" +
     "\t\tfloat tailWeight = clamp( ( FISH_BODY_HALF_LENGTH - transformed.z ) / ( 2.0 * FISH_BODY_HALF_LENGTH ), 0.0, 1.0 );\n" +
     "\t\ttailWeight = pow( tailWeight, FISH_SWAY_EXPONENT );\n" +
-    "\t\tfloat swayHash = sin( instanceMatrix[3].x * 91.35 + instanceMatrix[3].z * 47.77 ) * 43758.5453;\n" +
-    "\t\tfloat swayPhase = fract( swayHash ) * 6.28318530718;\n" +
-    "\t\ttransformed.x += sin( uTime * FISH_SWAY_SPEED + swayPhase ) * FISH_SWAY_STRENGTH * tailWeight;\n" +
+    "\t\ttransformed.x += sin( uTime * FISH_SWAY_SPEED + aSwayPhase ) * FISH_SWAY_STRENGTH * tailWeight;\n" +
     "\t}\n" +
     "#endif\n";
 
@@ -273,7 +336,7 @@ export function makeFishSwayPatch(uniforms: { uTime: { value: number } }): FishS
       "#include <begin_vertex>\n" + body,
     );
   };
-  const customProgramCacheKey = () => "fish-sway-v1";
+  const customProgramCacheKey = () => "fish-sway-v2";
 
   return { onBeforeCompile, customProgramCacheKey };
 }
@@ -334,11 +397,22 @@ export class FishSystem implements System {
       this.mesh.setColorAt(i, tint.setHex(0xffffff).offsetHSL(0, 0, ((i % 5) - 2) * 0.05));
     }
     if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
+
+    // Per-instance tail-sway phase (review finding 2) — seeded once by index
+    // via `fishSwayPhase`, NEVER rewritten afterward (no `.needsUpdate` write
+    // in `update()`), so each fish keeps its own stable beat instead of
+    // re-randomizing every frame off its (constantly moving) position.
+    const swayPhases = new Float32Array(FISH_COUNT);
+    for (let i = 0; i < FISH_COUNT; i++) swayPhases[i] = fishSwayPhase(i);
+    this.geo.setAttribute("aSwayPhase", new THREE.InstancedBufferAttribute(swayPhases, 1));
   }
 
   update(ctx: FrameContext): void {
-    if (this.session.paused) return;
-    this.swayElapsed += ctx.dt;
+    if (this.session.paused) return; // HOLD the sway phase too — don't advance, don't reset.
+    // Wrap modulo FISH_SWAY_WRAP_PERIOD (float32-precision discipline — the
+    // windSystem/waterSystem/starfield precedent; see that constant's own doc
+    // for why the per-fish `aSwayPhase` stays continuous across the wrap).
+    this.swayElapsed = THREE.MathUtils.euclideanModulo(this.swayElapsed + ctx.dt, FISH_SWAY_WRAP_PERIOD);
     this.swayUniforms.uTime.value = this.swayElapsed;
     const p = this.player.state.position;
     for (let i = 0; i < this.states.length; i++) {
@@ -347,14 +421,11 @@ export class FishSystem implements System {
       this.states[i] = next;
 
       this.posv.set(next.x, WORLD.seaLevel - SWIM_DEPTH, next.z);
-      // Facing: the patrol wander heading while patrolling; while fleeing,
-      // point along the ACTUAL escape vector (away from the player — the same
-      // direction stepFish moves it) so the dart reads as deliberate.
-      const heading =
-        next.mode === "flee"
-          ? Math.atan2(next.x - p.x, next.z - p.z)
-          : next.angle;
-      this.euler.set(0, heading, 0);
+      // Facing: ONE convention for both modes — `next.heading` is already
+      // `atan2(vx, vz)` of the frame's real velocity (see `FishState.heading`
+      // doc), so patrol and flee both render pointing where they're actually
+      // moving, never sideways/backwards over the wander cycle.
+      this.euler.set(0, next.heading, 0);
       this.q.setFromEuler(this.euler);
       this.m.compose(this.posv, this.q, this.sc);
       this.mesh.setMatrixAt(i, this.m);

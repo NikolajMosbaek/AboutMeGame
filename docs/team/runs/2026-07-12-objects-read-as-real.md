@@ -275,3 +275,53 @@ moving; the other three sit at fixed centres/placements, so a hand-picked frame 
 - Fish gained a genuinely new animation mechanism (the tail-sway shader patch) — birds/jaguar/
   snakes kept their existing motion, judged sufficient per-animal rather than uniformly adding
   motion everywhere.
+- Birds' torso `ConeGeometry` segment count went from 4 to 5 in the same commit as the
+  head/beak/tail reshape (`src/wildlife/birds.ts`) — a deliberate part of rounding the torso
+  silhouette for the new head/beak attachment, not an accidental drive-by change; recorded here
+  since review flagged it as undocumented.
+
+### Review fixes (post-slice, fish heading/sway/clock)
+
+Code review of `src/wildlife/fish.ts` found three ship-blocking bugs, all fixed test-first:
+
+- **Patrol heading convention** — the render loop used the patrol wander CLOCK (`next.angle`)
+  directly as the yaw, but the actual velocity is `(cos(angle), sin(angle))`-ish (plus a
+  centre-pull term) while three's `Euler(0, yaw, 0)` maps local +Z forward to
+  `(sin(yaw), cos(yaw))`. Those only agree at `sin(2·angle) = 1`, so over a wander cycle the fish
+  visibly swam sideways, then backwards, then forwards. A new integration test runs the REAL
+  `FishSystem` for an 11s patrol wander cycle plus a flee burst and asserts
+  `dot(normalized frame-to-frame position delta, rendered forward from the instance quaternion)
+  ≥ 0.95` every moving frame — confirmed FAILING first (`-0.9999...` at the sweep's worst point),
+  then green after the fix: `FishState` now carries one `heading = atan2(vx, vz)` field, computed
+  from the SAME velocity that moves the fish, in both patrol and flee — no per-mode branch left in
+  the render loop.
+- **Per-frame sway-phase noise** — the tail-sway GLSL hashed `instanceMatrix[3].xz` (the fish's
+  CURRENT, constantly-changing position) for its per-instance phase, the `windPatch.ts` idiom
+  that only decorrelates STATIC props. Replaced with a stable `aSwayPhase`
+  `InstancedBufferAttribute`, seeded once per fish index (`fishSwayPhase`, the `windSway.ts`
+  sine-hash trick applied to an index instead of a position) at construction and never rewritten —
+  the `starfield.ts` `aPhase` precedent. Pinned by a shader-string test (`aSwayPhase` present,
+  `instanceMatrix[3]` gone) and a construction test asserting the attribute's array/version are
+  untouched after 120 frames of `update()`.
+- **Unwrapped GLSL clock** — `swayElapsed` fed `uTime` unwrapped, violating the
+  windSystem/waterSystem/starfield float32-precision wrap law. Since the sway is a single sine
+  term (the `windSway.ts` single-term case, not `waterSurface.ts`'s two-term GCD case),
+  `FISH_SWAY_WRAP_PERIOD = 2π / FISH_SWAY_SPEED` closes the sine on exactly one whole cycle; the
+  per-fish phase is additive inside the same `sin()` argument the wrap divides out of, so
+  continuity holds for every fish regardless of its individual phase. Wrapped via
+  `THREE.MathUtils.euclideanModulo`, mirroring `WindSystem`/`WaterSystem`/`StarfieldSystem`.
+  Reduced-motion parity: no wildlife system (fish included) currently wires a `ReducedMotionSource`
+  at all — every one of them gates purely on `session.paused`, which already holds (never resets)
+  the sway phase while paused, so this fix stays consistent with that existing convention rather
+  than introducing a new one.
+
+Gates (all EXIT=0): `npm run lint` · `npm run build` · `npm test` (144 files, 1532 passed / 1
+skipped) · `npm run check:bundle` (394.0/400 KB JS gzip, 6.0 KB headroom) · `npm run verify`.
+
+Verification: a real-GPU capture (`--use-gl=angle --use-angle=metal`, quality forced to `"high"`
+via the `aboutmegame.settings.v1` localStorage key, noon (`window.advanceTime(45000)`) plus a 3s
+coast so the fish are mid-motion, camera underwater near the lagoon at `(0, 142)`) shows an
+elongated fish silhouette — wide head leading, tapering to the pointed tail/caudal fin trailing
+behind it along its direction of travel, plus a second smaller fish with its dorsal fin visible —
+not the broadside/sideways silhouette the heading bug produced, and the tail read smoothly
+animated rather than rigid.
