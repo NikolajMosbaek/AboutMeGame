@@ -1077,6 +1077,123 @@ this slice), and no camera angle tried from outside that root cage gave a
 clean, unoccluded "statue portrait", an honest limitation recorded here
 rather than a false claim of a clean hero shot.
 
+**Objects slice 2 (2026-07-12) — "make the wildlife look like what it really
+is"** upgraded the four scriptable-behaviour animals' BODIES (jaguar, birds,
+fish, snakes — fireflies/butterflies untouched, out of this slice's scope):
+a proportioned chest/hip-lobe torso + skull/muzzle/ears + a curved 3-segment
+tail + jointed (thigh/shin) legs + seeded rosette mottling for the jaguar; a
+merged torso+head+beak+tail body and a tapered/swept wing planform for birds;
+a merged body+dorsal-fin+caudal-fin geometry plus a cheap `onBeforeCompile`
+tail-sway vertex bend for fish; darker colour banding + a flattened/widened
+head wedge for snakes (already the closest-reading animal, so a reshape/
+recolour rather than new geometry). All four state machines, speeds, ranges,
+spawn logic, the startle/finale seams, and the jaguar's emissive-eyes contract
+(2.2 night / 0.15 day, still asserted in `jaguar.test.ts`) are BYTE-IDENTICAL —
+every change is a body-geometry/material swap at the same attachment points
+`JaguarSystem`/`BirdsSystem`/`FishSystem`/`SnakesSystem` already used.
+
+*Sourcing — all four ended up procedural.* No CC0 model was found through this
+codebase's own scriptable-download conventions for any of the four target
+animals: poly.pizza's search gates behind a paid API key (`api.poly.pizza`
+returns `"You need an API key to do that"`) with mixed per-model licences
+besides; Kenney's "Animal Pack" is a 2D icon set, not a 3D kit, and no other
+Kenney kit carries a jaguar/parrot/snake mesh (the already-vendored Survival
+Kit's two `fish*.glb` meshes are a fishing-minigame prop pair, not a reusable
+swimming-school asset); Quaternius's own site (quaternius.com) funnels every
+download through a Google Drive folder — the exact scriptability dead end
+`floraGlb.ts`'s header doc already recorded for that source. Quaternius's
+itch.io mirrors ARE CC0 and their browse/csrf/signed-download-page flow IS
+scriptable this far (confirmed live: POSTing the page's own csrf token to
+`/<slug>/download_url` returns a signed one-time download-page URL, and that
+page lists the pack's upload id) — but the final `/file/<id>` private-download
+step 404s off that flow (an undocumented itch.io endpoint quirk, unlike
+Kenney's plain curl-able zip URLs), and the one pack that IS literally fish
+("Fish Pack Animated") ships SKINNED meshes rigged for itch's own animation
+clips, which this pipeline has no bind-pose-stripping step for. No pack in
+either Quaternius catalogue is a jungle cat, a parrot/macaw, or a snake at
+all. Per this slice's own licence ("upgrade the procedural bodies where
+sourcing fails — fully acceptable, likely for several animals"), all four
+took the procedural path — and because NOTHING was fetched, every upgrade is
+UNCONDITIONAL on every quality tier (no new `quality.ts` knob), the same
+"fully procedural ⇒ apply everywhere for free" precedent Objects slice 1 used
+for the overhang/fig-tree/ruin-gaze-rig.
+
+*Animation call, per animal.* Jaguar: unchanged (whole-body position/heading
+transform already conveys the stalk/charge/strike motion; a single mesh gets
+no extra animation here). Birds: unchanged — the existing per-instance wing-
+roll "flap" hinge already reads as real flight, and the new tapered wing
+planform only makes that same motion read better, not worse. Snakes:
+unchanged (coiled bodies are placed once and never move — only the head
+raises/lunges — matching real ambush-snake stillness). Fish: the ONE case
+that needed new motion — a modelled tail/dorsal fin held perfectly rigid
+would read STIFFER than the prior bare cone (which at least turned/darted as
+a whole body), so `fish.ts` gained a cheap `onBeforeCompile` vertex-bend
+patch (`makeFishSwayPatch`, the exact `windPatch.ts` idiom applied to an
+`InstancedMesh` material instead of geometry swap): a sinusoidal lateral bend
+weighted toward the rear third (`pow(tailWeight, 2)`), phase-offset per
+instance via the same `instanceMatrix`-hash trick `windPatch.ts` uses for
+per-instance wind phase, so twelve fish don't beat their tails in lockstep.
+Zero extra draw calls, zero extra triangles (a shader patch on the existing
+material) — pure fill-rate/GLSL cost, negligible at this scale.
+
+*Draw calls / triangles.* Zero new draw calls on any animal (every new part
+is merged into the SAME body/wing/fin geometry the existing single
+`Mesh`/`InstancedMesh` already draws) — `wildlife.test.ts`'s own ≤9-mesh
+aggregate assertion is unchanged and still holds. Per-animal triangle deltas
+(measured directly, headless, the same method Objects slice 1 used before a
+real GPU was available — geometry attribute counts, `InstancedMesh` totals
+multiplied by live instance count):
+
+| Animal | Per-instance tris (before → after) | Instances | Total tris (before → after) | Delta |
+|---|---|---|---|---|
+| Jaguar | 176 → 328 (body 116→268 + eyes 60, unchanged) | 1 | 176 → 328 | **+152** |
+| Birds | 10 → 38 (body 8→34, wing 2→4) | 14 | 140 → 532 | **+392** |
+| Fish | 10 → 13 (body+dorsal+caudal fin) | 12 | 120 → 156 | **+36** |
+| Snakes | 324 → 324 (colour/shape-only edit, no new geometry) | 6 | 1,944 → 1,944 | **+0** |
+| **Wildlife total (excl. unchanged fliers)** | | | **2,380 → 2,960** | **+580** |
+
++580 triangles is 0.12% of the whole-game 500k budget and a small fraction of
+the flora slice's own ~58k-triangle high-tier headroom this doc has tracked
+since slice 6 (most recently ~55.9k after Objects slice 1's +2,107) — leaving
+roughly **~55.3k** triangles of headroom on the high tier. It is also
+comfortably inside `wildlife.test.ts`'s own local ≤40k aggregate ceiling
+(2,960 + up to 180 fliers-at-cap = 3,140 / 40,000 ≈ 7.9%). Applied on EVERY
+tier (fully procedural, no gating), so the render-gate's forced-low-tier path
+pays this same small cost too — confirmed via `npm run verify` (EXIT 0,
+`render_game_to_text` shows all five wildlife systems reporting normally)
+rather than assumed.
+
+*Payload.* Zero new bytes: no model fetched, no texture baked, no new
+`quality.ts` field — `npm run check:bundle` moved only by the small amount of
+new pure TS (the mottling helper, the extra geometry-builder functions, the
+fish sway-patch GLSL strings): **393.9 / 400 KB** JS gzip (was 392.5 KB,
+**+1.4 KB**, 6.1 KB of the cap left free) and **4057.4 / 6000 KB** total
+(effectively unchanged, +2.7 KB of JS-gzip-driven `index.html`/asset noise —
+no binary payload at all).
+
+Verified visually via real-GPU Playwright captures (`--use-gl=angle
+--use-angle=metal`, `quality: "high"` forced via `localStorage`, noon —
+`window.advanceTime(45000)`), framed with `window.__frameView__` at each
+animal's LIVE position (read back via `render_game_to_text()` for the jaguar,
+since it prowls; the others patrol/sit around fixed centres so a hand-picked
+frame stays valid):
+
+- **Jaguar** — a three-quarter/side capture at its live prowl position (west-
+  valley territory) shows a real quadruped silhouette: a distinct chest lobe
+  wider than the hip lobe, pointed ears, a tail curving up off the hindquarters,
+  and a visible darker rosette-mottled patch across the coat — a big
+  improvement over the prior single stretched-blob torso.
+- **Birds** — a flock captured mid-orbit shows a clear swept, tapered wing
+  planform (not the prior single degenerate triangle per side) and a warm
+  beak accent on each bird; reads unmistakably as birds in flight, not
+  arrow-shaped placeholders.
+- **Fish** — an underwater capture (camera below `y=0` near the lagoon,
+  `0, 142`) shows the body's new caudal fin flaring out behind it and a small
+  dorsal fin bump — reads as a fish, not a flat dark shadow-cone.
+- **Snake** — a close, near-top-down capture of a coiled snake shows the new
+  darker banding breaking up the coil into a scale-like faceted pattern,
+  a real (if modest, as scoped) improvement over the flat single-tone coil.
+
 ## How it is enforced
 
 - **Live:** `StatsOverlay` polls `Engine.getState()` and runs `checkFrame`
