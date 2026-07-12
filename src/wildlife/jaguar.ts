@@ -15,7 +15,7 @@ import * as THREE from "three";
 import type { FrameContext, System } from "../engine/types.ts";
 import type { Terrain } from "../world/terrain.ts";
 import { POI_ANCHORS, WORLD } from "../world/worldConfig.ts";
-import { mergeOrThrow, stampVertexColor } from "./geometry.ts";
+import { hash2, mergeOrThrow, mottleFaces, stampVertexColor } from "./geometry.ts";
 
 /** Where the player is — the explorer satisfies it via `state.position`. */
 export interface PositionSource {
@@ -282,49 +282,128 @@ export function stepJaguar(state: JaguarState, dt: number, env: JaguarEnv): Jagu
 // --- Geometry / system --------------------------------------------------------
 
 const BODY_COLOR = 0x8a5a24; // dark amber
+/** Seeded blotches over the coat (chest/hip lobes only) — cheap, construction-
+ *  time-only rosette suggestion via {@link mottleFaces}, never a texture. */
+const ROSETTE_COLOR = 0x4a3115;
+/** Lower legs (the "shin" segment) a touch darker than the coat — reads as a
+ *  big cat's dark forepaws/socks without any extra geometry. */
+const PAW_COLOR = 0x5c3d1a;
 const EYE_COLOR = 0xffc94d;
 /** Above the compositor's 0.85 bloom threshold at night — two points of fire
  *  in the dark; near-off by day. */
 export const EYE_NIGHT_EMISSIVE = 2.2;
 export const EYE_DAY_EMISSIVE = 0.15;
 
-/** Body + head + tail + four legs, merged to ONE geometry (one draw call):
- *  a stretched dodecahedron torso in the wildlife slice's flat-shaded,
- *  vertex-coloured idiom. Forward is local +X. */
+/**
+ * Chest lobe + hip lobe (a tapered torso, not one uniform barrel) + a
+ * distinct skull/muzzle/ear head + a 3-segment curving tail + 4 two-part
+ * (thigh+shin) legs, merged to ONE geometry (one draw call) — Objects slice 2
+ * ("make the wildlife look like what it really is"): the prior single-
+ * dodecahedron torso + one box head read as a generic quadruped blob; this
+ * upgrade gives the jaguar a low-slung, tapered big-cat silhouette (wider
+ * chest than hip), a protruding muzzle distinct from the skull, a curved
+ * tail instead of a straight stick, and seeded rosette blotches
+ * ({@link mottleFaces} + {@link hash2}, construction-time only, zero runtime
+ * cost) over the coat. No CC0 jaguar/big-cat model was found through this
+ * codebase's own scriptable-download conventions (poly.pizza gates its API
+ * behind a paid key and mixes per-model licences; Kenney's "Animal Pack" is a
+ * 2D icon set, not 3D; Quaternius's own site funnels every download through a
+ * Google Drive folder — the exact scriptability dead end `floraGlb.ts`'s own
+ * header doc already records; Quaternius's itch.io mirrors ARE scriptable
+ * through the browse/csrf/signed-download-page flow, but list only farm-
+ * animal packs, no jungle cat), so this is a substantial PROCEDURAL upgrade,
+ * per the slice's own "upgrade the procedural bodies where sourcing fails"
+ * licence. Forward stays local +X — every hunt/heading convention in
+ * {@link stepJaguar} is untouched by this purely visual change.
+ */
 function buildJaguarBodyGeometry(): THREE.BufferGeometry {
   const parts: THREE.BufferGeometry[] = [];
-  const body = new THREE.DodecahedronGeometry(0.5);
-  body.scale(1.7, 0.72, 0.7);
-  body.translate(0, 0.62, 0);
-  parts.push(body);
-  const head = new THREE.BoxGeometry(0.42, 0.34, 0.36);
-  head.translate(0.98, 0.78, 0);
-  parts.push(head);
-  const tail = new THREE.CylinderGeometry(0.045, 0.07, 0.95, 5);
-  tail.rotateZ(Math.PI / 2 - 0.45);
-  tail.translate(-1.05, 0.88, 0);
-  parts.push(tail);
-  for (const fx of [0.55, -0.55]) {
-    for (const fz of [0.2, -0.2]) {
-      const leg = new THREE.BoxGeometry(0.14, 0.5, 0.14);
-      leg.translate(fx, 0.25, fz);
-      parts.push(leg);
-    }
+  const baseColor = new THREE.Color(BODY_COLOR);
+  const rosetteColor = new THREE.Color(ROSETTE_COLOR);
+
+  // Torso: two overlapping lobes tapering shoulder → hip. Each lobe is
+  // stamped + rosette-mottled on its OWN (already-placed) geometry before the
+  // final merge, so the blotchy pattern reads as scattered rosettes rather
+  // than one smooth gradient across the whole body.
+  const chest = stampVertexColor(new THREE.DodecahedronGeometry(0.46), BODY_COLOR);
+  chest.scale(1.05, 0.72, 0.66);
+  chest.translate(0.3, 0.64, 0);
+  mottleFaces(chest, baseColor, rosetteColor, (cx, cy, cz) =>
+    hash2(Math.round(cx * 6), Math.round(cy * 6 + cz * 6)) > 0.62 ? 1 : 0,
+  );
+  parts.push(chest);
+
+  const hip = stampVertexColor(new THREE.DodecahedronGeometry(0.4), BODY_COLOR);
+  hip.scale(0.9, 0.62, 0.58);
+  hip.translate(-0.58, 0.58, 0);
+  mottleFaces(hip, baseColor, rosetteColor, (cx, cy, cz) =>
+    hash2(Math.round(cx * 6) + 11, Math.round(cy * 6 + cz * 6) + 7) > 0.62 ? 1 : 0,
+  );
+  parts.push(hip);
+
+  // Head: a distinct skull + a narrower, protruding muzzle (the old single
+  // box head was the least cat-like part of the prior silhouette) + two
+  // small ears.
+  const skull = stampVertexColor(new THREE.BoxGeometry(0.34, 0.3, 0.34), BODY_COLOR);
+  skull.translate(1.0, 0.78, 0);
+  parts.push(skull);
+  const muzzle = stampVertexColor(new THREE.BoxGeometry(0.22, 0.2, 0.24), BODY_COLOR);
+  muzzle.translate(1.24, 0.72, 0);
+  parts.push(muzzle);
+  for (const ez of [0.13, -0.13]) {
+    const ear = stampVertexColor(new THREE.ConeGeometry(0.09, 0.16, 4), BODY_COLOR);
+    ear.rotateX(ez > 0 ? -0.3 : 0.3);
+    ear.translate(0.92, 0.98, ez);
+    parts.push(ear);
   }
-  // The dodecahedron is non-indexed while box/cylinder are indexed —
-  // mergeGeometries needs them uniform, so de-index everything first.
-  const flat = parts.map((g) => (g.index ? g.toNonIndexed() : g));
-  const merged = mergeOrThrow(flat);
-  for (const g of new Set([...parts, ...flat])) g.dispose();
-  return stampVertexColor(merged, BODY_COLOR);
+
+  // Tail: three tapering, progressively-curved segments — the old single
+  // straight cylinder read as a stick; the upward curve reads as a real
+  // cat's tail carriage.
+  const tailSegments: Array<{ len: number; rBase: number; rTip: number; x: number; y: number; rot: number }> = [
+    { len: 0.42, rBase: 0.075, rTip: 0.06, x: -1.0, y: 0.86, rot: 0.35 },
+    { len: 0.36, rBase: 0.06, rTip: 0.045, x: -1.32, y: 1.0, rot: 0.75 },
+    { len: 0.3, rBase: 0.045, rTip: 0.025, x: -1.56, y: 1.16, rot: 1.15 },
+  ];
+  for (const seg of tailSegments) {
+    const segGeo = stampVertexColor(new THREE.CylinderGeometry(seg.rTip, seg.rBase, seg.len, 5), BODY_COLOR);
+    segGeo.rotateZ(Math.PI / 2 - seg.rot);
+    segGeo.translate(seg.x, seg.y, 0);
+    parts.push(segGeo);
+  }
+
+  // Legs: thigh + shin per leg (a joint break, not one solid post) — front
+  // legs straight (weight-bearing forelegs), hind legs offset forward at the
+  // "knee" (a crouched hunting stance); the shin is the darker PAW_COLOR.
+  const legs: Array<{ fx: number; fz: number; front: boolean }> = [
+    { fx: 0.55, fz: 0.22, front: true },
+    { fx: 0.55, fz: -0.22, front: true },
+    { fx: -0.5, fz: 0.22, front: false },
+    { fx: -0.5, fz: -0.22, front: false },
+  ];
+  for (const leg of legs) {
+    const bendX = leg.front ? 0 : 0.12;
+    const thigh = stampVertexColor(new THREE.BoxGeometry(0.15, 0.28, 0.15), BODY_COLOR);
+    thigh.translate(leg.fx, 0.42, leg.fz);
+    parts.push(thigh);
+    const shin = stampVertexColor(new THREE.BoxGeometry(0.12, 0.28, 0.12), PAW_COLOR);
+    shin.translate(leg.fx + bendX, 0.16, leg.fz);
+    parts.push(shin);
+  }
+
+  const merged = mergeOrThrow(parts);
+  for (const g of parts) g.dispose();
+  return merged;
 }
 
-/** Two eye dots merged to one geometry — the second draw call, emissive. */
+/** Two eye dots merged to one geometry — the second draw call, emissive.
+ *  Positioned on the new skull's upper-front face (`buildJaguarBodyGeometry`'s
+ *  skull is centred at x=1.0, the muzzle protrudes further to x=1.24). */
 function buildJaguarEyesGeometry(): THREE.BufferGeometry {
   const left = new THREE.SphereGeometry(0.04, 5, 4);
-  left.translate(1.2, 0.82, 0.1);
+  left.translate(1.13, 0.85, 0.11);
   const right = new THREE.SphereGeometry(0.04, 5, 4);
-  right.translate(1.2, 0.82, -0.1);
+  right.translate(1.13, 0.85, -0.11);
   const merged = mergeOrThrow([left, right]);
   left.dispose();
   right.dispose();
