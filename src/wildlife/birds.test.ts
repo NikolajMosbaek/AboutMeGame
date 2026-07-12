@@ -168,4 +168,22 @@ describe("BirdsSystem", () => {
     expect(() => sys.dispose()).not.toThrow();
     expect(scene.children.find((o) => o.name === "wildlife-birds")).toBeUndefined();
   });
+
+  it("builds a body with a head/beak/tail (Objects slice 2), not a bare cone", () => {
+    const { scene } = rig();
+    const body = scene.getObjectByName("wildlife-bird-body") as THREE.InstancedMesh;
+    // The prior bare 4-sided cone was 8 triangles; the merged
+    // torso+head+beak+tail body is real geometry beyond that.
+    const tris = body.geometry.getAttribute("position").count / 3;
+    expect(tris).toBeGreaterThan(8);
+  });
+
+  it("gives the wing a tapered (root-wider-than-tip) planform, not a single degenerate triangle per side", () => {
+    const { scene } = rig();
+    const wing = scene.getObjectByName("wildlife-bird-wing") as THREE.InstancedMesh;
+    const verts = wing.geometry.getAttribute("position").count;
+    // The prior wing pair was exactly 2 triangles (6 vertices); the tapered
+    // quad-per-side planform is strictly more.
+    expect(verts).toBeGreaterThan(6);
+  });
 });

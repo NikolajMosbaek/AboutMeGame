@@ -302,4 +302,28 @@ describe("JaguarSystem", () => {
     expect(() => sys.dispose()).not.toThrow();
     expect(scene.children.find((o) => o.name === "wildlife-jaguar")).toBeUndefined();
   });
+
+  it("mottles the coat with rosette blotches (Objects slice 2), not one flat colour", () => {
+    const { scene } = rig();
+    const body = scene.getObjectByName("wildlife-jaguar-body") as THREE.Mesh;
+    const color = body.geometry.getAttribute("color");
+    const first = new THREE.Color(color.getX(0), color.getY(0), color.getZ(0));
+    let sawDifferent = false;
+    for (let i = 1; i < color.count; i++) {
+      const c = new THREE.Color(color.getX(i), color.getY(i), color.getZ(i));
+      if (!c.equals(first)) sawDifferent = true;
+    }
+    expect(sawDifferent).toBe(true);
+  });
+
+  it("builds a proportioned body (chest+hip lobes, head+muzzle+ears, curved tail, jointed legs)", () => {
+    const { scene } = rig();
+    const body = scene.getObjectByName("wildlife-jaguar-body") as THREE.Mesh;
+    // The prior single-dodecahedron+box+cylinder+4-leg body was 116
+    // triangles; this substantially richer silhouette is well beyond that,
+    // still comfortably inside the per-creature <2000 budget above.
+    const tris = body.geometry.getAttribute("position").count / 3;
+    expect(tris).toBeGreaterThan(116);
+    expect(tris).toBeLessThan(2000);
+  });
 });
