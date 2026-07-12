@@ -23,6 +23,16 @@ export interface Treasure {
  * treasure is (buildLandmarks owns the patch, this module matches it).
  * `reveal()` flips it visible when the dig completes. The idol is emissive
  * past the bloom threshold: the win glows.
+ *
+ * Objects slice 1 ("make the objects look like what they really are" —
+ * "the idol deserves special care") upgrades both procedurally: no CC0 model
+ * fits the game's MacGuffin (it needs an exact, hand-tuned envelope to sit
+ * inside the chest and carry the emissive-eyes/glow contract), and an
+ * open-lid chest with a real hinge isn't something the CC0 kits' authored
+ * "closed" pose can give without fragile per-part re-export engineering — see
+ * this slice's run log for the full trade record. `setIdolEmissive`'s
+ * contract stays byte-compatible: it still drives exactly ONE shared
+ * `idolMat.emissiveIntensity`, just across more (all-idol) parts than before.
  */
 export function buildTreasure(landmarks: Landmarks): Treasure {
   const fig = landmarks.placed.find((p) => p.poiId === "site-ancient-fig");
@@ -53,7 +63,9 @@ export function buildTreasure(landmarks: Landmarks): Treasure {
     return g;
   };
 
-  // Chest: box + tilted-open lid, half out of the broken soil.
+  // Chest: box + tilted-open lid, half out of the broken soil, now with
+  // corner straps + a latch (both `trim`) for an iron-bound-coffer read
+  // instead of a bare box.
   const base = new THREE.Mesh(track(new THREE.BoxGeometry(1.2, 0.7, 0.8)), wood);
   base.position.y = 0.3;
   const lid = new THREE.Mesh(track(new THREE.BoxGeometry(1.2, 0.18, 0.8)), wood);
@@ -61,21 +73,51 @@ export function buildTreasure(landmarks: Landmarks): Treasure {
   lid.rotation.z = 0.9; // thrown open
   const band = new THREE.Mesh(track(new THREE.BoxGeometry(1.26, 0.12, 0.2)), trim);
   band.position.y = 0.42;
-  // The idol standing in the chest: a stacked figure — base, body, head.
+  const strapGeo = track(new THREE.BoxGeometry(0.1, 0.72, 0.06));
+  const strapL = new THREE.Mesh(strapGeo, trim);
+  strapL.position.set(-0.48, 0.3, 0.41);
+  const strapR = new THREE.Mesh(strapGeo, trim);
+  strapR.position.set(0.48, 0.3, 0.41);
+  const latch = new THREE.Mesh(track(new THREE.BoxGeometry(0.14, 0.1, 0.05)), trim);
+  latch.position.set(0, 0.5, 0.42);
+
+  // The idol standing in the chest: a real carved-statue silhouette — a
+  // stepped plinth base, a tapered robed body with crossed-arm blocks, a
+  // shoulder collar, and a crowned head — rather than the previous plain
+  // 3-primitive stack (cylinder/cylinder/dodecahedron). Same overall envelope
+  // (footprint radius ~0.22, height ~0.7) so it still sits snugly inside the
+  // chest at the same local offset.
   const idol = new THREE.Group();
-  const idolBase = new THREE.Mesh(track(new THREE.CylinderGeometry(0.16, 0.2, 0.12, 6)), idolMat);
-  const idolBody = new THREE.Mesh(track(new THREE.CylinderGeometry(0.1, 0.16, 0.34, 6)), idolMat);
-  idolBody.position.y = 0.22;
-  const idolHead = new THREE.Mesh(track(new THREE.DodecahedronGeometry(0.13)), idolMat);
-  idolHead.position.y = 0.46;
-  idol.add(idolBase, idolBody, idolHead);
+  const idolBase = new THREE.Mesh(track(new THREE.CylinderGeometry(0.18, 0.22, 0.09, 8)), idolMat);
+  const idolRiser = new THREE.Mesh(track(new THREE.CylinderGeometry(0.14, 0.17, 0.05, 8)), idolMat);
+  idolRiser.position.y = 0.07;
+  const idolBody = new THREE.Mesh(track(new THREE.CylinderGeometry(0.1, 0.15, 0.3, 6)), idolMat);
+  idolBody.position.y = 0.245;
+  const armGeo = track(new THREE.BoxGeometry(0.05, 0.14, 0.07));
+  const idolArmL = new THREE.Mesh(armGeo, idolMat);
+  idolArmL.position.set(-0.1, 0.28, 0.05);
+  idolArmL.rotation.z = 0.3;
+  const idolArmR = new THREE.Mesh(armGeo, idolMat);
+  idolArmR.position.set(0.1, 0.28, 0.05);
+  idolArmR.rotation.z = -0.3;
+  const idolCollar = new THREE.Mesh(track(new THREE.CylinderGeometry(0.105, 0.09, 0.045, 8)), idolMat);
+  idolCollar.position.y = 0.4175;
+  const idolHead = new THREE.Mesh(track(new THREE.DodecahedronGeometry(0.1)), idolMat);
+  idolHead.position.y = 0.5;
+  const idolCrown = new THREE.Mesh(track(new THREE.ConeGeometry(0.06, 0.09, 5)), idolMat);
+  idolCrown.position.y = 0.615;
+  idol.add(idolBase, idolRiser, idolBody, idolArmL, idolArmR, idolCollar, idolHead, idolCrown);
   idol.position.set(0.1, 0.62, 0);
 
-  for (const m of [base, lid, band]) {
+  for (const m of [base, lid, band, strapL, strapR, latch]) {
     m.castShadow = true;
     m.receiveShadow = true;
   }
-  group.add(base, lid, band, idol);
+  for (const m of idol.children) {
+    (m as THREE.Mesh).castShadow = true;
+    (m as THREE.Mesh).receiveShadow = true;
+  }
+  group.add(base, lid, band, strapL, strapR, latch, idol);
   fig.object.add(group);
 
   const worldPos = new THREE.Vector3();

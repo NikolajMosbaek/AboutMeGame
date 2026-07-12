@@ -15,6 +15,7 @@ import { CloudSystem } from "./clouds.ts";
 import { WindSystem, type WindUniforms } from "./windSystem.ts";
 import { AmbientMotesSystem } from "../fx/AmbientMotesSystem.ts";
 import type { FloraUpgradeHandle } from "./floraUpgrade.ts";
+import type { LandmarksUpgradeHandle } from "./landmarksUpgrade.ts";
 import { WORLD } from "./worldConfig.ts";
 import { QUALITY_TIERS, type QualityConfig } from "../perf/quality.ts";
 
@@ -102,6 +103,26 @@ export function buildWorld(
   const landmarks = buildLandmarks(terrain);
   scene.add(landmarks.group);
 
+  // The CC0 object model upgrade (Objects slice 1, "make the objects look
+  // like what they really are") — medium/high only (`quality.objectDetail
+  // === "full"`), the exact `floraUpgrade` lazy-chunk/async-swap/procedural-
+  // fallback precedent above. `landmarks.group` already renders the FULL
+  // procedural site set synchronously, byte-identical to before this slice;
+  // this is a background swap-in, never a gate on the world being visible.
+  let landmarksUpgradeCancelled = false;
+  let landmarksUpgradeHandle: LandmarksUpgradeHandle | null = null;
+  if (quality.objectDetail === "full") {
+    import("./landmarksUpgrade.ts").then(
+      ({ upgradeLandmarks }) => {
+        if (landmarksUpgradeCancelled) return;
+        landmarksUpgradeHandle = upgradeLandmarks(landmarks);
+      },
+      (err) => {
+        console.error("landmark model upgrade chunk failed to load — keeping procedural sites:", err);
+      },
+    );
+  }
+
   const props = buildProps(terrain, quality.propDensity);
   scene.add(props.group);
 
@@ -158,6 +179,8 @@ export function buildWorld(
     dispose() {
       floraUpgradeCancelled = true; // an in-flight model load must not attach to a torn-down world
       floraUpgradeHandle?.dispose();
+      landmarksUpgradeCancelled = true;
+      landmarksUpgradeHandle?.dispose();
       terrain.dispose();
       sky.dispose();
       boundaries.dispose();

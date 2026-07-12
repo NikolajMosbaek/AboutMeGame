@@ -89,3 +89,53 @@ recolouring, merge, rescale, quantize).
 CC0 statement (Kenney's FAQ, https://kenney.nl/faq): all assets are released
 under Creative Commons Zero (CC0) — free to use in any project, personal or
 commercial, with no attribution required.
+
+## Object models (Objects slice 1, 2026-07-12 — "make the objects look like
+what they really are")
+
+Three more Kenney kits (CC0 1.0, same statement as above), each pulled the
+same way (the site's donate-or-skip download flow resolves to one stable
+curl-able zip URL) and processed by the same `scripts/process-models.mjs`
+(now with a second colour-bake mode, `colorMode: "texture"` — these kits share
+one textured "colormap" atlas material per model rather than the Nature Kit's
+flat per-material `baseColorFactor`, so the vertex colour is baked by
+sampling that atlas at each vertex's own UV instead):
+
+- [Kenney "Survival Kit"](https://kenney.nl/assets/survival-kit) —
+  `https://kenney.nl/media/pages/assets/survival-kit/4065a8185b-1712149243/kenney_survival-kit.zip`
+- [Kenney "Pirate Kit"](https://kenney.nl/assets/pirate-kit) —
+  `https://kenney.nl/media/pages/assets/pirate-kit/e6d4bb1525-1771333093/kenney_pirate-kit.zip`
+- [Kenney "Graveyard Kit"](https://kenney.nl/assets/graveyard-kit) —
+  `https://kenney.nl/media/pages/assets/graveyard-kit/ba8d4b4517-1760691807/kenney_graveyard-kit_5.0.zip`
+
+| Site | Output file | Source model | Kit |
+|---|---|---|---|
+| camp (tent) | tent.glb | tent-canvas.glb | Survival |
+| camp (campfire) | campfire.glb | campfire-pit.glb | Survival |
+| camp (crate) | crate.glb | box.glb | Survival |
+| camp (crate, open) | crate-open.glb | box-open.glb | Survival |
+| camp (barrel) | barrel.glb | barrel.glb | Survival |
+| camp (bedroll) | bedroll.glb | bedroll.glb | Survival |
+| canoe (hull + paddles) | canoe-hull.glb | boat-row-small.glb | Pirate |
+| ruin (wall panel) | ruin-wall.glb | stone-wall.glb | Graveyard |
+| ruin (damaged wall panel) | ruin-wall-damaged.glb | stone-wall-damaged.glb | Graveyard |
+| ruin (broken column) | ruin-column.glb | column-large.glb | Graveyard |
+| ruin (rubble) | ruin-debris.glb | debris.glb | Graveyard |
+| remains (dropped axe) | tool-axe.glb | tool-axe.glb | Survival |
+| remains (dropped shovel) | tool-shovel.glb | tool-shovel.glb | Survival |
+
+The Graveyard Kit's tombstone/coffin/cross pieces were deliberately NOT used
+— a jungle ruin reading as a graveyard would be the wrong genre; only its
+generic worked-masonry pieces (wall/column/rubble) were pulled, recoloured
+toward this world's warm, muted stone tokens (a component-wise tint
+multiplier — the same "correct Kenney's colour to this world's palette"
+reasoning the flora job's `RECOLOR_BY_MATERIAL_NAME` map records, applied
+after the atlas sample here since these kits carry no useful per-material
+factor to override). Kenney's own `chest.glb` (Survival Kit) was evaluated for
+the treasure chest and NOT used — its lid is a separate child node in its
+authored (closed) pose, and reaching an "open" pose would need per-node
+re-export engineering out of scope for a secondary prop; the treasure chest
+stays procedural (`src/quest/buildTreasure.ts`), now with added corner straps
+and a latch. The idol itself (the game's MacGuffin) is also procedural by
+design — no CC0 model fits a bespoke, emissive-eyed statue that must nest
+exactly inside the chest and share `setIdolEmissive`'s one material.

@@ -933,6 +933,150 @@ the mote spiral. The render-gate's own forced-low/SwiftShader run stays exactly
 byte-identical to slice 6 (28 draws/156,838 triangles), proving the low tier
 paid nothing for this slice.
 
+**Objects slice 1 (2026-07-12) — "make the objects look like what they really
+are"** upgraded the man-made/site objects two ways: real CC0 models for camp
+(tent/campfire/crates/barrel/bedroll), the canoe (a rowboat hull, already
+carrying its own paddles), and the ruin's worked-stone walls/column/rubble
+(medium/high, async swap-in, following `floraUpgrade.ts`'s precedent exactly —
+new `quality.objectDetail` knob, `src/world/landmarksUpgrade.ts`), plus
+UNCONDITIONAL procedural upgrades (every tier, zero extra bytes/fetches) to
+the overhang's boulder pillars + carving backing slab, the fig's roots/canopy,
+the ruin's gaze-rig brow, and — the game's MacGuffin — a genuine multi-part
+carved-statue idol (plinth/riser/body/arms/collar/head/crown, still ONE shared
+emissive material `setIdolEmissive` drives) plus an iron-strapped chest.
+
+*Sourcing.* Kenney "Survival Kit" (tent-canvas/campfire-pit/box/box-open/
+barrel/bedroll/tool-axe/tool-shovel), "Pirate Kit" (boat-row-small, a rowboat
+hull that already includes resting paddles), and "Graveyard Kit" (stone-wall/
+stone-wall-damaged/column-large/debris — generic worked masonry, NOT
+graveyard-specific gravestone pieces, which were deliberately rejected as the
+wrong genre for a jungle ruin) — all CC0, found via the same "follow the
+donate-or-skip flow to the one stable zip URL" scriptability finding the flora
+slice recorded (`public/assets/LICENSES.md`). Unlike the Nature Kit's
+untextured `KHR_materials_unlit` materials (a flat `baseColorFactor` per
+part), these three kits share ONE textured "colormap" atlas material per
+model (each UV island a solid-colour swatch) — `scripts/process-models.mjs`
+gained a second colour-bake mode (`colorMode: "texture"`, sampling the atlas
+at each vertex's own UV via `sharp`, already a devDependency) alongside the
+flora job's original `"material"` mode, and a `scaleAxis` option (default
+`"y"`) so a wide-but-short model (the campfire ring, the rowboat hull) can be
+sized by its length/width instead of a height it was never tall to begin
+with. A real multi-node-hierarchy wrinkle surfaced processing `bedroll.glb`
+(a child "blanket" node under a parent "bedroll" node, not siblings) —
+`join()`'s own primitive-merge only combines SIBLING nodes, so a `flatten()`
+pass (reparenting every node to the scene root, baking each one's accumulated
+transform into itself first) was added before it.
+
+*The chest stays procedural, deliberately.* Kenney's `chest.glb` was
+considered for the treasure chest but rejected: its lid is a SEPARATE child
+node in its authored (closed) pose, and getting an "open" pose out of it
+would need per-node re-export engineering (splitting the model into two
+files, each independently rescaled/quantized, with a hand-tuned hinge
+rotation) disproportionate to a secondary prop when the idol — the actual
+MacGuffin — is what needed the real care. The chest instead gained corner
+straps + a latch (procedural, `trim` material) for an iron-bound-coffer read.
+
+*A real, structural bug caught only by a live capture, not the unit suite.*
+The first Playwright screenshot of the ruin/remains sites showed a silent
+`THREE.BufferGeometryUtils` console error and a missing stone mesh:
+`mergeGeometries` requires an IDENTICAL typed-array class across every merge
+source per attribute, and mixing a loaded model's quantized `Int16Array`/
+`Uint8Array` (`KHR_mesh_quantization`, `normalized: true`) with a procedural
+piece's plain `Float32Array` (the ruin's gaze rig, remains' cairn/pack/bones)
+fails outright. A SECOND, more dangerous bug rode along: `buildSite`'s
+`place()` calls `geometry.applyMatrix4()`, which writes back through
+`BufferAttribute.setX/Y/Z` — on a still-`normalized: true` int16 store this
+RE-QUANTIZES the value, and a placement transform can push it outside the
+signed-int16 representable range, silently two's-complement-overflowing
+(`floraGlb.ts`'s own header doc warns about exactly this class of bug for the
+pipeline's OWN node-transform step; this is the same failure mode triggered a
+different way). The fix (`dequantize()` in `landmarks.ts`) reads every loaded
+model geometry's position/normal/color back through
+`BufferAttribute.getComponent` (which already applies the normalized-int
+decode) into fresh, plain, non-normalized `Float32Array`s before any
+placement transform or merge — a few hundred vertices, once per swap, not a
+per-frame cost. `landmarksUpgrade.test.ts`'s fixture was rewritten to use a
+genuinely indexed, quantized (normalized Int16/Uint8) fake geometry — the
+ORIGINAL fixture (plain Float32Array, matching neither real bug's
+precondition) passed throughout, which is why this shipped un-caught until a
+real-GPU capture surfaced the console error; the rewritten fixture now pins
+the fix.
+
+*Draw calls / triangles.* The 6 landmark sites' draw-call count is UNCHANGED
+by this slice on every tier: `buildSite`'s model branch still merges into
+AT MOST 1 stone mesh + 1 (untouched) accent mesh per site, exactly the
+pre-slice shape — it replaces mesh CONTENT, never mesh COUNT. Measured
+directly (`buildLandmarks`/`buildSite`, headless, summing `mesh.geometry`
+triangle counts — the same method the visual-overhaul slices used before a
+real GPU was available):
+
+| | Draw calls (6 sites) | Triangles (6 sites) |
+|---|---|---|
+| Pre-slice (`main`) | 12 | 1,556 |
+| Post-slice, low (procedural, incl. the unconditional overhang/fig/ruin-brow upgrades) | 12 | 1,688 (+132) |
+| Post-slice, medium/high (CC0 camp/canoe/ruin models swapped in) | 12 | 3,795 (+2,107 vs. pre-slice, +2,239 vs. low) |
+
++2,107 triangles is 0.42% of the 500k budget and a small fraction of the
+~58k-triangle headroom the flora slice left on high — comfortably inside the
+"target ≤10 new draws" bar this slice was given, at 0 actual draws spent. The
+treasure chest+idol (hidden until the dig, `group.visible = false` — the
+renderer skips a hidden object's draw calls entirely, so this is an
+END-GAME-ONLY cost, not steady-state) grew from 6 draws/120 triangles to 14
+draws/262 triangles (the idol's redesign from 3 primitives to 8, the chest's
+new straps/latch) — trivial in absolute terms and invisible to the budget for
+all but the last moments of a playthrough.
+
+*Payload.* 13 new quantized object-model GLBs, `public/assets/models/objects/`,
+**113.6 KB** raw total (barrel 15.77, ruin-column 17.09, ruin-debris 11.52,
+campfire 11.86, bedroll 6.30, crate-open 7.95, canoe-hull 7.88,
+ruin-wall-damaged 6.94, crate 6.73, tent 7.84, tool-shovel 5.71, ruin-wall
+3.61, tool-axe 4.38 KB). Measured `vite build` (gzip) + `npm run check:bundle`,
+branch vs the visual-overhaul-slice-7 baseline on the SAME machine (entry
+99.67 KB, `three` 134.04 KB, `postfx` 152.33 KB, `floraUpgrade` 3.91 KB, CSS
+4.74 KB, summed JS gzip **390.6 KB**, total download **3936.5 KB** — a fresh
+same-toolchain rebuild of that exact commit, not the prior doc entry's
+recorded figures, since several unrelated merges landed between that slice
+and this one):
+
+- **`landmarksUpgrade` chunk (NEW, lazy, medium/high only):** 0.73 KB gz —
+  `landmarksUpgrade.ts` alone; it reaches the ALREADY-lazy `floraGlb.ts`
+  parser via the same dynamic-import graph `floraUpgrade.ts` uses, so
+  `floraGlb.ts` split into its OWN tiny shared chunk (1.31 KB gz) rather than
+  being duplicated into both callers' bundles.
+- **Summed JS gzip (`check:bundle`):** 390.6 → **392.4 KB**, **7.6 KB** of the
+  400 KB cap left free (was 9.4 KB pre-slice) — this slice's actual eager
+  cost (the `landmarks.ts`/`buildTreasure.ts`/`quality.ts`/`buildWorld.ts`
+  additions, all already-eager modules) landed at +1.8 KB, comfortably inside
+  the thin headroom the visual overhaul left.
+- **Total download:** 3936.5 → **4054.7 KB** (+118.2 KB — the 113.6 KB model
+  payload plus the small JS delta), **1945.3 KB** of the 6 MB cap still free.
+
+Both caps hold (`npm run check:bundle` EXIT=0).
+
+Verified visually via real-GPU Playwright captures (`--use-gl=angle
+--use-angle=metal`, `quality: "high"` forced via `localStorage`, noon —
+`window.advanceTime(45000)`, the day cycle's `t=0.25` keyframe): the camp now
+reads as a real A-frame tent (canvas panels, ridge pole, stake feet) beside a
+stacked crate pair and a barrel; the canoe is unmistakably a rowboat with a
+real hull cavity, gunwale and resting paddles (the headline "barely reads as
+a boat" complaint is resolved); the ruin shows a genuine beveled/coped
+worked-stone wall panel instead of a bare box; remains shows the lost
+expedition's dropped axe and shovel beside the existing cairn/pack; the fig
+tree's fuller, less-spherical canopy and deeper roots read as a more
+convincing strangler fig. The idol/chest were verified live via a temporary,
+NOT-shipped debug hook (`window.__debugRevealTreasure__`, added and removed
+within the same session — reaching the reveal through the real 5-clue-plus-
+dig quest chain was out of scope for a verification screenshot) confirming
+the reveal mechanism and the idol's emissive glow render correctly in place;
+the new multi-part carved silhouette itself is verified by
+`buildTreasure.test.ts` (8 idol meshes, one shared emissive material, its
+whole envelope still fitting inside the chest's footprint) rather than a
+flattering screenshot — the treasure sits wedged tightly between two of the
+fig's buttress roots (a pre-existing site-design constraint, unchanged by
+this slice), and no camera angle tried from outside that root cage gave a
+clean, unoccluded "statue portrait", an honest limitation recorded here
+rather than a false claim of a clean hero shot.
+
 ## How it is enforced
 
 - **Live:** `StatsOverlay` polls `Engine.getState()` and runs `checkFrame`
