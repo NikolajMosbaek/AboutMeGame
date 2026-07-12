@@ -100,6 +100,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";
+import { srgbToLinear, texelIndex } from "./colorSpace.mjs";
 import { NodeIO } from "@gltf-transform/core";
 import { KHRMaterialsUnlit, KHRMeshQuantization } from "@gltf-transform/extensions";
 import { dedup, flatten, join as joinPrimitives, prune, quantize } from "@gltf-transform/functions";
@@ -158,15 +159,32 @@ const MODELS_FLORA = [
  * `src/quest/buildTreasure.ts` (each `targetHeight` chosen to roughly match
  * the procedural piece it replaces at that site, so `landmarksUpgrade.ts`'s
  * hand-placed transforms don't need re-deriving from scratch). `tint`
- * (component-wise multiplier on the sampled colour, default `[1,1,1]`)
- * corrects the Graveyard Kit's stone pieces, whose "colormap" atlas reads
- * distinctly cool/blue-grey against this world's warm, muted `STONE`/`RUIN`
- * tokens (`src/world/landmarks.ts`) — sampled and confirmed via a print-probe
- * before picking the multiplier, the exact same "recolour to fit this world's
+ * (component-wise multiplier, applied AFTER `srgbToLinear` — see
+ * `bakeVertexColorFromTexture` — so it's a LINEAR-space correction) corrects
+ * the Graveyard Kit's stone pieces, whose "colormap" atlas reads distinctly
+ * cool/blue-grey against this world's warm, muted `STONE`/`RUIN` tokens
+ * (`src/world/landmarks.ts`), the exact same "recolour to fit this world's
  * palette" finding the flora job's own header doc records for Kenney's
  * `leafsGreen`.
+ *
+ * RE-DERIVED after fixing the missing sRGB->linear conversion (the earlier
+ * `[0.92, 0.84, 0.6]` was picked by eye against washed-out, still-sRGB-encoded
+ * output). Once decoded correctly, `ruin-wall`/`ruin-wall-damaged`/
+ * `ruin-debris`'s raw atlas samples turned out MUCH bluer than they first
+ * appeared (linear B ~1.6-1.7x linear R — `ruin-column`'s own raw sample is
+ * comparatively mild, ~0.9x), so the old blue multiplier (0.6) left 3 of the 4
+ * ruin pieces reading distinctly COOL (B channel highest) instead of the
+ * warm tan-grey `STONE`/`RUIN` tokens target (confirmed both by directly
+ * averaging each model's baked `COLOR_0` and by a live-build screenshot
+ * comparison). The new multiplier's blue channel (0.44, solved against the
+ * post-fix linear atlas samples so R stays the anchor channel) pulls all four
+ * pieces warm; `ruin-column` (whose atlas sample needed the least
+ * correction) ends up the most saturated of the four as a result — an
+ * accepted trade-off of one shared multiplier across pieces sampled from
+ * genuinely different atlas swatches, same as the pre-fix tint's own
+ * documented limitation.
  */
-const STONE_TINT = [0.92, 0.84, 0.6];
+const STONE_TINT = [0.92, 0.85, 0.44];
 const MODELS_OBJECTS = [
   // Camp (site-base-camp): tent, campfire ring + logs, crates, barrel.
   { name: "tent", kit: "survival", source: "tent-canvas.glb", targetHeight: 2.3 },
@@ -269,9 +287,22 @@ function bakeVertexColorFromMaterial(doc) {
  *  at every vertex's own UV0 and bake the sampled RGB into COLOR_0 (see this
  *  file's header doc for why: the Survival/Pirate/Graveyard kits carry one
  *  shared textured "colormap" material per model, not a flat per-material
- *  factor). `tint` (default `[1,1,1]`) applies a component-wise multiplier
- *  after sampling, for the same "correct Kenney's colour to this world's
- *  palette" reason `RECOLOR_BY_MATERIAL_NAME` exists for the flora job. */
+ *  factor).
+ *
+ *  The atlas PNG is sRGB-ENCODED (as any authored colour image is), but
+ *  `sharp(...).raw()` hands back the raw encoded bytes unchanged — dividing
+ *  by 255 alone yields an sRGB-encoded [0,1] value, NOT a linear one. Three's
+ *  renderer treats `COLOR_0` as already-linear (it never colour-manages
+ *  vertex attributes the way it does a `sRGBColorSpace`-tagged texture), so
+ *  every sampled byte is run through `srgbToLinear` (the same IEC 61966-2-1
+ *  EOTF as `THREE.Color.convertSRGBToLinear`) BEFORE anything else touches it
+ *  — this was missing in an earlier version of this bake and left all 13
+ *  Kenney object models reading washed-out/over-bright next to the vertex
+ *  colours baked by `bakeVertexColorFromMaterial` (which never round-trips
+ *  through PNG bytes, so never had this bug). `tint` (default `[1,1,1]`, ALSO
+ *  linear-space) applies a component-wise multiplier AFTER that conversion,
+ *  for the same "correct Kenney's colour to this world's palette" reason
+ *  `RECOLOR_BY_MATERIAL_NAME` exists for the flora job. */
 async function bakeVertexColorFromTexture(doc, tint = [1, 1, 1]) {
   for (const mesh of doc.getRoot().listMeshes()) {
     for (const prim of mesh.listPrimitives()) {
@@ -290,12 +321,12 @@ async function bakeVertexColorFromTexture(doc, tint = [1, 1, 1]) {
         const el = [0, 0];
         for (let i = 0; i < count; i++) {
           uv.getElement(i, el);
-          const px = Math.min(info.width - 1, Math.max(0, Math.round(el[0] * (info.width - 1))));
-          const py = Math.min(info.height - 1, Math.max(0, Math.round(el[1] * (info.height - 1))));
+          const px = texelIndex(el[0], info.width);
+          const py = texelIndex(el[1], info.height);
           const idx = (py * info.width + px) * info.channels;
-          colors[i * 3] = (data[idx] / 255) * tint[0];
-          colors[i * 3 + 1] = (data[idx + 1] / 255) * tint[1];
-          colors[i * 3 + 2] = (data[idx + 2] / 255) * tint[2];
+          colors[i * 3] = srgbToLinear(data[idx] / 255) * tint[0];
+          colors[i * 3 + 1] = srgbToLinear(data[idx + 1] / 255) * tint[1];
+          colors[i * 3 + 2] = srgbToLinear(data[idx + 2] / 255) * tint[2];
         }
       } else {
         colors.fill(0.6); // no texture found — flat mid-grey, never black.

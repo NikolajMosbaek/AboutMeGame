@@ -117,3 +117,43 @@ Wildlife (deferred from the visual overhaul, `docs/perf-budget.md`'s slice-6 not
 NEXT slice that adds triangles (jaguar/wildlife) must budget against [the ~58k-triangle
 headroom]"). This slice's own +2,107-triangle add (medium/high) leaves that headroom at
 roughly 55.9k — still comfortable, but the next slice should re-measure rather than assume.
+
+## Code review fix (2026-07-12)
+
+review: sRGB bake missing linear conversion (13 models washed out) + dispose parity +
+texel-center — fixed, GLBs re-baked.
+
+- **sRGB→linear (the important one).** `bakeVertexColorFromTexture` (`scripts/process-models.mjs`)
+  wrote `sharp`'s raw sRGB-encoded PNG bytes straight into `COLOR_0` (`byte/255`) — three treats
+  vertex colour as already-linear, so every `colorMode: "texture"` model (all 13 Kenney object
+  models: tent, campfire, crate/crate-open, barrel, bedroll, canoe-hull, ruin-wall/-damaged/
+  -column/-debris, tool-axe/-shovel) rendered washed-out/over-bright versus the authored Kenney
+  palette. Fixed by applying the exact IEC 61966-2-1 sRGB EOTF (`THREE.Color.convertSRGBToLinear`'s
+  own piecewise curve) to each channel before the tint multiply — pulled into a new pure,
+  unit-tested seam (`scripts/colorSpace.mjs`'s `srgbToLinear`, pinned against a known byte→linear
+  value in `scripts/colorSpace.test.mjs`; `vite.config.ts`'s test `include` extended to
+  `scripts/*.test.mjs` to run it). `STONE_TINT` (the Graveyard-kit cool-cast correction) was
+  re-derived against the now-correctly-decoded linear samples — the old `[0.92, 0.84, 0.6]`,
+  eyeballed against washed-out output, left 3 of the 4 ruin pieces (`ruin-wall`,
+  `ruin-wall-damaged`, `ruin-debris`) reading distinctly cool/blue instead of the warm
+  `STONE`/`RUIN` tan-grey tokens (`src/world/landmarks.ts`); the new `[0.92, 0.85, 0.44]` reads
+  warm on all four. Confirmed with real (software-GPU) build screenshots at the camp, canoe and
+  ruin sites, forcing `quality: "high"` via `localStorage` so the model swap actually loads: the
+  tent canvas, crates and canoe hull all read visibly richer/more saturated post-fix (before/after
+  mean-RGB samples of the same pixel regions: e.g. the tent canvas panel went from a washed
+  (158, 150, 137) to a richer, warmer (154, 125, 95)), and the ruin's wall/debris pieces flipped
+  from a cool blue-grey cast to a warm tan-grey one. All 13 GLBs re-baked and recommitted.
+- **Dispose parity.** `landmarksUpgrade.ts`'s `dispose()` disposed the swapped-in geometries but
+  never detached the swapped group from the site object, contradicting its own doc comment and
+  `floraUpgrade.ts`'s `swapCategory` contract (`group.remove(mesh)` before disposal). Fixed: every
+  swapped `newGroup` is now tracked alongside its parent site object and removed from the scene
+  graph in `dispose()` before its geometries are freed.
+  `landmarksUpgrade.test.ts`'s dispose-after-swap test now also asserts the child count is
+  restored (1 → 0) after `dispose()`.
+- **Texel-center sampling (minor).** `bakeVertexColorFromTexture`'s nearest-texel formula switched
+  from `round(u*(width-1))` (grid sampling) to the standard clamped texel-center
+  `min(width-1, floor(u*width))` (`scripts/colorSpace.mjs`'s `texelIndex`, also pinned by a unit
+  test). Folded into the same pipeline re-run as the sRGB fix.
+
+Gates (all EXIT=0): `npm run lint` · `npm run build` · `npm test` (143 files / 1503 passed, 1
+skipped) · `npm run check:bundle` (392.5/400 KB JS gzip, 4056.0/6000 KB total) · `npm run verify`.

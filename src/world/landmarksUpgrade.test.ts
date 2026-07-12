@@ -152,7 +152,7 @@ describe("upgradeLandmarks", () => {
     spy.mockRestore();
   });
 
-  it("dispose() after the swap releases the newly-built (swapped-in) geometries", async () => {
+  it("dispose() after the swap releases the newly-built (swapped-in) geometries and detaches the swapped group", async () => {
     const landmarks = build();
     const handle = upgradeLandmarks(landmarks, fakeLoad);
     await drain();
@@ -163,16 +163,30 @@ describe("upgradeLandmarks", () => {
     // instead, never by this handle.
     const swapped = new Set(["camp", "canoe", "ruin", "remains"]);
     const newGeometries: THREE.BufferGeometry[] = [];
-    for (const p of landmarks.placed) {
+    const swappedSites = landmarks.placed.filter((p) => {
       const anchor = POI_ANCHORS.find((a) => a.poiId === p.poiId)!;
-      if (!swapped.has(anchor.archetype)) continue;
+      return swapped.has(anchor.archetype);
+    });
+    for (const p of swappedSites) {
       p.object.traverse((o) => {
         if (o instanceof THREE.Mesh) newGeometries.push(o.geometry as THREE.BufferGeometry);
       });
     }
     expect(newGeometries.length).toBeGreaterThan(0);
+    // Every swapped site's object holds exactly the one swapped-in group as
+    // its child, mirroring the pre-swap shape (`buildSite`'s output is always
+    // the site object's single child) — this is the "child count restored"
+    // baseline dispose() must return to below.
+    for (const p of swappedSites) expect(p.object.children.length).toBe(1);
+
     const spies = newGeometries.map((g) => vi.spyOn(g, "dispose"));
     handle.dispose();
     for (const s of spies) expect(s).toHaveBeenCalled();
+
+    // dispose() must DETACH the swapped-in group too (landmarksUpgrade.ts's
+    // own doc comment + floraUpgrade.ts's `swapCategory` contract), not just
+    // free its geometry — leaving a disposed (now-broken) group sitting in
+    // the live scene graph is the bug this guards against.
+    for (const p of swappedSites) expect(p.object.children.length).toBe(0);
   });
 });

@@ -64,8 +64,14 @@ export default defineConfig(({ command, isPreview }) => ({
     // Unit tests live beside the source. Browser-driven verification
     // (scripts/verify-game.mjs) is run separately and must not be swept here —
     // the scripts/verify/ glob only matches the verify orchestrator's pure,
-    // headless helper tests, never verify-game.mjs itself.
-    include: ["src/**/*.{test,spec}.{ts,tsx}", "scripts/verify/*.test.mjs"],
+    // headless helper tests, never verify-game.mjs itself. `scripts/*.test.mjs`
+    // (not the deeper `scripts/verify/`) covers the model pipeline's own pure
+    // helpers (scripts/colorSpace.mjs) the same way.
+    include: [
+      "src/**/*.{test,spec}.{ts,tsx}",
+      "scripts/verify/*.test.mjs",
+      "scripts/*.test.mjs",
+    ],
     // Keep vitest's defaults (node_modules, dist, …) AND skip any git
     // worktrees checked out under the repo. Stray worktrees carry their own
     // (often broken) node_modules and test files; sweeping them produces

@@ -32,6 +32,12 @@ import { POI_ANCHORS, type SiteArchetype } from "./worldConfig.ts";
 // tracks and disposes the NEW geometry it creates, exactly mirroring
 // `floraUpgrade.ts`'s `swapCategory` (`group.remove(old)`, never
 // `old.geometry.dispose()`, since `props.dispose()` still owns that).
+// `swapCategory` ALSO detaches every new mesh it added (`group.remove(mesh)`
+// in its own `dispose()`) before disposing it — this module's `dispose()`
+// mirrors that too: every swapped-in `newGroup` is tracked (alongside its
+// parent `placedSite.object`) and removed from the scene graph before its
+// geometries are freed, so a disposed handle never leaves a dangling,
+// already-disposed group sitting in the tree.
 
 /** Which sites get a model swap, and which named models each one needs
  *  (`landmarks.ts`'s `buildSite` model branch is the single source of truth
@@ -76,6 +82,11 @@ export function upgradeLandmarks(
 ): LandmarksUpgradeHandle {
   let cancelled = false;
   const disposables: Array<{ dispose(): void }> = [];
+  // Every swapped-in group, alongside the site object it was added to — so
+  // `dispose()` can DETACH each one (`object.remove(newGroup)`) before its
+  // tracked geometries are freed, mirroring `floraUpgrade.ts`'s `swapCategory`
+  // contract instead of leaving a disposed group dangling in the scene graph.
+  const swappedGroups: Array<{ object: THREE.Object3D; newGroup: THREE.Object3D }> = [];
 
   (async () => {
     try {
@@ -120,6 +131,7 @@ export function upgradeLandmarks(
         );
         if (oldGroup) placedSite.object.remove(oldGroup);
         placedSite.object.add(newGroup);
+        swappedGroups.push({ object: placedSite.object, newGroup });
       }
 
       // Every loaded geometry was only ever a TEMPLATE `buildSite`'s model
@@ -135,6 +147,7 @@ export function upgradeLandmarks(
   return {
     dispose() {
       cancelled = true;
+      for (const { object, newGroup } of swappedGroups) object.remove(newGroup);
       for (const d of disposables) d.dispose();
     },
   };
