@@ -11,7 +11,7 @@ import * as THREE from "three";
 import type { FrameContext, System } from "../engine/types.ts";
 import type { Terrain } from "../world/terrain.ts";
 import { POI_ANCHORS, WORLD } from "../world/worldConfig.ts";
-import { mergeOrThrow, stampVertexColor } from "./geometry.ts";
+import { mergeOrThrow, mottleFaces, stampVertexColor } from "./geometry.ts";
 
 /** Where the player is — the explorer satisfies it via `state.position`. */
 export interface PositionSource {
@@ -180,6 +180,15 @@ export function lungeAmount(mode: SnakeMode, cooldown: number): number {
 
 const BODY_COLOR = 0x3d5a34;
 const HEAD_COLOR = 0x2e4527;
+/** A darker band colour, mottled onto the coil in stripes around its own
+ *  angle (see {@link buildCoiledBodyGeometry}) — Objects slice 2's "improve
+ *  proportions/colour banding" call for the snake (already the closest-
+ *  reading of the four animals, per the slice's own scope): zero extra
+ *  triangles, just a periodic per-face colour blend. */
+const BAND_COLOR = 0x223318;
+/** How many dark bands wrap the coil — enough to read as scale banding
+ *  without looking like a barber pole. */
+const BAND_COUNT = 7;
 
 function buildCoiledBodyGeometry(): THREE.BufferGeometry {
   const outer = new THREE.TorusGeometry(0.5, 0.14, 6, 14);
@@ -190,12 +199,24 @@ function buildCoiledBodyGeometry(): THREE.BufferGeometry {
   const merged = mergeOrThrow([outer, inner]);
   outer.dispose();
   inner.dispose();
-  return stampVertexColor(merged, BODY_COLOR);
+  const body = stampVertexColor(merged, BODY_COLOR);
+  // The torus lies flat in the local XZ plane (post-rotateX) — banding by
+  // the coil's own angle (atan2(z, x)) wraps the stripes around the body
+  // exactly the way real scale banding follows a snake's length.
+  return mottleFaces(body, new THREE.Color(BODY_COLOR), new THREE.Color(BAND_COLOR), (cx, _cy, cz) => {
+    const angle = Math.atan2(cz, cx);
+    return Math.abs(Math.sin(angle * BAND_COUNT)) > 0.55 ? 1 : 0;
+  });
 }
 
+/** A flattened, widened cone — a triangular, pit-viper-like head wedge rather
+ *  than the prior round symmetric cone (Objects slice 2; already the
+ *  closest-reading animal, so this stays a cheap reshape — zero added
+ *  triangles — rather than new geometry). */
 function buildHeadGeometry(): THREE.BufferGeometry {
   const geo = new THREE.ConeGeometry(0.16, 0.5, 6);
   geo.rotateZ(-Math.PI / 2); // apex points along local +X (forward)
+  geo.scale(1, 0.55, 1.35);
   return stampVertexColor(geo, HEAD_COLOR);
 }
 

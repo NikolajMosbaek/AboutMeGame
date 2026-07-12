@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
 import * as THREE from "three";
 import {
+  FISH_BODY_HALF_LENGTH,
   FISH_COUNT,
+  FISH_SWAY_SPEED,
   FLEE_DURATION,
   FLEE_RADIUS,
   FishSystem,
   MIN_POOL_DEPTH,
   initialFishState,
+  makeFishSwayPatch,
   selectPools,
   stepFish,
 } from "./fish.ts";
@@ -127,6 +130,85 @@ describe("FishSystem", () => {
     const { scene, sys } = rig();
     expect(() => sys.dispose()).not.toThrow();
     expect(scene.children.find((o) => o.name === "wildlife-fish")).toBeUndefined();
+  });
+
+  it("merges the fish body with fins into one geometry (still one draw call)", () => {
+    const { scene } = rig();
+    const mesh = scene.children.find((o) => o.name === "wildlife-fish") as THREE.InstancedMesh;
+    // The prior bare cone was 10 triangles; the merged body+tailFin+dorsalFin
+    // geometry adds the fins' 3 extra triangles (13 total) — cheap per-fish,
+    // but real (never 0, confirming the fins actually merged in).
+    const tris = mesh.geometry.getAttribute("position").count / 3;
+    expect(tris).toBeGreaterThan(10);
+    expect(tris).toBeLessThan(20);
+  });
+
+  it("attaches the tail-sway onBeforeCompile/customProgramCacheKey to the shared material", () => {
+    const { scene } = rig();
+    const mesh = scene.children.find((o) => o.name === "wildlife-fish") as THREE.InstancedMesh;
+    const mat = mesh.material as THREE.MeshStandardMaterial;
+    expect(typeof mat.onBeforeCompile).toBe("function");
+    expect(typeof mat.customProgramCacheKey).toBe("function");
+  });
+});
+
+// The tail-sway `onBeforeCompile` patch builder (Objects slice 2) — verified
+// against the REAL three MeshStandard shader source (the `windPatch.test.ts`
+// idiom), not a fabricated stub. No WebGL context needed.
+describe("makeFishSwayPatch", () => {
+  function freshShader() {
+    return {
+      vertexShader: THREE.ShaderLib.standard.vertexShader,
+      fragmentShader: THREE.ShaderLib.standard.fragmentShader,
+      uniforms: {} as Record<string, { value: unknown }>,
+    };
+  }
+
+  it("injects the sway block into the vertex stage only (no fragment change)", () => {
+    const shader = freshShader();
+    const fragBefore = shader.fragmentShader;
+    makeFishSwayPatch({ uTime: { value: 0 } }).onBeforeCompile(
+      shader as unknown as THREE.WebGLProgramParametersWithUniforms,
+    );
+    expect(shader.fragmentShader).toBe(fragBefore);
+    expect(shader.vertexShader).toMatch(/transformed\.x\s*\+=.*tailWeight/);
+  });
+
+  it("guards the sway block behind #ifdef USE_INSTANCING", () => {
+    const shader = freshShader();
+    makeFishSwayPatch({ uTime: { value: 0 } }).onBeforeCompile(
+      shader as unknown as THREE.WebGLProgramParametersWithUniforms,
+    );
+    const ifdefIdx = shader.vertexShader.indexOf("#ifdef USE_INSTANCING");
+    const swayIdx = shader.vertexShader.indexOf("tailWeight");
+    expect(ifdefIdx).toBeGreaterThanOrEqual(0);
+    expect(swayIdx).toBeGreaterThan(ifdefIdx);
+  });
+
+  it("weights the sway toward the tail (rear, -z), zero at the head (+z)", () => {
+    const shader = freshShader();
+    makeFishSwayPatch({ uTime: { value: 0 } }).onBeforeCompile(
+      shader as unknown as THREE.WebGLProgramParametersWithUniforms,
+    );
+    expect(shader.vertexShader).toContain(
+      `const float FISH_BODY_HALF_LENGTH = ${FISH_BODY_HALF_LENGTH.toFixed(1)};`,
+    );
+    expect(shader.vertexShader).toMatch(/FISH_BODY_HALF_LENGTH\s*-\s*transformed\.z/);
+  });
+
+  it("bakes FISH_SWAY_SPEED as a GLSL float constant and merges the caller's uTime uniform", () => {
+    const shader = freshShader();
+    const uTime = { value: 2.5 };
+    makeFishSwayPatch({ uTime }).onBeforeCompile(shader as unknown as THREE.WebGLProgramParametersWithUniforms);
+    expect(shader.vertexShader).toContain(`const float FISH_SWAY_SPEED = ${FISH_SWAY_SPEED};`);
+    expect(shader.uniforms.uTime).toBe(uTime);
+  });
+
+  it("returns a stable customProgramCacheKey", () => {
+    const a = makeFishSwayPatch({ uTime: { value: 0 } }).customProgramCacheKey();
+    const b = makeFishSwayPatch({ uTime: { value: 0 } }).customProgramCacheKey();
+    expect(a).toBe(b);
+    expect(typeof a).toBe("string");
   });
 });
 

@@ -7,7 +7,7 @@
 import * as THREE from "three";
 import type { FrameContext, System } from "../engine/types.ts";
 import type { Terrain } from "../world/terrain.ts";
-import { stampVertexColor } from "./geometry.ts";
+import { mergeOrThrow, stampVertexColor } from "./geometry.ts";
 
 /** Where the player is — the explorer satisfies it via `state.position` (same
  *  shape `DiscoverySystem`/`SurvivalSystem` read). */
@@ -149,22 +149,75 @@ export function birdPose(
 
 const BODY_COLOR = 0x241f1a;
 const WING_COLOR = 0x322b23;
+/** A warm accent on the beak only — a parrot/macaw-like hint against the
+ *  otherwise dark plumage silhouette (`docs/art-direction.md`'s warm
+ *  palette), cheap (no extra geometry, one more merged part). */
+const BEAK_COLOR = 0xcf7a34;
 
-/** A two-triangle wing pair lying flat in the local XZ plane, spine at the
- *  local origin, tips swept back — instanced whole and "flapped" by rotating
- *  the per-instance matrix around the body's forward axis (a roll), the
- *  per-instance-rotation flap the wildlife spec calls for. */
+/** A four-triangle wing pair (a real tapered/swept PLANFORM — wide chord at
+ *  the root, narrow at the tip, both swept back) lying flat in the local XZ
+ *  plane, spine at the local origin — instanced whole and "flapped" by
+ *  rotating the per-instance matrix around the body's forward axis (a roll),
+ *  the per-instance-rotation flap the wildlife spec calls for. Objects
+ *  slice 2 upgrade: the prior version was a single DEGENERATE triangle per
+ *  side (root point to tip point to one trailing corner) — a wing outline
+ *  with no chord/taper at all; this is the same "articulated plane" idiom
+ *  (still flat, still one flap hinge) with an actual wing shape. */
 function buildWingGeometry(): THREE.BufferGeometry {
   const span = 0.55;
   const sweep = 0.32;
+  const rootChord = 0.11; // front-to-back width at the shoulder (spine)
+  const tipChord = 0.04; // front-to-back width at the wingtip — a real taper
+
+  // Right wing quad corners: leading/trailing edge at the root (spine) and
+  // at the tip (swept back by `sweep`), split into 2 triangles.
+  const rl: [number, number, number] = [0, 0, 0];
+  const rt: [number, number, number] = [0, 0, rootChord];
+  const tl: [number, number, number] = [span, 0, -sweep];
+  const tt: [number, number, number] = [span, 0, -sweep + tipChord];
   const positions = new Float32Array([
-    0, 0, 0, span, 0, -sweep, 0.05, 0, 0.05,
-    0, 0, 0, -0.05, 0, 0.05, -span, 0, -sweep,
+    ...rl, ...rt, ...tt,
+    ...rl, ...tt, ...tl,
+    // Left wing: the mirrored quad (negate X, reversed winding).
+    ...rl, ...[-tt[0], tt[1], tt[2]], ...[-rt[0], rt[1], rt[2]],
+    ...rl, ...[-tl[0], tl[1], tl[2]], ...[-tt[0], tt[1], tt[2]],
   ]);
   const geo = new THREE.BufferGeometry();
   geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
   geo.computeVertexNormals();
   return geo;
+}
+
+/**
+ * Torso + head + beak + fan tail, merged to ONE geometry (still the SAME one
+ * `bodyMesh` `InstancedMesh` draw call) — Objects slice 2: the prior body was
+ * a bare cone with no head/beak/tail at all. Apex (the torso cone's point)
+ * faces local +Z, same convention `fish.ts`'s body uses, so the head sits
+ * just ahead of it and the tail fans out behind the cone's flat base. No CC0
+ * parrot/macaw model was found through this codebase's scriptable-download
+ * conventions (poly.pizza gates behind a paid API key with mixed per-model
+ * licences; Kenney has no 3D bird pack; Quaternius's itch.io mirrors carry no
+ * bird pack at all), so — per the slice's own licence — this is a substantial
+ * procedural upgrade, kept cheap (a handful of extra triangles) since it
+ * multiplies by every one of `TOTAL_BIRDS` instances.
+ */
+function buildBirdBodyGeometry(): THREE.BufferGeometry {
+  const parts: THREE.BufferGeometry[] = [];
+  const torso = stampVertexColor(new THREE.ConeGeometry(0.12, 0.55, 5).rotateX(Math.PI / 2), BODY_COLOR);
+  parts.push(torso);
+  const head = stampVertexColor(new THREE.BoxGeometry(0.15, 0.13, 0.16), BODY_COLOR);
+  head.translate(0, 0.01, 0.34);
+  parts.push(head);
+  const beak = stampVertexColor(new THREE.ConeGeometry(0.035, 0.16, 3).rotateX(Math.PI / 2), BEAK_COLOR);
+  beak.translate(0, 0, 0.5);
+  parts.push(beak);
+  const tail = stampVertexColor(new THREE.ConeGeometry(0.1, 0.32, 3).rotateX(-Math.PI / 2), WING_COLOR);
+  tail.scale(1, 0.35, 1); // flatten into a fan
+  tail.translate(0, 0, -0.42);
+  parts.push(tail);
+  const merged = mergeOrThrow(parts);
+  for (const g of parts) g.dispose();
+  return merged;
 }
 
 interface Flock {
@@ -174,9 +227,10 @@ interface Flock {
 
 /**
  * Two draw calls total (body + wings InstancedMesh), however many birds are
- * instanced — the wildlife budget's per-creature cap. Body/wing geometry is a
- * few triangles each (a low-poly silhouette, not a modelled bird), well inside
- * the ≤40k-triangle wildlife budget.
+ * instanced — the wildlife budget's per-creature cap. Body/wing geometry is
+ * still a low-poly silhouette (a torso+head+beak+tail body, a tapered/swept
+ * wing planform — Objects slice 2), well inside the ≤40k-triangle wildlife
+ * budget.
  */
 export class BirdsSystem implements System {
   readonly id = "wildlife-birds";
@@ -207,10 +261,7 @@ export class BirdsSystem implements System {
   ) {
     this.group.name = "wildlife-birds";
 
-    this.bodyGeo = stampVertexColor(
-      new THREE.ConeGeometry(0.12, 0.55, 4).rotateX(Math.PI / 2),
-      BODY_COLOR,
-    );
+    this.bodyGeo = buildBirdBodyGeometry();
     this.wingGeo = stampVertexColor(buildWingGeometry(), WING_COLOR);
     this.bodyMat = new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 1 });
     this.wingMat = new THREE.MeshStandardMaterial({

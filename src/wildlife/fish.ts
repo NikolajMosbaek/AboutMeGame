@@ -7,8 +7,9 @@
 
 import * as THREE from "three";
 import type { FrameContext, System } from "../engine/types.ts";
+import { glslFloat } from "../world/glslFormat.ts";
 import { LAGOON, RIVER, WORLD } from "../world/worldConfig.ts";
-import { stampVertexColor } from "./geometry.ts";
+import { mergeOrThrow, stampVertexColor } from "./geometry.ts";
 
 /** Where the player is — the explorer satisfies it via `state.position`. */
 export interface PositionSource {
@@ -143,12 +144,138 @@ export function stepFish(
 }
 
 const FISH_COLOR = 0x121f26;
+/** Fins a touch lighter than the body — reads as translucent fin membrane
+ *  against the dark body silhouette. */
+const FIN_COLOR = 0x24404d;
 
+/**
+ * Body (the original flattened-cone shadow-shape) + a caudal (tail) fin
+ * flaring out behind the pointed rear + a small dorsal fin along the spine,
+ * merged to ONE geometry (still the SAME single `InstancedMesh` draw call) —
+ * Objects slice 2: the prior body was a bare flattened cone with no fins at
+ * all, reading as a shadow blob rather than a fish. The cone's WIDE end (the
+ * base disc, local z = +0.5) is the head — confirmed empirically against
+ * `FishSystem`'s own heading convention (`Euler(0, heading, 0)` applied to a
+ * local +Z point lands it in the SAME world direction `stepFish` moves the
+ * fish for that heading), not the pointed apex the geometry's own prior
+ * comment claimed; the apex (z = -0.5) is the tail end, which is where the
+ * new fins attach. No CC0 tropical-fish model was found through this
+ * codebase's OWN scriptable-download conventions: poly.pizza gates its
+ * search API behind a paid key with mixed per-model licences; Kenney's
+ * Survival Kit (already vendored for Objects slice 1) ships exactly two fish
+ * meshes, but as a fishing-minigame prop pair, not something reusable as a
+ * swimming school; Quaternius's itch.io mirror of "Fish Pack Animated" IS CC0
+ * and its browse/csrf/signed-download-page flow IS scriptable this far — but
+ * the final `/file/<id>` download step 404s off that flow (an itch.io
+ * private-endpoint quirk, not documented anywhere the way Kenney's stable zip
+ * URLs are), and the source models are SKINNED (rigged for itch's own
+ * animation clips) — stripping the skin down to a single bind-pose mesh for
+ * this pipeline would be real extra engineering against an unverified
+ * download path. So — per the slice's own licence — this is a procedural
+ * upgrade, kept cheap (all-new geometry is 3 extra triangles) since it
+ * multiplies by every one of `FISH_COUNT` instances.
+ */
 function buildFishGeometry(): THREE.BufferGeometry {
-  const geo = new THREE.ConeGeometry(0.3, 1, 5);
-  geo.rotateX(-Math.PI / 2); // apex points toward local +Z (forward)
-  geo.scale(1, 0.32, 1); // flatten into a shadow-shape silhouette
-  return stampVertexColor(geo, FISH_COLOR);
+  const cone = new THREE.ConeGeometry(0.3, 1, 5);
+  cone.rotateX(-Math.PI / 2);
+  cone.scale(1, 0.32, 1); // flatten into a shadow-shape silhouette
+  cone.deleteAttribute("uv"); // the fins below carry no UVs — mergeGeometries
+  // requires an identical attribute set across every source.
+  const body = stampVertexColor(cone, FISH_COLOR);
+
+  // Caudal (tail) fin: a flattened diamond flaring out from the pointed rear
+  // (local z = -0.5) further back, forking into an upper/lower lobe.
+  const tailFin = new THREE.BufferGeometry();
+  tailFin.setAttribute(
+    "position",
+    new THREE.BufferAttribute(
+      new Float32Array([
+        0, 0, -0.5, 0, 0.22, -0.92, 0, 0, -1.08,
+        0, 0, -0.5, 0, 0, -1.08, 0, -0.22, -0.92,
+      ]),
+      3,
+    ),
+  );
+  tailFin.computeVertexNormals();
+  const tail = stampVertexColor(tailFin, FIN_COLOR);
+
+  // Dorsal fin: one small triangle standing up from the spine, roughly
+  // mid-body.
+  const dorsalFin = new THREE.BufferGeometry();
+  dorsalFin.setAttribute(
+    "position",
+    new THREE.BufferAttribute(new Float32Array([-0.05, 0.08, -0.02, 0.05, 0.08, -0.02, 0, 0.3, -0.18]), 3),
+  );
+  dorsalFin.computeVertexNormals();
+  const dorsal = stampVertexColor(dorsalFin, FIN_COLOR);
+
+  const merged = mergeOrThrow([body, tail, dorsal]);
+  body.dispose();
+  tail.dispose();
+  dorsal.dispose();
+  return merged;
+}
+
+// --- Tail sway (Objects slice 2) --------------------------------------------
+//
+// A modelled tail fin held perfectly rigid would read STIFFER than the prior
+// bare-cone fish (which at least turned/darted as a whole body) — the
+// wildlife spec's own "judge motion honestly" bar. Rather than animate the
+// fin as a second mesh (a second draw call, and `stepFish`/the behaviour
+// contract must stay untouched), this patches the ONE fish `InstancedMesh`
+// material with the SAME cheap `onBeforeCompile` vertex-bend idiom
+// `windPatch.ts` uses for foliage: a sinusoidal lateral bend, weighted by how
+// far a vertex sits toward the REAR of the body (local -Z, where the tail fin
+// attaches), so only the tail/rear third visibly wags while the head stays
+// put — a swimming beat, not a rigid glide. Every fish shares one `uTime`
+// (this system's own held clock, mirroring `BirdsSystem`'s), with a per-
+// instance phase pulled from `instanceMatrix`'s own translation (the same
+// hash idiom `windPatch.ts` uses for per-instance wind phase) so twelve fish
+// don't all beat their tails in lockstep.
+export const FISH_SWAY_SPEED = 5.2; // rad/s-ish beat frequency
+export const FISH_SWAY_STRENGTH = 0.1; // world-unit lateral sway at the tail tip
+export const FISH_SWAY_EXPONENT = 2; // biases the wag toward the rear third only
+/** Local-Z span the cone's body occupies (±0.5, see `buildFishGeometry`) —
+ *  the tail-weight ramp's zero point (nose) vs full point (tail). */
+export const FISH_BODY_HALF_LENGTH = 0.5;
+
+interface FishSwayPatch {
+  onBeforeCompile: (shader: THREE.WebGLProgramParametersWithUniforms) => void;
+  customProgramCacheKey: () => string;
+}
+
+/** Pure (given the uniform bag) shader-patch builder — headless-testable
+ *  against the real `THREE.ShaderLib` source, the `waterPatch.ts`/
+ *  `windPatch.ts` discipline. */
+export function makeFishSwayPatch(uniforms: { uTime: { value: number } }): FishSwayPatch {
+  const decl =
+    "uniform float uTime;\n" +
+    `const float FISH_SWAY_SPEED = ${glslFloat(FISH_SWAY_SPEED)};\n` +
+    `const float FISH_SWAY_STRENGTH = ${glslFloat(FISH_SWAY_STRENGTH)};\n` +
+    `const float FISH_SWAY_EXPONENT = ${glslFloat(FISH_SWAY_EXPONENT)};\n` +
+    `const float FISH_BODY_HALF_LENGTH = ${glslFloat(FISH_BODY_HALF_LENGTH)};\n`;
+  const body =
+    "#ifdef USE_INSTANCING\n" +
+    "\t{\n" +
+    "\t\tfloat tailWeight = clamp( ( FISH_BODY_HALF_LENGTH - transformed.z ) / ( 2.0 * FISH_BODY_HALF_LENGTH ), 0.0, 1.0 );\n" +
+    "\t\ttailWeight = pow( tailWeight, FISH_SWAY_EXPONENT );\n" +
+    "\t\tfloat swayHash = sin( instanceMatrix[3].x * 91.35 + instanceMatrix[3].z * 47.77 ) * 43758.5453;\n" +
+    "\t\tfloat swayPhase = fract( swayHash ) * 6.28318530718;\n" +
+    "\t\ttransformed.x += sin( uTime * FISH_SWAY_SPEED + swayPhase ) * FISH_SWAY_STRENGTH * tailWeight;\n" +
+    "\t}\n" +
+    "#endif\n";
+
+  const onBeforeCompile = (shader: THREE.WebGLProgramParametersWithUniforms) => {
+    Object.assign(shader.uniforms, uniforms);
+    shader.vertexShader = decl + shader.vertexShader;
+    shader.vertexShader = shader.vertexShader.replace(
+      "#include <begin_vertex>",
+      "#include <begin_vertex>\n" + body,
+    );
+  };
+  const customProgramCacheKey = () => "fish-sway-v1";
+
+  return { onBeforeCompile, customProgramCacheKey };
 }
 
 /**
@@ -163,6 +290,12 @@ export class FishSystem implements System {
   private readonly mesh: THREE.InstancedMesh;
   private readonly pools: Pool[];
   private states: FishState[];
+  /** The tail-sway patch's shared clock ({@link makeFishSwayPatch}) — a
+   *  system-owned `{value}` uniform (mirrors `WindUniforms`), advanced only
+   *  while unpaused (`BirdsSystem`'s own-clock convention) so a held school
+   *  resumes its beat exactly where it froze rather than jumping. */
+  private readonly swayUniforms = { uTime: { value: 0 } };
+  private swayElapsed = 0;
 
   private readonly m = new THREE.Matrix4();
   private readonly q = new THREE.Quaternion();
@@ -178,6 +311,9 @@ export class FishSystem implements System {
   ) {
     this.geo = buildFishGeometry();
     this.mat = new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.6 });
+    const swayPatch = makeFishSwayPatch(this.swayUniforms);
+    this.mat.onBeforeCompile = swayPatch.onBeforeCompile;
+    this.mat.customProgramCacheKey = swayPatch.customProgramCacheKey;
     this.mesh = new THREE.InstancedMesh(this.geo, this.mat, FISH_COUNT);
     this.mesh.name = "wildlife-fish";
     scene.add(this.mesh);
@@ -202,6 +338,8 @@ export class FishSystem implements System {
 
   update(ctx: FrameContext): void {
     if (this.session.paused) return;
+    this.swayElapsed += ctx.dt;
+    this.swayUniforms.uTime.value = this.swayElapsed;
     const p = this.player.state.position;
     for (let i = 0; i < this.states.length; i++) {
       const pool = this.pools[i % this.pools.length];

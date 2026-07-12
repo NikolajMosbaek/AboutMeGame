@@ -177,6 +177,22 @@ describe("SnakesSystem", () => {
     expect(scene.children.find((o) => o.name === "wildlife-snake-body")).toBeUndefined();
     expect(scene.children.find((o) => o.name === "wildlife-snake-head")).toBeUndefined();
   });
+
+  it("bands the coiled body with darker colour stripes (Objects slice 2), not one flat colour", () => {
+    const { scene } = rig(0, 0);
+    let bodyMesh: THREE.InstancedMesh | undefined;
+    scene.traverse((o) => {
+      if (o instanceof THREE.InstancedMesh && o.name === "wildlife-snake-body") bodyMesh = o;
+    });
+    const color = bodyMesh!.geometry.getAttribute("color");
+    const first = new THREE.Color(color.getX(0), color.getY(0), color.getZ(0));
+    let sawDifferent = false;
+    for (let i = 1; i < color.count; i++) {
+      const c = new THREE.Color(color.getX(i), color.getY(i), color.getZ(i));
+      if (!c.equals(first)) sawDifferent = true;
+    }
+    expect(sawDifferent).toBe(true);
+  });
 });
 
 function matrixSnapshot(scene: THREE.Scene, name: string): number[][] {
