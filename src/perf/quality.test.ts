@@ -42,6 +42,9 @@ describe("resolveQuality", () => {
     // Low gets no ambient-mote/leaf layer either (visual-overhaul slice 7) —
     // zero extra draw calls, same shape as terrainDetail/cloudDetail.
     expect(low.ambientParticles).toBe("none");
+    // Low never upgrades the man-made objects to the CC0 camp/canoe/ruin
+    // models (Objects slice 1) — the exact procedural sites forever.
+    expect(low.objectDetail).toBe("none");
   });
 
   it("the medium tier turns shadows on at a smaller map and caps DPR", () => {
@@ -70,6 +73,8 @@ describe("resolveQuality", () => {
     expect(med.floraDetail).toBe("full");
     // Medium gets the ambient-mote/leaf layer too (visual-overhaul slice 7).
     expect(med.ambientParticles).toBe("full");
+    // Medium upgrades the man-made objects to the CC0 models (Objects slice 1).
+    expect(med.objectDetail).toBe("full");
   });
 
   it("the high tier is full quality", () => {
@@ -91,6 +96,7 @@ describe("resolveQuality", () => {
     expect(high.floraDetail).toBe("full");
     // High gets the ambient-mote/leaf layer (visual-overhaul slice 7).
     expect(high.ambientParticles).toBe("full");
+    expect(high.objectDetail).toBe("full");
   });
 
   it("monotonically scales every cost knob across the tiers", () => {
@@ -154,6 +160,11 @@ describe("resolveQuality", () => {
     expect(QUALITY_TIERS.low.ambientParticles).toBe("none");
     expect(QUALITY_TIERS.medium.ambientParticles).toBe("full");
     expect(QUALITY_TIERS.high.ambientParticles).toBe("full");
+    // Man-made object model detail (Objects slice 1) is off only at the
+    // bottom tier, same shape as floraDetail/ambientParticles.
+    expect(QUALITY_TIERS.low.objectDetail).toBe("none");
+    expect(QUALITY_TIERS.medium.objectDetail).toBe("full");
+    expect(QUALITY_TIERS.high.objectDetail).toBe("full");
   });
 
   it("N8AO's artistic look (radius/falloff/intensity) is identical on medium and high", () => {

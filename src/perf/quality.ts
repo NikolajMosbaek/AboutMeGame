@@ -139,6 +139,19 @@ export interface QualityConfig {
    *  is no cost lever left to differ between them, unlike `shadowMapSize` or
    *  `ao.qualityMode`. */
   ambientParticles: "none" | "full";
+  /** Man-made object model detail (Objects slice 1, "make the objects look
+   *  like what they really are"): `"full"` (medium/high) asynchronously loads
+   *  the CC0 camp/canoe/ruin object GLBs (`src/world/landmarksUpgrade.ts`,
+   *  behind a LAZY dynamic import — the exact `floraDetail`/`floraUpgrade.ts`
+   *  precedent) and swaps them into the SAME site anchors `landmarks.ts`
+   *  already places. `"none"` (low) never imports the upgrade chunk, never
+   *  fetches a model: the world keeps the EXACT procedural site geometry
+   *  forever (including this slice's own unconditional, zero-cost procedural
+   *  upgrades to the idol/overhang/fig/ruin-gaze-rig, which apply on EVERY
+   *  tier since they cost nothing extra — only the literal Kenney-model
+   *  swap-in is gated). A bake-at-mount knob, so it "applies on reload" like
+   *  `floraDetail`. */
+  objectDetail: "none" | "full";
 }
 
 /**
@@ -171,6 +184,7 @@ export const QUALITY_TIERS: Record<DeviceTier, QualityConfig> = {
     textureAnisotropy: 4,
     floraDetail: "none",
     ambientParticles: "none",
+    objectDetail: "none",
   },
   medium: {
     tier: "medium",
@@ -189,6 +203,7 @@ export const QUALITY_TIERS: Record<DeviceTier, QualityConfig> = {
     textureAnisotropy: 4,
     floraDetail: "full",
     ambientParticles: "full",
+    objectDetail: "full",
   },
   high: {
     tier: "high",
@@ -207,6 +222,7 @@ export const QUALITY_TIERS: Record<DeviceTier, QualityConfig> = {
     textureAnisotropy: 8,
     floraDetail: "full",
     ambientParticles: "full",
+    objectDetail: "full",
   },
 };
 
