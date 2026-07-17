@@ -51,6 +51,30 @@ Opted-in sound died silently on the target device in three real cases:
 - `npm run build`, `npm run check:bundle` (394.3/400 KB gzip), `npm run lint`,
   `npm run verify` (Playwright render gate): all green.
 
+## Code-review pass (8-angle finder sweep, verified findings applied)
+
+- **The silent element now respects mute** (flagged by 5 of 8 angles): it never
+  plays for a muted player (a muted game must not seize the iOS media session
+  and pause the player's own music), a per-frame sync pauses it on mute and
+  re-arms it after unmute/interruption once gesture-unlocked, and it pauses
+  when the tab hides (hidden tabs don't throttle HTML5 audio).
+- **`pointerup` added to the gesture set**: per the HTML user-activation spec a
+  touch `pointerdown` grants no transient activation, so `silent.play()` was
+  only ever permitted from the up-half of a tap on the exact devices the fix
+  targets.
+- **`resume()` now skips an already-running context** — the persistent net
+  fires on every tap/key-repeat, so it must cost a string compare, not a
+  Promise.
+- **`contextState` getter deleted** — zero production callers
+  (`recoverIfInterrupted` reads the state internally); the constitution's
+  "no uncalled API" rule.
+- **Net extracted to `src/audio/resumeNet.ts`** with focused unit tests
+  (10 cases against a two-property fake); `buildGame` keeps three integration
+  pins. The unlock loop grew to 250 ms (8-bit WAV, still a data-URI) to cut
+  loop-wrap churn ~5×.
+- Declined: sharing one fake AudioContext across test suites (the two fakes
+  deliberately serve different depths); merging the two S2 rising-edge tests.
+
 ## Needs verification (honest residual)
 
 - **Real-device silent-switch behaviour**: the media-channel trick is

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import * as THREE from "three";
 import { Engine } from "./engine/Engine.ts";
 import { buildGame } from "./buildGame.ts";
@@ -31,7 +31,9 @@ function fakeCtx(): { ctx: AudioContextLike; close: ReturnType<typeof vi.fn> } {
   const ctx = {
     currentTime: 0,
     destination: node(),
-    state: "running",
+    // Stays "suspended" (the fake's resume never transitions it) so the
+    // engine's resume() guard doesn't swallow the wiring assertions below.
+    state: "suspended",
     createGain: () => ({ ...node(), gain: param() }),
     createOscillator: () => ({
       ...node(),
@@ -99,73 +101,33 @@ describe("buildGame audio/fx wiring", () => {
   });
 });
 
-describe("buildGame audio survival net (S4)", () => {
-  // jsdom has no real media pipeline — stub play/pause so the silent unlock
-  // element can be driven without "Not implemented" noise.
+describe("buildGame audio survival net (S4) — integration pins", () => {
+  // Behaviour (mute gate, per-frame sync, pointerup activation, visibility)
+  // is unit-tested in src/audio/resumeNet.test.ts against a fake audio; these
+  // pins only assert the net is WIRED: registered, mounted in the overlay,
+  // reaching the real context, and torn down by engine.dispose().
   const stubMedia = () => {
-    const play = vi
-      .spyOn(window.HTMLMediaElement.prototype, "play")
-      .mockImplementation(async () => {});
-    const pause = vi
-      .spyOn(window.HTMLMediaElement.prototype, "pause")
-      .mockImplementation(() => {});
-    return { play, pause };
+    vi.spyOn(window.HTMLMediaElement.prototype, "play").mockImplementation(async () => {});
+    vi.spyOn(window.HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
   };
-
-  it("keeps resuming on every gesture — the net is persistent, not one-shot (#105)", () => {
-    const { engine, overlay } = makeEngineAndOverlay();
-    const { ctx } = fakeCtx();
-    const { play, pause } = stubMedia();
-    buildGame(engine, overlay, undefined, () => ctx);
-    (ctx.resume as ReturnType<typeof vi.fn>).mockClear();
-
-    window.dispatchEvent(new Event("pointerdown"));
-    window.dispatchEvent(new Event("pointerdown"));
-    window.dispatchEvent(new KeyboardEvent("keydown", { key: "w" }));
-    expect(ctx.resume).toHaveBeenCalledTimes(3);
-
-    engine.dispose();
-    play.mockRestore();
-    pause.mockRestore();
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
-  it("resumes when the tab becomes visible again (#105)", () => {
+  it("mounts the silent unlock element in the overlay and resumes the real context on gestures", () => {
     const { engine, overlay } = makeEngineAndOverlay();
     const { ctx } = fakeCtx();
-    const { play, pause } = stubMedia();
+    stubMedia();
     buildGame(engine, overlay, undefined, () => ctx);
+
+    expect(overlay.querySelector("audio[data-silent-unlock]")).not.toBeNull();
+
     (ctx.resume as ReturnType<typeof vi.fn>).mockClear();
-
-    // jsdom's visibilityState is "visible" — the event exercises the
-    // foreground branch of the handler.
-    document.dispatchEvent(new Event("visibilitychange"));
-    expect(ctx.resume).toHaveBeenCalledTimes(1);
-
-    engine.dispose();
-    play.mockRestore();
-    pause.mockRestore();
-  });
-
-  it("mounts a looping silent unlock element and plays it on the first gesture (#106)", () => {
-    const { engine, overlay } = makeEngineAndOverlay();
-    const { ctx } = fakeCtx();
-    const { play, pause } = stubMedia();
-    buildGame(engine, overlay, undefined, () => ctx);
-
-    const el = overlay.querySelector<HTMLAudioElement>("audio[data-silent-unlock]");
-    expect(el).not.toBeNull();
-    expect(el?.loop).toBe(true);
-    // 0 download bytes: the loop is an inline data-URI, not a fetched asset.
-    expect(el?.src.startsWith("data:audio/wav;base64,")).toBe(true);
-    // No autoplay before a gesture.
-    expect(play).not.toHaveBeenCalled();
-
     window.dispatchEvent(new Event("pointerdown"));
-    expect(play).toHaveBeenCalled();
+    window.dispatchEvent(new Event("pointerdown"));
+    expect(ctx.resume).toHaveBeenCalledTimes(2); // persistent, not one-shot
 
     engine.dispose();
-    play.mockRestore();
-    pause.mockRestore();
   });
 
   it("skips the unlock element when no audio is wired (headless)", () => {
@@ -175,10 +137,10 @@ describe("buildGame audio survival net (S4)", () => {
     engine.dispose();
   });
 
-  it("tears the whole net down on dispose: listeners unbound, element gone (#105/#106)", () => {
+  it("tears the net down on engine.dispose: element gone, listeners unbound", () => {
     const { engine, overlay } = makeEngineAndOverlay();
     const { ctx } = fakeCtx();
-    const { play, pause } = stubMedia();
+    stubMedia();
     buildGame(engine, overlay, undefined, () => ctx);
 
     engine.dispose();
@@ -188,11 +150,9 @@ describe("buildGame audio survival net (S4)", () => {
     window.dispatchEvent(new Event("pointerdown"));
     document.dispatchEvent(new Event("visibilitychange"));
     expect(ctx.resume).not.toHaveBeenCalled();
-
-    play.mockRestore();
-    pause.mockRestore();
   });
 });
+
 
 describe("buildGame discovery.journalPois seam", () => {
   it("exposes a position-free journalPois projection of all 6 sites, while pois keeps position", () => {

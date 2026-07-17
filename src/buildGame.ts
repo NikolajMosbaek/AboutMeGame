@@ -1,5 +1,4 @@
 import type { Engine } from "./engine/Engine.ts";
-import type { System } from "./engine/types.ts";
 import { buildWorld, type World } from "./world/buildWorld.ts";
 import { buildPlayer, type Player } from "./player/buildPlayer.ts";
 import { buildDiscovery, type Discovery } from "./discovery/buildDiscovery.ts";
@@ -22,6 +21,7 @@ import { QuestSystem, TUNE as QUEST_TUNE, type DiscoveredIds } from "./quest/Que
 import { POI_ANCHORS } from "./world/worldConfig.ts";
 import { SPAWN } from "./world/worldConfig.ts";
 import { AudioSystem } from "./audio/AudioSystem.ts";
+import { installAudioResume } from "./audio/resumeNet.ts";
 import { DiscoveryBurstSystem } from "./fx/DiscoveryBurstSystem.ts";
 import { TreasureBurstSystem } from "./fx/TreasureBurstSystem.ts";
 import { buildWildlife } from "./wildlife/buildWildlife.ts";
@@ -298,79 +298,6 @@ export function buildGame(
       get touchActive() {
         return player.input.touchActive;
       },
-    },
-  };
-}
-
-/** A silent 50 ms WAV loop as an inline data-URI — 0 download bytes against the
- *  asset budget. iOS routes bare Web Audio onto the RINGER channel, which the
- *  hardware silent switch mutes; playing any HTML5 media element moves the
- *  app's audio onto the MEDIA channel, which ignores the switch. (The same
- *  trick unmute.js shipped; inlined because that library is unmaintained.)
- *  On-device behaviour is iOS-version-sensitive — see the S4 run log for the
- *  "needs verification" status of the real-hardware check. */
-const SILENT_UNLOCK_SRC =
-  "data:audio/wav;base64,UklGRkQDAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YSADAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==";
-
-/** A no-op `System` owning the S4 survival net at the composition root (the one
- *  place already touching the DOM): PERSISTENT resume-on-gesture and
- *  resume-on-foreground listeners — replacing the old once-and-unbind, which
- *  went deaf the first time iOS interrupted the context after the opening tap —
- *  plus the silent media-channel unlock element. Everything unbinds/unmounts in
- *  dispose, so nothing leaks past engine.dispose(). */
-function installAudioResume(audio: AudioEngine, host: HTMLElement): System {
-  let unbind = () => {};
-  if (typeof window !== "undefined") {
-    const silent = document.createElement("audio");
-    silent.src = SILENT_UNLOCK_SRC;
-    silent.loop = true;
-    silent.preload = "auto";
-    silent.dataset.silentUnlock = "true";
-    silent.setAttribute("aria-hidden", "true");
-    host.appendChild(silent);
-
-    // `play()` must be reachable from a gesture handler to satisfy autoplay
-    // policy; after that first success, retries from visibilitychange are
-    // allowed to re-arm a loop an interruption paused. Rejections (policy
-    // still holding, jsdom's stub pipeline) are non-fatal by design.
-    const armSilentLoop = () => {
-      if (!silent.paused) return;
-      try {
-        void silent.play()?.catch(() => {});
-      } catch {
-        /* jsdom / ancient Safari: play() itself may throw — the net stays up */
-      }
-    };
-    const onGesture = () => {
-      audio.resume();
-      armSilentLoop();
-    };
-    const onVisibility = () => {
-      if (document.visibilityState !== "visible") return;
-      audio.resume();
-      armSilentLoop();
-    };
-    window.addEventListener("pointerdown", onGesture);
-    window.addEventListener("keydown", onGesture);
-    document.addEventListener("visibilitychange", onVisibility);
-    unbind = () => {
-      window.removeEventListener("pointerdown", onGesture);
-      window.removeEventListener("keydown", onGesture);
-      document.removeEventListener("visibilitychange", onVisibility);
-      try {
-        silent.pause();
-      } catch {
-        /* jsdom: pause() is unimplemented — removal below still detaches it */
-      }
-      silent.removeAttribute("src");
-      silent.remove();
-    };
-  }
-  return {
-    id: "audio-resume",
-    update() {},
-    dispose() {
-      unbind();
     },
   };
 }
