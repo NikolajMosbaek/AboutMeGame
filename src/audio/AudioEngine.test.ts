@@ -124,6 +124,7 @@ describe("AudioEngine", () => {
     ["digThud", 1],
     ["snakeAlert", 5],
     ["fanfare", 4],
+    ["completion", 7],
     ["deathSting", 3],
     ["birdChirp", 1],
     ["owlHoot", 2],
@@ -155,7 +156,33 @@ describe("AudioEngine", () => {
     engine.chime();
     engine.breathe();
     engine.footstep(false);
+    engine.completion();
     expect(oscillators.length).toBe(0);
+  });
+
+  it("ducks the ambient bed under the completion sting and restores it (S2 #97)", () => {
+    const { ctx, gains } = fakeContext();
+    const engine = new AudioEngine(() => ctx);
+    engine.startMusic();
+    const bedGain = gains[1]; // master is gains[0]
+    (bedGain.gain.linearRampToValueAtTime as ReturnType<typeof vi.fn>).mockClear();
+
+    engine.completion();
+    const ramps = (bedGain.gain.linearRampToValueAtTime as ReturnType<typeof vi.fn>).mock.calls;
+    // Dips well under the bed's level, then comes back up to it.
+    expect(ramps.length).toBeGreaterThanOrEqual(2);
+    const [duckLevel] = ramps[0];
+    const [restoreLevel, restoreAt] = ramps.at(-1)!;
+    expect(duckLevel).toBeLessThan(restoreLevel);
+    // Restored only after the sting has finished (~1.2 s).
+    expect(restoreAt).toBeGreaterThanOrEqual(1);
+  });
+
+  it("completion() works (and doesn't throw) before the bed has started", () => {
+    const { ctx, oscillators } = fakeContext();
+    const engine = new AudioEngine(() => ctx);
+    expect(() => engine.completion()).not.toThrow();
+    expect(oscillators.length).toBe(7);
   });
 
   it("zeroes the master gain and suspends when muted", () => {

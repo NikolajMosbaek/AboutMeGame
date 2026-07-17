@@ -95,6 +95,15 @@ const AMBIENT_CROSSFADE = 1.2;
  *  flooding the param timeline with a new ramp every single frame. */
 const AMBIENT_EPSILON = 0.02;
 
+/** The completion sting's total length, the fraction the ambient bed ducks to
+ *  underneath it, and the dip/recover ramp times. There is no bus/duck
+ *  backbone (S1 was closed out-of-scope, #115), so the duck is a direct,
+ *  self-restoring dip of the bed's own gain. */
+const COMPLETION_DUR = 1.2;
+const COMPLETION_DUCK = 0.25;
+const COMPLETION_DUCK_IN = 0.08;
+const COMPLETION_DUCK_OUT = 0.35;
+
 /** River water-texture level at the bank (`setRiverProximity(1)`). */
 const RIVER_MAX_GAIN = 0.11;
 /** Proximity ramp duration — smooth enough to glide as the player walks. */
@@ -332,6 +341,41 @@ export class AudioEngine {
     this.blip(659, t + 0.12, 0.16, 0.32, "triangle");
     this.blip(784, t + 0.24, 0.16, 0.34, "triangle");
     this.blip(1046, t + 0.36, 0.3, 0.38, "triangle");
+  }
+
+  /**
+   * The completion sting (S2 #97) — every site found, the game's single
+   * largest emotional beat. A three-note ascent (C5–E5–G5) resolving into a
+   * held C-major chord with the octave on top: unmistakably bigger than the
+   * per-find `chime` and warmer than the finale `fanfare`. ~1.2 s total.
+   * While it plays, the ambient bed ducks to a fraction of its level and
+   * restores itself — a direct dip of the bed gain, since there is no bus
+   * backbone (S1 closed, #115). `setAmbientPhase` may schedule its own slow
+   * crossfade during the window; both ramps converge on the bed's level, so
+   * the worst case is a slightly early recovery, never a stuck duck.
+   */
+  completion(): void {
+    if (!this.canPlay()) return;
+    const t = this.ctx.currentTime;
+
+    if (this.musicGain) {
+      const night = this.lastNight < 0 ? 0 : this.lastNight;
+      const bedLevel = AMBIENT_DAY_GAIN + (AMBIENT_NIGHT_GAIN - AMBIENT_DAY_GAIN) * night;
+      this.musicGain.gain.setValueAtTime(this.musicGain.gain.value, t);
+      this.musicGain.gain.linearRampToValueAtTime(bedLevel * COMPLETION_DUCK, t + COMPLETION_DUCK_IN);
+      this.musicGain.gain.setValueAtTime(bedLevel * COMPLETION_DUCK, t + COMPLETION_DUR - COMPLETION_DUCK_OUT);
+      this.musicGain.gain.linearRampToValueAtTime(bedLevel, t + COMPLETION_DUR);
+    }
+
+    // The ascent…
+    this.blip(523.25, t, 0.14, 0.32, "triangle"); // C5
+    this.blip(659.25, t + 0.13, 0.14, 0.32, "triangle"); // E5
+    this.blip(783.99, t + 0.26, 0.14, 0.32, "triangle"); // G5
+    // …resolving into a held major chord, octave on top.
+    this.blip(1046.5, t + 0.42, 0.72, 0.36, "triangle"); // C6
+    this.blip(523.25, t + 0.42, 0.72, 0.2, "sine"); // C5
+    this.blip(659.25, t + 0.42, 0.72, 0.18, "sine"); // E5
+    this.blip(783.99, t + 0.42, 0.72, 0.16, "sine"); // G5
   }
 
   /** A descending three-note sting — the jungle wins this round. */

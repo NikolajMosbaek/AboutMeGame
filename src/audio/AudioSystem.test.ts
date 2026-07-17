@@ -9,6 +9,7 @@ import type { FrameContext } from "../engine/types.ts";
 function fakeEngine() {
   return {
     chime: vi.fn(),
+    completion: vi.fn(),
     breathe: vi.fn(),
     footstep: vi.fn(),
     gulp: vi.fn(),
@@ -157,11 +158,52 @@ describe("AudioSystem", () => {
     expect(engine.chime).not.toHaveBeenCalled(); // mount didn't re-chime saved progress
     store.setDiscovered(["a", "b"]); // a new find
     expect(engine.chime).toHaveBeenCalledTimes(1);
-    store.setDiscovered(["a", "b", "c"]); // another
-    expect(engine.chime).toHaveBeenCalledTimes(2);
-    store.setDiscovered(["a", "b", "c"]); // no change ⇒ no chime
-    expect(engine.chime).toHaveBeenCalledTimes(2);
+    store.setDiscovered(["a", "b", "c"]); // the final find completes the set —
+    expect(engine.chime).toHaveBeenCalledTimes(1); // — the sting replaces the chime (S2)
+    expect(engine.completion).toHaveBeenCalledTimes(1);
+    store.setDiscovered(["a", "b", "c"]); // no change ⇒ no chime, no re-sting
+    expect(engine.chime).toHaveBeenCalledTimes(1);
+    expect(engine.completion).toHaveBeenCalledTimes(1);
 
+    sys.dispose();
+  });
+
+  it("stings on the completed rising edge, replacing the ordinary chime on the final find (S2 #98)", () => {
+    const { engine, store } = makeSystem(); // total = 3
+    store.setDiscovered(["a"]);
+    store.setDiscovered(["a", "b"]);
+    expect(engine.chime).toHaveBeenCalledTimes(2);
+    expect(engine.completion).not.toHaveBeenCalled();
+
+    store.setDiscovered(["a", "b", "c"]); // the payoff moment
+    expect(engine.completion).toHaveBeenCalledTimes(1);
+    expect(engine.chime).toHaveBeenCalledTimes(2); // the sting IS the final find's sound
+
+    store.setDiscovered(["a", "b", "c"]); // no change ⇒ no re-sting
+    expect(engine.completion).toHaveBeenCalledTimes(1);
+  });
+
+  it("never re-stings a mount/reload already at full completion (S2 #98)", () => {
+    const store = createDiscoveryStore(2);
+    store.setDiscovered(["a", "b"]); // saved progress: already completed
+    const engine = fakeEngine();
+    const args = neutralArgs();
+    const sys = new AudioSystem(
+      engine,
+      store,
+      args.explorer,
+      args.muted,
+      args.dayPhase,
+      args.waterDepthAt,
+      args.survival,
+      args.forage,
+      args.quest,
+      args.snakes,
+      args.jaguar,
+    );
+    expect(engine.completion).not.toHaveBeenCalled();
+    store.setDiscovered(["a", "b"]); // a no-op write after mount
+    expect(engine.completion).not.toHaveBeenCalled();
     sys.dispose();
   });
 

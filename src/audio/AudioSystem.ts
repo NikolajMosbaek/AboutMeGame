@@ -146,6 +146,7 @@ export class AudioSystem implements System {
   readonly id = "audio";
 
   private lastDiscovered: number;
+  private lastCompleted: boolean;
   private musicStarted = false;
   private unsubscribe: () => void;
 
@@ -181,15 +182,25 @@ export class AudioSystem implements System {
     // Apply the persisted mute before anything plays.
     this.engine.setMuted(this.muted.getSnapshot().muted);
 
-    // Clue reveal → chime, exactly once per *new* discovery. Subscribing
-    // (rather than diffing the count each frame) keeps it event-driven and
-    // matches how the FX burst listens to the same store. The initial count
-    // is captured so restored saved progress at mount never re-chimes.
-    this.lastDiscovered = this.discovery.getSnapshot().discoveredCount;
+    // Clue reveal → chime, exactly once per *new* discovery — except the find
+    // that completes the set, which gets the completion sting instead (S2
+    // #98): the payoff moment shouldn't replay the ordinary per-find chime
+    // underneath its own reward. Subscribing (rather than diffing the count
+    // each frame) keeps it event-driven and matches how the FX burst listens
+    // to the same store. Both baselines are captured at mount so restored
+    // saved progress never re-chimes — and a reload already at full
+    // completion never re-stings.
+    const initial = this.discovery.getSnapshot();
+    this.lastDiscovered = initial.discoveredCount;
+    this.lastCompleted = initial.completed;
     this.unsubscribe = this.discovery.subscribe(() => {
-      const count = this.discovery.getSnapshot().discoveredCount;
-      if (count > this.lastDiscovered) this.engine.chime();
-      this.lastDiscovered = count;
+      const snap = this.discovery.getSnapshot();
+      if (snap.discoveredCount > this.lastDiscovered) {
+        if (snap.completed && !this.lastCompleted) this.engine.completion();
+        else this.engine.chime();
+      }
+      this.lastDiscovered = snap.discoveredCount;
+      this.lastCompleted = snap.completed;
     });
 
     // Baselines captured at mount so restored/initial state never fires an
