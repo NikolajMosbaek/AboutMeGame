@@ -17,6 +17,7 @@ function fakeParam() {
     setValueAtTime: vi.fn(),
     linearRampToValueAtTime: vi.fn(),
     exponentialRampToValueAtTime: vi.fn(),
+    cancelScheduledValues: vi.fn(),
   };
 }
 
@@ -176,6 +177,9 @@ describe("AudioEngine", () => {
     expect(duckLevel).toBeLessThan(restoreLevel);
     // Restored only after the sting has finished (~1.2 s).
     expect(restoreAt).toBeGreaterThanOrEqual(1);
+    // An in-flight day/night crossfade is cancelled first — a leftover ramp
+    // event would un-duck mid-sting and then hard-step back down (a pop).
+    expect(bedGain.gain.cancelScheduledValues).toHaveBeenCalled();
   });
 
   it("completion() works (and doesn't throw) before the bed has started", () => {

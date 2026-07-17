@@ -99,9 +99,12 @@ function neutralArgs() {
   };
 }
 
-function makeSystem(overrides: Partial<ReturnType<typeof neutralArgs>> = {}) {
+function makeSystem(
+  overrides: Partial<ReturnType<typeof neutralArgs>> = {},
+  // Pass a pre-seeded store to model restored saved progress at mount.
+  store = createDiscoveryStore(3),
+) {
   const engine = fakeEngine();
-  const store = createDiscoveryStore(3);
   const args = { ...neutralArgs(), ...overrides };
   const sys = new AudioSystem(
     engine,
@@ -137,23 +140,9 @@ describe("nearestWaterDistance", () => {
 
 describe("AudioSystem", () => {
   it("chimes once per new discovery, not for restored progress", () => {
-    const store = createDiscoveryStore(3);
-    store.setDiscovered(["a"]); // pre-existing saved progress before the system mounts
-    const engine = fakeEngine();
-    const args = neutralArgs();
-    const sys = new AudioSystem(
-      engine,
-      store,
-      args.explorer,
-      args.muted,
-      args.dayPhase,
-      args.waterDepthAt,
-      args.survival,
-      args.forage,
-      args.quest,
-      args.snakes,
-      args.jaguar,
-    );
+    const seeded = createDiscoveryStore(3);
+    seeded.setDiscovered(["a"]); // pre-existing saved progress before the system mounts
+    const { engine, store, sys } = makeSystem({}, seeded);
 
     expect(engine.chime).not.toHaveBeenCalled(); // mount didn't re-chime saved progress
     store.setDiscovered(["a", "b"]); // a new find
@@ -184,23 +173,10 @@ describe("AudioSystem", () => {
   });
 
   it("never re-stings a mount/reload already at full completion (S2 #98)", () => {
-    const store = createDiscoveryStore(2);
-    store.setDiscovered(["a", "b"]); // saved progress: already completed
-    const engine = fakeEngine();
-    const args = neutralArgs();
-    const sys = new AudioSystem(
-      engine,
-      store,
-      args.explorer,
-      args.muted,
-      args.dayPhase,
-      args.waterDepthAt,
-      args.survival,
-      args.forage,
-      args.quest,
-      args.snakes,
-      args.jaguar,
-    );
+    const seeded = createDiscoveryStore(2);
+    seeded.setDiscovered(["a", "b"]); // saved progress: already completed
+    const { engine, store, sys } = makeSystem({}, seeded);
+
     expect(engine.completion).not.toHaveBeenCalled();
     store.setDiscovered(["a", "b"]); // a no-op write after mount
     expect(engine.completion).not.toHaveBeenCalled();

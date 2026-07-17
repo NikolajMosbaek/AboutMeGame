@@ -49,6 +49,7 @@ export interface AudioParamLike {
   setValueAtTime(value: number, time: number): void;
   linearRampToValueAtTime(value: number, time: number): void;
   exponentialRampToValueAtTime(value: number, time: number): void;
+  cancelScheduledValues(time: number): void;
 }
 
 export interface GainNodeLike extends AudioNodeLike {
@@ -103,6 +104,13 @@ const COMPLETION_DUR = 1.2;
 const COMPLETION_DUCK = 0.25;
 const COMPLETION_DUCK_IN = 0.08;
 const COMPLETION_DUCK_OUT = 0.35;
+
+/** The insect bed's target level for a given night amount — the ONE source
+ *  `setAmbientPhase`'s crossfade and `completion()`'s duck-restore share, so
+ *  a retune can never desynchronise the two. */
+function bedLevelFor(night: number): number {
+  return AMBIENT_DAY_GAIN + (AMBIENT_NIGHT_GAIN - AMBIENT_DAY_GAIN) * night;
+}
 
 /** River water-texture level at the bank (`setRiverProximity(1)`). */
 const RIVER_MAX_GAIN = 0.11;
@@ -344,17 +352,19 @@ export class AudioEngine {
    * per-find `chime` and warmer than the finale `fanfare`. ~1.2 s total.
    * While it plays, the ambient bed ducks to a fraction of its level and
    * restores itself — a direct dip of the bed gain, since there is no bus
-   * backbone (S1 closed, #115). `setAmbientPhase` may schedule its own slow
-   * crossfade during the window; both ramps converge on the bed's level, so
-   * the worst case is a slightly early recovery, never a stuck duck.
+   * backbone (S1 closed, #115). Any in-flight `setAmbientPhase` crossfade is
+   * cancelled first: a leftover ramp event would un-duck the bed mid-sting
+   * and then hard-step back down (an audible pop). The next phase drift past
+   * `AMBIENT_EPSILON` re-schedules the crossfade against the same
+   * {@link bedLevelFor} target, so nothing is lost by cancelling.
    */
   completion(): void {
     if (!this.canPlay()) return;
     const t = this.ctx.currentTime;
 
     if (this.musicGain) {
-      const night = this.lastNight < 0 ? 0 : this.lastNight;
-      const bedLevel = AMBIENT_DAY_GAIN + (AMBIENT_NIGHT_GAIN - AMBIENT_DAY_GAIN) * night;
+      const bedLevel = bedLevelFor(Math.max(0, this.lastNight));
+      this.musicGain.gain.cancelScheduledValues(t);
       this.musicGain.gain.setValueAtTime(this.musicGain.gain.value, t);
       this.musicGain.gain.linearRampToValueAtTime(bedLevel * COMPLETION_DUCK, t + COMPLETION_DUCK_IN);
       this.musicGain.gain.setValueAtTime(bedLevel * COMPLETION_DUCK, t + COMPLETION_DUR - COMPLETION_DUCK_OUT);
@@ -496,7 +506,7 @@ export class AudioEngine {
     this.lastNight = night;
     const t = this.ctx.currentTime;
     const freq = AMBIENT_DAY_FREQ + (AMBIENT_NIGHT_FREQ - AMBIENT_DAY_FREQ) * night;
-    const level = AMBIENT_DAY_GAIN + (AMBIENT_NIGHT_GAIN - AMBIENT_DAY_GAIN) * night;
+    const level = bedLevelFor(night);
     this.insectFilter.frequency.setValueAtTime(this.insectFilter.frequency.value, t);
     this.insectFilter.frequency.linearRampToValueAtTime(freq, t + AMBIENT_CROSSFADE);
     this.musicGain.gain.setValueAtTime(this.musicGain.gain.value, t);

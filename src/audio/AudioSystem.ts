@@ -146,7 +146,6 @@ export class AudioSystem implements System {
   readonly id = "audio";
 
   private lastDiscovered: number;
-  private lastCompleted: boolean;
   private musicStarted = false;
   private unsubscribe: () => void;
 
@@ -187,20 +186,18 @@ export class AudioSystem implements System {
     // #98): the payoff moment shouldn't replay the ordinary per-find chime
     // underneath its own reward. Subscribing (rather than diffing the count
     // each frame) keeps it event-driven and matches how the FX burst listens
-    // to the same store. Both baselines are captured at mount so restored
-    // saved progress never re-chimes — and a reload already at full
-    // completion never re-stings.
-    const initial = this.discovery.getSnapshot();
-    this.lastDiscovered = initial.discoveredCount;
-    this.lastCompleted = initial.completed;
+    // to the same store. The mount baseline means restored saved progress
+    // never re-chimes — and since `completed` is derived from the count
+    // (discoveryStore), a reload already at full completion never re-stings:
+    // its count can't rise, so the branch is never reached.
+    this.lastDiscovered = this.discovery.getSnapshot().discoveredCount;
     this.unsubscribe = this.discovery.subscribe(() => {
       const snap = this.discovery.getSnapshot();
       if (snap.discoveredCount > this.lastDiscovered) {
-        if (snap.completed && !this.lastCompleted) this.engine.completion();
+        if (snap.completed) this.engine.completion();
         else this.engine.chime();
       }
       this.lastDiscovered = snap.discoveredCount;
-      this.lastCompleted = snap.completed;
     });
 
     // Baselines captured at mount so restored/initial state never fires an

@@ -39,6 +39,22 @@ ordinary per-find chime. No payoff.
 - `npm run build` · `check:bundle` **394.5 / 400 KB gzip** · `lint` ·
   `npm run verify` (Playwright render gate): all green.
 
+## Code-review pass (8-angle finder sweep, verified findings applied)
+
+- **In-flight crossfade cancelled before the duck**: a leftover
+  `setAmbientPhase` ramp event would have un-ducked the bed mid-sting and then
+  hard-stepped back down (an audible pop at the game's biggest beat).
+  `cancelScheduledValues` joined `AudioParamLike` and the duck cancels first;
+  the next phase drift re-schedules the crossfade against the same target.
+- **One bed-level source**: the `AMBIENT_DAY/NIGHT_GAIN` interpolation now
+  lives in a single `bedLevelFor(night)` shared by `setAmbientPhase` and the
+  duck restore — a retune can't desynchronise them.
+- **`lastCompleted` deleted**: `completed` is derived from the count
+  (`discoveryStore`), so inside the count-increase branch the previous
+  `completed` is necessarily false — the extra baseline was redundant state.
+- Test hygiene: `makeSystem` accepts a pre-seeded store, replacing two
+  hand-rolled 11-argument constructions.
+
 ## Notes
 
 Audio is never the sole feedback channel here: completion already has the
