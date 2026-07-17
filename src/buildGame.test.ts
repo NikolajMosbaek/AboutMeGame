@@ -25,6 +25,7 @@ function fakeCtx(): { ctx: AudioContextLike; close: ReturnType<typeof vi.fn> } {
     setValueAtTime: vi.fn(),
     linearRampToValueAtTime: vi.fn(),
     exponentialRampToValueAtTime: vi.fn(),
+    cancelScheduledValues: vi.fn(),
   });
   const node = () => ({ connect: vi.fn(), disconnect: vi.fn() });
   const close = vi.fn(async () => {});

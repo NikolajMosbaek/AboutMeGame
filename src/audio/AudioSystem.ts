@@ -181,15 +181,23 @@ export class AudioSystem implements System {
     // Apply the persisted mute before anything plays.
     this.engine.setMuted(this.muted.getSnapshot().muted);
 
-    // Clue reveal → chime, exactly once per *new* discovery. Subscribing
-    // (rather than diffing the count each frame) keeps it event-driven and
-    // matches how the FX burst listens to the same store. The initial count
-    // is captured so restored saved progress at mount never re-chimes.
+    // Clue reveal → chime, exactly once per *new* discovery — except the find
+    // that completes the set, which gets the completion sting instead (S2
+    // #98): the payoff moment shouldn't replay the ordinary per-find chime
+    // underneath its own reward. Subscribing (rather than diffing the count
+    // each frame) keeps it event-driven and matches how the FX burst listens
+    // to the same store. The mount baseline means restored saved progress
+    // never re-chimes — and since `completed` is derived from the count
+    // (discoveryStore), a reload already at full completion never re-stings:
+    // its count can't rise, so the branch is never reached.
     this.lastDiscovered = this.discovery.getSnapshot().discoveredCount;
     this.unsubscribe = this.discovery.subscribe(() => {
-      const count = this.discovery.getSnapshot().discoveredCount;
-      if (count > this.lastDiscovered) this.engine.chime();
-      this.lastDiscovered = count;
+      const snap = this.discovery.getSnapshot();
+      if (snap.discoveredCount > this.lastDiscovered) {
+        if (snap.completed) this.engine.completion();
+        else this.engine.chime();
+      }
+      this.lastDiscovered = snap.discoveredCount;
     });
 
     // Baselines captured at mount so restored/initial state never fires an
