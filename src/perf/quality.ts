@@ -43,6 +43,10 @@ export interface QualityConfig {
   maxPixelRatio: number;
   /** Whether the sun casts real-time shadows (off entirely on low). */
   shadows: boolean;
+  /** Blob grounding discs under solid props/landmarks (G5 #160) — ONLY for
+   *  tiers without a real shadow pass, where objects would otherwise float;
+   *  a blob under a shadow-mapped tree double-shadows. Build-time knob. */
+  groundingShadows: boolean;
   /** Shadow-map resolution when `shadows` is on. Ignored when off. */
   shadowMapSize: number;
   /** 0..1 multiplier on the tree/rock counts — fewer instances, fewer tris. */
@@ -170,6 +174,7 @@ export const QUALITY_TIERS: Record<DeviceTier, QualityConfig> = {
     tier: "low",
     maxPixelRatio: 1,
     shadows: false,
+    groundingShadows: true,
     shadowMapSize: 1024,
     propDensity: 0.4,
     fog: false,
@@ -190,6 +195,7 @@ export const QUALITY_TIERS: Record<DeviceTier, QualityConfig> = {
     tier: "medium",
     maxPixelRatio: 1.5,
     shadows: true,
+    groundingShadows: false,
     shadowMapSize: 1024,
     propDensity: 0.7,
     fog: true,
@@ -209,6 +215,7 @@ export const QUALITY_TIERS: Record<DeviceTier, QualityConfig> = {
     tier: "high",
     maxPixelRatio: 2,
     shadows: true,
+    groundingShadows: false,
     shadowMapSize: 2048,
     propDensity: 1,
     fog: true,

@@ -5,6 +5,7 @@ import { buildSky, type Sky } from "./sky.ts";
 import { buildBoundaries, type Boundaries } from "./boundaries.ts";
 import { buildLandmarks, type Landmarks } from "./landmarks.ts";
 import { buildProps } from "./props.ts";
+import { buildGroundingShadows } from "./groundingShadows.ts";
 import { WaterSystem } from "./waterSystem.ts";
 import { DayCycleSystem } from "./dayCycleSystem.ts";
 import { UnderwaterFxSystem } from "./underwaterFxSystem.ts";
@@ -126,6 +127,26 @@ export function buildWorld(
   const props = buildProps(terrain, quality.propDensity);
   scene.add(props.group);
 
+  // Blob grounding shadows (G5 #160) — ONLY on tiers without a real shadow
+  // pass (`quality.groundingShadows`, i.e. low), where trees/rocks/sites
+  // would otherwise float. One InstancedMesh over the props' own placement
+  // points plus a wider, softer disc per landmark site. Zero asset bytes.
+  let groundingShadows: ReturnType<typeof buildGroundingShadows> | null = null;
+  if (quality.groundingShadows) {
+    const SITE_GROUND_RADIUS = 3;
+    const sitePoints = landmarks.placed.map((l) => ({
+      x: l.position.x,
+      y: l.position.y,
+      z: l.position.z,
+      radius: SITE_GROUND_RADIUS,
+    }));
+    groundingShadows = buildGroundingShadows(
+      [...props.groundPoints, ...sitePoints],
+      terrain.heightAt,
+    );
+    scene.add(groundingShadows.mesh);
+  }
+
   // The CC0 flora model upgrade (visual-overhaul slice 6) — medium/high only
   // (`quality.floraDetail === "full"`). `props.group` above already renders
   // the FULL procedural vegetation synchronously, byte-identical to before
@@ -186,6 +207,7 @@ export function buildWorld(
       boundaries.dispose();
       landmarks.dispose();
       props.dispose();
+      groundingShadows?.dispose();
       aquatic.dispose();
     },
   };

@@ -128,6 +128,12 @@ describe("resolveQuality", () => {
     expect(QUALITY_TIERS.low.envDynamic).toBe(false);
     expect(QUALITY_TIERS.medium.envDynamic).toBe(true);
     expect(QUALITY_TIERS.high.envDynamic).toBe(true);
+    // Blob grounding shadows exist ONLY where real shadow maps don't (G5
+    // #160): the low tier's objects would otherwise float; medium/high are
+    // grounded by the real sun shadow pass and would double-shadow.
+    expect(QUALITY_TIERS.low.groundingShadows).toBe(true);
+    expect(QUALITY_TIERS.medium.groundingShadows).toBe(false);
+    expect(QUALITY_TIERS.high.groundingShadows).toBe(false);
     // Terrain textures (albedo + normal-map splat) are off entirely only at
     // the bottom tier; anisotropy scales monotonically too.
     expect(QUALITY_TIERS.low.terrainDetail).toBe("none");
