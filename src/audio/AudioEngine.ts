@@ -137,11 +137,25 @@ export class AudioEngine {
     void this.ctx.resume().catch(() => {});
   }
 
-  /** Resume the underlying context (idempotent). Wire this to the first
-   *  pointerdown/keydown so a still-suspended context unlocks on real input. */
+  /** Resume the underlying context. Wired to the persistent gesture/visibility
+   *  net (`resumeNet`) so a suspended context unlocks on real input and comes
+   *  back after backgrounding. Guarded three ways: a muted engine stays
+   *  suspended (that suspend is `setMuted`'s deliberate idle economy, and
+   *  `setMuted(false)` is the one path that undoes it), and an
+   *  already-running context is left alone — the net fires on every tap and
+   *  key-repeat, so this must cost a string compare, not a Promise. */
   resume(): void {
-    if (this.disposed) return;
+    if (this.disposed || this.muted || this.ctx.state === "running") return;
     void this.ctx.resume().catch(() => {});
+  }
+
+  /** Recover a context iOS left `interrupted`. Called every frame by
+   *  `AudioSystem` — rAF itself is throttled while hidden, so the first
+   *  foreground frame lands exactly when recovery is wanted. `suspended` is
+   *  deliberately NOT recovered here: pre-gesture autoplay holds belong to the
+   *  gesture net, and mute's suspend to `setMuted`. */
+  recoverIfInterrupted(): void {
+    if (this.ctx.state === "interrupted") this.resume();
   }
 
   /** Mute/unmute the whole mix by ramping the master gain. When muting we also

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import * as THREE from "three";
 import { Engine } from "./engine/Engine.ts";
 import { buildGame } from "./buildGame.ts";
@@ -31,7 +31,9 @@ function fakeCtx(): { ctx: AudioContextLike; close: ReturnType<typeof vi.fn> } {
   const ctx = {
     currentTime: 0,
     destination: node(),
-    state: "running",
+    // Stays "suspended" (the fake's resume never transitions it) so the
+    // engine's resume() guard doesn't swallow the wiring assertions below.
+    state: "suspended",
     createGain: () => ({ ...node(), gain: param() }),
     createOscillator: () => ({
       ...node(),
@@ -98,6 +100,59 @@ describe("buildGame audio/fx wiring", () => {
     engine.dispose();
   });
 });
+
+describe("buildGame audio survival net (S4) — integration pins", () => {
+  // Behaviour (mute gate, per-frame sync, pointerup activation, visibility)
+  // is unit-tested in src/audio/resumeNet.test.ts against a fake audio; these
+  // pins only assert the net is WIRED: registered, mounted in the overlay,
+  // reaching the real context, and torn down by engine.dispose().
+  const stubMedia = () => {
+    vi.spyOn(window.HTMLMediaElement.prototype, "play").mockImplementation(async () => {});
+    vi.spyOn(window.HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+  };
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("mounts the silent unlock element in the overlay and resumes the real context on gestures", () => {
+    const { engine, overlay } = makeEngineAndOverlay();
+    const { ctx } = fakeCtx();
+    stubMedia();
+    buildGame(engine, overlay, undefined, () => ctx);
+
+    expect(overlay.querySelector("audio[data-silent-unlock]")).not.toBeNull();
+
+    (ctx.resume as ReturnType<typeof vi.fn>).mockClear();
+    window.dispatchEvent(new Event("pointerdown"));
+    window.dispatchEvent(new Event("pointerdown"));
+    expect(ctx.resume).toHaveBeenCalledTimes(2); // persistent, not one-shot
+
+    engine.dispose();
+  });
+
+  it("skips the unlock element when no audio is wired (headless)", () => {
+    const { engine, overlay } = makeEngineAndOverlay();
+    buildGame(engine, overlay, undefined, undefined);
+    expect(overlay.querySelector("audio[data-silent-unlock]")).toBeNull();
+    engine.dispose();
+  });
+
+  it("tears the net down on engine.dispose: element gone, listeners unbound", () => {
+    const { engine, overlay } = makeEngineAndOverlay();
+    const { ctx } = fakeCtx();
+    stubMedia();
+    buildGame(engine, overlay, undefined, () => ctx);
+
+    engine.dispose();
+    expect(overlay.querySelector("audio[data-silent-unlock]")).toBeNull();
+
+    (ctx.resume as ReturnType<typeof vi.fn>).mockClear();
+    window.dispatchEvent(new Event("pointerdown"));
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(ctx.resume).not.toHaveBeenCalled();
+  });
+});
+
 
 describe("buildGame discovery.journalPois seam", () => {
   it("exposes a position-free journalPois projection of all 6 sites, while pois keeps position", () => {

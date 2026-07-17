@@ -1,5 +1,4 @@
 import type { Engine } from "./engine/Engine.ts";
-import type { System } from "./engine/types.ts";
 import { buildWorld, type World } from "./world/buildWorld.ts";
 import { buildPlayer, type Player } from "./player/buildPlayer.ts";
 import { buildDiscovery, type Discovery } from "./discovery/buildDiscovery.ts";
@@ -22,6 +21,7 @@ import { QuestSystem, TUNE as QUEST_TUNE, type DiscoveredIds } from "./quest/Que
 import { POI_ANCHORS } from "./world/worldConfig.ts";
 import { SPAWN } from "./world/worldConfig.ts";
 import { AudioSystem } from "./audio/AudioSystem.ts";
+import { installAudioResume } from "./audio/resumeNet.ts";
 import { DiscoveryBurstSystem } from "./fx/DiscoveryBurstSystem.ts";
 import { TreasureBurstSystem } from "./fx/TreasureBurstSystem.ts";
 import { buildWildlife } from "./wildlife/buildWildlife.ts";
@@ -260,11 +260,12 @@ export function buildGame(
         wildlife.jaguar,
       ),
     );
-    // Autoplay fallback: browsers may keep the context suspended until a real
-    // user gesture even though GameCanvas mounts post-click. Resume on the first
-    // pointer/key event, then unbind (the listeners live with the audio and are
-    // torn down via this disposer system on engine.dispose()).
-    engine.addSystem(installAudioResume(audio));
+    // Mobile-Safari survival net (S4): a PERSISTENT resume on every gesture and
+    // on returning to the foreground (a one-shot unbind died the moment iOS
+    // interrupted the context a second time), plus the silent-element unlock
+    // that moves Web Audio onto the media channel so the hardware silent
+    // switch doesn't mute an opted-in mix. Torn down on engine.dispose().
+    engine.addSystem(installAudioResume(audio, overlay));
   }
 
   return {
@@ -297,33 +298,6 @@ export function buildGame(
       get touchActive() {
         return player.input.touchActive;
       },
-    },
-  };
-}
-
-/** A no-op `System` whose only job is to own the one-shot "resume audio on first
- *  user gesture" listeners and unbind them on dispose. It self-removes after the
- *  first event so it never adds per-frame cost. Lives here (the composition root,
- *  which already touches the DOM) rather than in the unit-tested AudioSystem. */
-function installAudioResume(audio: AudioEngine): System {
-  let unbind = () => {};
-  if (typeof window !== "undefined") {
-    const onGesture = () => {
-      audio.resume();
-      unbind();
-    };
-    window.addEventListener("pointerdown", onGesture, { once: true });
-    window.addEventListener("keydown", onGesture, { once: true });
-    unbind = () => {
-      window.removeEventListener("pointerdown", onGesture);
-      window.removeEventListener("keydown", onGesture);
-    };
-  }
-  return {
-    id: "audio-resume",
-    update() {},
-    dispose() {
-      unbind();
     },
   };
 }

@@ -207,6 +207,11 @@ export class AudioSystem implements System {
     // Keep mute in sync with the live setting (the pause menu writes it).
     this.engine.setMuted(this.muted.getSnapshot().muted);
 
+    // A call or backgrounding can leave the context "interrupted" (Safari);
+    // rAF is throttled while hidden, so checking here means the very first
+    // foreground frame brings the sound back (S4 #107).
+    this.engine.recoverIfInterrupted();
+
     // Start the ambient bed once, when the world first runs. Doing it here (not
     // in the constructor) means it begins after the engine starts, so the
     // context is more likely to be unlocked by then.

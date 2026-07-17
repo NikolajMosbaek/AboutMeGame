@@ -27,6 +27,7 @@ function fakeEngine() {
     setRiverProximity: vi.fn(),
     setMuted: vi.fn(),
     resume: vi.fn(),
+    recoverIfInterrupted: vi.fn(),
     dispose: vi.fn(),
   } as unknown as AudioEngine & Record<string, ReturnType<typeof vi.fn>>;
 }
@@ -254,6 +255,13 @@ describe("AudioSystem", () => {
     const { engine, sys } = makeSystem({ explorer, waterDepthAt: NO_WATER });
     sys.update(CTX());
     expect(engine.setRiverProximity).toHaveBeenLastCalledWith(0);
+  });
+
+  it("asks the engine to recover an interrupted context every frame (S4 #107)", () => {
+    const { engine, sys } = makeSystem();
+    sys.update(CTX());
+    sys.update(CTX());
+    expect(engine.recoverIfInterrupted).toHaveBeenCalledTimes(2);
   });
 
   it("keeps the engine mute synced to the live setting each frame", () => {
