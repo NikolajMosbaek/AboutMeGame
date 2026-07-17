@@ -137,22 +137,16 @@ export class AudioEngine {
     void this.ctx.resume().catch(() => {});
   }
 
-  /** Resume the underlying context (idempotent). Wired to the persistent
-   *  gesture/visibility net in `buildGame` so a suspended context unlocks on
-   *  real input and comes back after backgrounding. A muted engine stays
-   *  suspended — that suspend is `setMuted`'s deliberate idle economy, and
-   *  `setMuted(false)` is the one path that undoes it. */
+  /** Resume the underlying context. Wired to the persistent gesture/visibility
+   *  net (`resumeNet`) so a suspended context unlocks on real input and comes
+   *  back after backgrounding. Guarded three ways: a muted engine stays
+   *  suspended (that suspend is `setMuted`'s deliberate idle economy, and
+   *  `setMuted(false)` is the one path that undoes it), and an
+   *  already-running context is left alone — the net fires on every tap and
+   *  key-repeat, so this must cost a string compare, not a Promise. */
   resume(): void {
-    if (this.disposed || this.muted) return;
+    if (this.disposed || this.muted || this.ctx.state === "running") return;
     void this.ctx.resume().catch(() => {});
-  }
-
-  /** The underlying context's live state — the standard `running`/`suspended`/
-   *  `closed` plus Safari's non-standard `interrupted` (a phone call or
-   *  backgrounding took the hardware). Surfaced so callers can react to an
-   *  interruption instead of guessing (S4 #107). */
-  get contextState(): string {
-    return this.ctx.state;
   }
 
   /** Recover a context iOS left `interrupted`. Called every frame by

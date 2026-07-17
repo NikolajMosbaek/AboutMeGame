@@ -250,12 +250,15 @@ describe("AudioEngine", () => {
     ).toBe(before);
   });
 
-  it("exposes the live underlying context state (S4 #107)", () => {
+  it("resume() skips an already-running context — every tap/key-repeat hits it (S4 #105)", () => {
     const { ctx, setState } = fakeContext();
-    const engine = new AudioEngine(() => ctx);
-    expect(engine.contextState).toBe("running"); // constructor resumed the fake
-    setState("interrupted");
-    expect(engine.contextState).toBe("interrupted");
+    const engine = new AudioEngine(() => ctx); // constructor resume ⇒ fake is "running"
+    (ctx.resume as ReturnType<typeof vi.fn>).mockClear();
+    engine.resume();
+    expect(ctx.resume).not.toHaveBeenCalled();
+    setState("suspended");
+    engine.resume();
+    expect(ctx.resume).toHaveBeenCalledTimes(1);
   });
 
   it("resume() is a no-op while muted — mute's suspend is deliberate (S4 #105)", () => {
