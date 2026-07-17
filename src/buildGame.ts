@@ -260,11 +260,12 @@ export function buildGame(
         wildlife.jaguar,
       ),
     );
-    // Autoplay fallback: browsers may keep the context suspended until a real
-    // user gesture even though GameCanvas mounts post-click. Resume on the first
-    // pointer/key event, then unbind (the listeners live with the audio and are
-    // torn down via this disposer system on engine.dispose()).
-    engine.addSystem(installAudioResume(audio));
+    // Mobile-Safari survival net (S4): a PERSISTENT resume on every gesture and
+    // on returning to the foreground (a one-shot unbind died the moment iOS
+    // interrupted the context a second time), plus the silent-element unlock
+    // that moves Web Audio onto the media channel so the hardware silent
+    // switch doesn't mute an opted-in mix. Torn down on engine.dispose().
+    engine.addSystem(installAudioResume(audio, overlay));
   }
 
   return {
@@ -301,22 +302,68 @@ export function buildGame(
   };
 }
 
-/** A no-op `System` whose only job is to own the one-shot "resume audio on first
- *  user gesture" listeners and unbind them on dispose. It self-removes after the
- *  first event so it never adds per-frame cost. Lives here (the composition root,
- *  which already touches the DOM) rather than in the unit-tested AudioSystem. */
-function installAudioResume(audio: AudioEngine): System {
+/** A silent 50 ms WAV loop as an inline data-URI — 0 download bytes against the
+ *  asset budget. iOS routes bare Web Audio onto the RINGER channel, which the
+ *  hardware silent switch mutes; playing any HTML5 media element moves the
+ *  app's audio onto the MEDIA channel, which ignores the switch. (The same
+ *  trick unmute.js shipped; inlined because that library is unmaintained.)
+ *  On-device behaviour is iOS-version-sensitive — see the S4 run log for the
+ *  "needs verification" status of the real-hardware check. */
+const SILENT_UNLOCK_SRC =
+  "data:audio/wav;base64,UklGRkQDAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YSADAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==";
+
+/** A no-op `System` owning the S4 survival net at the composition root (the one
+ *  place already touching the DOM): PERSISTENT resume-on-gesture and
+ *  resume-on-foreground listeners — replacing the old once-and-unbind, which
+ *  went deaf the first time iOS interrupted the context after the opening tap —
+ *  plus the silent media-channel unlock element. Everything unbinds/unmounts in
+ *  dispose, so nothing leaks past engine.dispose(). */
+function installAudioResume(audio: AudioEngine, host: HTMLElement): System {
   let unbind = () => {};
   if (typeof window !== "undefined") {
+    const silent = document.createElement("audio");
+    silent.src = SILENT_UNLOCK_SRC;
+    silent.loop = true;
+    silent.preload = "auto";
+    silent.dataset.silentUnlock = "true";
+    silent.setAttribute("aria-hidden", "true");
+    host.appendChild(silent);
+
+    // `play()` must be reachable from a gesture handler to satisfy autoplay
+    // policy; after that first success, retries from visibilitychange are
+    // allowed to re-arm a loop an interruption paused. Rejections (policy
+    // still holding, jsdom's stub pipeline) are non-fatal by design.
+    const armSilentLoop = () => {
+      if (!silent.paused) return;
+      try {
+        void silent.play()?.catch(() => {});
+      } catch {
+        /* jsdom / ancient Safari: play() itself may throw — the net stays up */
+      }
+    };
     const onGesture = () => {
       audio.resume();
-      unbind();
+      armSilentLoop();
     };
-    window.addEventListener("pointerdown", onGesture, { once: true });
-    window.addEventListener("keydown", onGesture, { once: true });
+    const onVisibility = () => {
+      if (document.visibilityState !== "visible") return;
+      audio.resume();
+      armSilentLoop();
+    };
+    window.addEventListener("pointerdown", onGesture);
+    window.addEventListener("keydown", onGesture);
+    document.addEventListener("visibilitychange", onVisibility);
     unbind = () => {
       window.removeEventListener("pointerdown", onGesture);
       window.removeEventListener("keydown", onGesture);
+      document.removeEventListener("visibilitychange", onVisibility);
+      try {
+        silent.pause();
+      } catch {
+        /* jsdom: pause() is unimplemented — removal below still detaches it */
+      }
+      silent.removeAttribute("src");
+      silent.remove();
     };
   }
   return {

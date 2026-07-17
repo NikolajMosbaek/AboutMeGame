@@ -78,7 +78,12 @@ function fakeContext() {
       state = "closed";
     }),
   };
-  return { ctx, oscillators, gains, filters, connections };
+  // `setState` forces states the fake's own resume/suspend never produce —
+  // Safari's non-standard "interrupted" during a call or backgrounding.
+  const setState = (s: string) => {
+    state = s;
+  };
+  return { ctx, oscillators, gains, filters, connections, setState };
 }
 
 describe("AudioEngine", () => {
@@ -243,6 +248,52 @@ describe("AudioEngine", () => {
     expect(
       (riverGain.gain.linearRampToValueAtTime as ReturnType<typeof vi.fn>).mock.calls.length,
     ).toBe(before);
+  });
+
+  it("exposes the live underlying context state (S4 #107)", () => {
+    const { ctx, setState } = fakeContext();
+    const engine = new AudioEngine(() => ctx);
+    expect(engine.contextState).toBe("running"); // constructor resumed the fake
+    setState("interrupted");
+    expect(engine.contextState).toBe("interrupted");
+  });
+
+  it("resume() is a no-op while muted — mute's suspend is deliberate (S4 #105)", () => {
+    const { ctx } = fakeContext();
+    const engine = new AudioEngine(() => ctx);
+    engine.setMuted(true);
+    (ctx.resume as ReturnType<typeof vi.fn>).mockClear();
+    engine.resume();
+    expect(ctx.resume).not.toHaveBeenCalled();
+    engine.setMuted(false); // unmute still resumes (the deliberate path)
+    expect(ctx.resume).toHaveBeenCalled();
+  });
+
+  it("recoverIfInterrupted() resumes only an interrupted context (S4 #107)", () => {
+    const { ctx, setState } = fakeContext();
+    const engine = new AudioEngine(() => ctx);
+    (ctx.resume as ReturnType<typeof vi.fn>).mockClear();
+
+    engine.recoverIfInterrupted(); // running ⇒ nothing to do
+    expect(ctx.resume).not.toHaveBeenCalled();
+
+    setState("suspended"); // pre-gesture autoplay hold ⇒ leave it to the gesture net
+    engine.recoverIfInterrupted();
+    expect(ctx.resume).not.toHaveBeenCalled();
+
+    setState("interrupted"); // a call / backgrounding took the hardware
+    engine.recoverIfInterrupted();
+    expect(ctx.resume).toHaveBeenCalledTimes(1);
+  });
+
+  it("recoverIfInterrupted() leaves a muted engine suspended (S4 #107)", () => {
+    const { ctx, setState } = fakeContext();
+    const engine = new AudioEngine(() => ctx);
+    engine.setMuted(true);
+    setState("interrupted");
+    (ctx.resume as ReturnType<typeof vi.fn>).mockClear();
+    engine.recoverIfInterrupted();
+    expect(ctx.resume).not.toHaveBeenCalled();
   });
 
   it("tears down on dispose: stops music, disconnects master, closes the context", () => {
