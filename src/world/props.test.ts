@@ -115,6 +115,21 @@ describe("buildProps jungle vegetation (pivot slice C)", () => {
     props.dispose();
   });
 
+  it("exposes a ground point per solid prop (trees, palms, rocks — not understory)", () => {
+    const props = buildProps(terrain);
+    const trees = byName(props.group, "canopy-trunk").count;
+    const palms = byName(props.group, "palm-trunk").count;
+    const rocks = byName(props.group, "rocks").count;
+    // One grounding point per solid placed instance; the 900 tiny understory
+    // plants are deliberately excluded (no visual gain for the instances).
+    expect(props.groundPoints.length).toBe(trees + palms + rocks);
+    for (const p of props.groundPoints) {
+      expect(p.radius).toBeGreaterThan(0);
+      expect(Number.isFinite(p.x + p.y + p.z)).toBe(true);
+    }
+    props.dispose();
+  });
+
   it("dispose() releases every geometry/material/texture without throwing", () => {
     const props = buildProps(terrain);
     const meshes = instancedMeshes(props.group);

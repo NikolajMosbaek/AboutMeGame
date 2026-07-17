@@ -3,9 +3,15 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
 import { makeNoise2D } from "./noise.ts";
 import { LAGOON, POI_ANCHORS, RIVER, SPAWN, WORLD } from "./worldConfig.ts";
 import { distToRiver, type Terrain } from "./terrain.ts";
+import type { GroundPoint } from "./groundingShadows.ts";
 
 export interface Props {
   group: THREE.Group;
+  /** One grounding point per SOLID placed instance (canopy trees, palms,
+   *  rocks — not the 900 tiny understory plants), for the low tier's blob
+   *  grounding shadows (G5 #160). Positions/scales mirror the instance
+   *  matrices exactly — collected at placement, never recomputed. */
+  groundPoints: GroundPoint[];
   dispose(): void;
 }
 
@@ -38,6 +44,12 @@ const UNDERSTORY_CROSS_WIDTH = 1.1;
 const UNDERSTORY_CROSS_HEIGHT = 1.2;
 
 const UP = new THREE.Vector3(0, 1, 0);
+
+/** Grounding-disc radii per unit of instance scale (G5 #160) — sized to the
+ *  visual footprint at the ground: a trunk flare, a palm base, a boulder. */
+const CANOPY_GROUND_RADIUS = 1.4;
+const PALM_GROUND_RADIUS = 1.1;
+const ROCK_GROUND_RADIUS = 1.2;
 
 /**
  * Jungle set dressing (pivot slice C, "The Lost Idol"). Replaces the old
@@ -75,6 +87,7 @@ const UP = new THREE.Vector3(0, 1, 0);
 export function buildProps(terrain: Terrain, density = 1): Props {
   const group = new THREE.Group();
   group.name = "props";
+  const groundPoints: GroundPoint[] = [];
   const rng = makeNoise2D(WORLD.seed ^ 0x9e3779b9);
 
   const d = Math.max(0, Math.min(1, density));
@@ -203,6 +216,7 @@ export function buildProps(terrain: Terrain, density = 1): Props {
     m.compose(pos, q, sc);
     canopyCross.setMatrixAt(canopyPlaced, m);
     canopyCross.setColorAt(canopyPlaced, tint.setHex(0xffffff).offsetHSL(0, 0, lightness));
+    groundPoints.push({ x, y, z, radius: CANOPY_GROUND_RADIUS * s });
     canopyPlaced++;
   };
 
@@ -285,6 +299,7 @@ export function buildProps(terrain: Terrain, density = 1): Props {
     m.compose(pos, q, sc);
     palmFronds.setMatrixAt(palmPlaced, m);
     palmFronds.setColorAt(palmPlaced, tint.setHex(0xffffff).offsetHSL(0, 0, (rng.value(ch, 9) - 0.5) * 0.12));
+    groundPoints.push({ x, y, z, radius: PALM_GROUND_RADIUS * s });
     palmPlaced++;
   }
   palmTrunks.count = palmPlaced;
@@ -349,6 +364,7 @@ export function buildProps(terrain: Terrain, density = 1): Props {
     sc.set(s, s * 0.8, s);
     m.compose(pos, q, sc);
     rocks.setMatrixAt(rocksPlaced, m);
+    groundPoints.push({ x, y, z, radius: ROCK_GROUND_RADIUS * s });
     rocksPlaced++;
   };
   const rockGeneralBudget = Math.max(1, Math.round(rockBudget * 0.7));
@@ -381,6 +397,7 @@ export function buildProps(terrain: Terrain, density = 1): Props {
 
   return {
     group,
+    groundPoints,
     dispose() {
       for (const im of [canopyTrunks, canopyCross, palmTrunks, palmFronds, understory, rocks]) im.dispose();
       for (const geo of [canopyTrunkGeo, canopyCrossGeo, palmTrunkGeo, palmFrondGeo, understoryGeo, rockGeo]) {
