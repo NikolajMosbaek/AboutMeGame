@@ -15,6 +15,7 @@ import {
   TROOP_SIZE,
   electThief,
   hopPose,
+  nearestAnchor,
   initialMonkeyState,
   stepMonkey,
   type MonkeyState,
@@ -158,6 +159,24 @@ describe("the fruit heist (pure)", () => {
     expect(s.mode).toBe("flee"); // scarpers after the gag
   });
 
+  it("the perch heading points toward the troop's nearest anchor — never out to sea", () => {
+    // Steal at a plant sitting right on anchor 0; the perch must head toward
+    // a real anchor (validated land), not away from the player (which could
+    // point past the boundary for a coastal plant).
+    const s: MonkeyState = { ...calmState(0), mode: "heist", heistTarget: target };
+    const e = env({ player: { x: 38, z: 30 } });
+    let r = stepMonkey(s, 0.1, e, COMIC_TIMING);
+    for (let t = 0; t < 30 && r.stolePlant === null; t += 0.1) {
+      r = stepMonkey(r.state, 0.1, e, COMIC_TIMING);
+    }
+    const perch = r.state.heistTarget!;
+    const home = TROOP_ANCHORS[nearestAnchor(target.x, target.z)];
+    const towardHome =
+      (perch.x - target.x) * (home.x - target.x) + (perch.z - target.z) * (home.z - target.z);
+    expect(towardHome).toBeGreaterThan(0); // same half-plane as home turf
+    expect(Math.hypot(perch.x, perch.z)).toBeLessThan(WORLD.boundaryRadius);
+  });
+
   it("chasing the perched thief forces the drop early", () => {
     const s: MonkeyState = {
       ...calmState(0),
@@ -287,6 +306,34 @@ describe("MonkeysSystem", () => {
     expect((sys.describe().drops as unknown[]).length).toBe(0);
     // Walk to where the perch was: nothing to scoop.
     expect(eaten).toHaveLength(0);
+    sys.dispose();
+  });
+
+  it("aborts the heist when the player picks the plant first — no phantom fruit, no double meal", () => {
+    const plant: FruitPlant = {
+      kind: "banana",
+      x: TROOP_ANCHORS[0].x,
+      z: TROOP_ANCHORS[0].z,
+      ripe: true,
+      regrowIn: 0,
+    };
+    const { sys, eaten } = rig({ plants: [plant], px: plant.x + 3, pz: plant.z });
+    // Run until a thief is in flight (heist assigned, fruit not yet stolen).
+    for (let t = 0; t < HEIST_MIN_GAP + 60 && !sys.describe().heisting; t += 0.25) {
+      sys.update(STEP);
+    }
+    expect(sys.describe().heisting).toBe(true);
+    expect(plant.ripe).toBe(true);
+
+    // The player beats the monkey to it (ForageSystem's pick).
+    plant.ripe = false;
+    plant.regrowIn = 42; // partially elapsed regrow — must NOT be stomped
+
+    for (let t = 0; t < 30; t += 0.25) sys.update(STEP);
+    expect(sys.describe().heisting).toBe(false);
+    expect(sys.describe().carrying).toBe(0); // slunk off empty-handed
+    expect(plant.regrowIn).toBe(42); // regrow clock untouched
+    expect(eaten).toHaveLength(0); // and no phantom second meal ever arrives
     sys.dispose();
   });
 

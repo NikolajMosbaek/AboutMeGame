@@ -162,6 +162,20 @@ export function hopPose(t: number, phase: number): number {
   return 0.35 * Math.abs(Math.sin(t * 5 + phase));
 }
 
+/** Index of the troop anchor nearest a point — the thief's retreat heading. */
+export function nearestAnchor(x: number, z: number): number {
+  let best = 0;
+  let bestDist = Infinity;
+  for (let i = 0; i < TROOP_ANCHORS.length; i++) {
+    const d = Math.hypot(x - TROOP_ANCHORS[i].x, z - TROOP_ANCHORS[i].z);
+    if (d < bestDist) {
+      best = i;
+      bestDist = d;
+    }
+  }
+  return best;
+}
+
 /** Index of the troop member nearest the plant — the elected thief. */
 export function electThief(
   states: ReadonlyArray<{ x: number; z: number }>,
@@ -297,13 +311,17 @@ export function stepMonkey(
         if (moveToward(s, t.x, t.z, HEIST_SPEED, dt)) {
           stolePlant = t.plantIndex;
           s.carrying = t.kind;
-          // Phase 2 target: the perch, away from the player.
-          const awayX = t.x - env.player.x;
-          const awayZ = t.z - env.player.z;
-          const len = Math.hypot(awayX, awayZ) || 1;
+          // Phase 2 target: the perch, toward the troop's NEAREST anchor —
+          // home turf is always validated land inside the boundary, so the
+          // drop can never strand beyond the world clamp or out at sea
+          // (review finding: "away from the player" could point offshore).
+          const home = TROOP_ANCHORS[nearestAnchor(t.x, t.z)];
+          const homeX = home.x - t.x;
+          const homeZ = home.z - t.z;
+          const len = Math.hypot(homeX, homeZ) || 1;
           s.heistTarget = {
-            x: t.x + (awayX / len) * PERCH_DISTANCE,
-            z: t.z + (awayZ / len) * PERCH_DISTANCE,
+            x: t.x + (homeX / len) * PERCH_DISTANCE,
+            z: t.z + (homeZ / len) * PERCH_DISTANCE,
             kind: t.kind,
             plantIndex: -1,
           };
@@ -482,9 +500,13 @@ export class MonkeysSystem implements System {
       } else if (this.heistClock >= HEIST_MAX_WAIT) {
         // Starved for a mark: drift the troop's route toward the player so
         // the next encounter actually happens.
-        const nearest = this.nearestAnchorTo(p.x, p.z);
+        const nearest = nearestAnchor(p.x, p.z);
         for (let i = 0; i < this.states.length; i++) {
-          if (this.states[i].mode === "troop") this.states[i].anchor = nearest;
+          if (this.states[i].mode === "troop") {
+            // Fresh dwell too, or a stale clock bounces the monkey straight
+            // past the retargeted anchor (review finding).
+            this.states[i] = { ...this.states[i], anchor: nearest, dwell: 0 };
+          }
         }
         this.heistClock = HEIST_MIN_GAP; // re-check as soon as a plant is near
       }
@@ -498,6 +520,25 @@ export class MonkeysSystem implements System {
       // doesn't crowd a still player.
       playerStillSeconds: this.stillSeconds,
     };
+    // The player may pick the very plant the thief is mid-flight toward
+    // (forage runs earlier in the frame): the moment the mark goes bare, the
+    // heist is off — no phantom fruit, no double meal, no stomped regrow
+    // clock (review finding).
+    if (this.thief >= 0) {
+      const t = this.states[this.thief].heistTarget;
+      if (t && t.plantIndex >= 0 && !this.heist.plants[t.plantIndex]?.ripe) {
+        this.states[this.thief] = {
+          ...this.states[this.thief],
+          mode: "flee", // slinks off empty-handed — its own small gag
+          heistTarget: null,
+          carrying: null,
+          timer: 0,
+        };
+        this.thief = -1;
+        this.heistClock = 0;
+      }
+    }
+
     const nearestIdx = this.nearestMonkeyTo(p.x, p.z);
     for (let i = 0; i < this.states.length; i++) {
       const perMonkeyEnv =
@@ -507,6 +548,13 @@ export class MonkeysSystem implements System {
 
       if (r.stolePlant !== null && r.stolePlant >= 0) {
         const plant = this.heist.plants[r.stolePlant];
+        // Same-frame arrival guard (belt to the pre-step braces above).
+        if (!plant.ripe) {
+          this.states[i] = { ...this.states[i], mode: "flee", heistTarget: null, carrying: null, timer: 0 };
+          this.thief = -1;
+          this.heistClock = 0;
+          continue;
+        }
         plant.ripe = false;
         plant.regrowIn = FORAGE_TUNE.regrowSeconds;
         this.heist.setRipe(r.stolePlant, false);
@@ -552,19 +600,6 @@ export class MonkeysSystem implements System {
       const pl = this.heist.plants[i];
       if (!pl.ripe) continue;
       const d = Math.hypot(x - pl.x, z - pl.z);
-      if (d < bestDist) {
-        best = i;
-        bestDist = d;
-      }
-    }
-    return best;
-  }
-
-  private nearestAnchorTo(x: number, z: number): number {
-    let best = 0;
-    let bestDist = Infinity;
-    for (let i = 0; i < TROOP_ANCHORS.length; i++) {
-      const d = Math.hypot(x - TROOP_ANCHORS[i].x, z - TROOP_ANCHORS[i].z);
       if (d < bestDist) {
         best = i;
         bestDist = d;
