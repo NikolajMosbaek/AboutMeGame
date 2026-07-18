@@ -70,8 +70,9 @@ function dayPhaseSource(phase: number) {
 
 const NO_WATER = () => -1;
 
-function survivalSource(snap: { thirst: number; health: number; alive: boolean }) {
-  return { getSnapshot: () => snap };
+function survivalSource(snap: { thirst: number; health: number; alive: boolean; stamina?: number }) {
+  const full = Object.assign(snap, { stamina: snap.stamina ?? 100 });
+  return { getSnapshot: () => full };
 }
 function forageSource(snap: { eaten: number }) {
   return { getSnapshot: () => snap };
@@ -98,7 +99,7 @@ function neutralArgs() {
     muted: mutedSource(false),
     dayPhase: dayPhaseSource(0.25),
     waterDepthAt: NO_WATER,
-    survival: survivalSource({ thirst: 50, health: 100, alive: true }),
+    survival: survivalSource({ thirst: 50, health: 100, alive: true, stamina: 100 }),
     forage: forageSource({ eaten: 0 }),
     quest: questSource({ digProgress: null, finaleActive: false, treasureFound: false }),
     snakes: snakeSource(false),
@@ -426,6 +427,20 @@ describe("AudioSystem", () => {
     alert = true;
     sys.update(CTX());
     expect(engine.snakeAlert).toHaveBeenCalledTimes(2);
+  });
+
+  it("pants on a cadence while exhausted and moving; stops on recovery or standing still (E1 #234)", () => {
+    const survival = survivalSource({ thirst: 50, health: 100, alive: true, stamina: 5 });
+    const explorer = explorerSource({ speed: 4 });
+    const { engine, sys } = makeSystem({ survival, explorer });
+    for (let t = 0; t < 3.5; t += 0.1) sys.update(CTX(0.1));
+    // Rising-edge breath count over 3.5 s of exhausted movement: ≥2 pants.
+    expect((engine.breathe as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(2);
+    const before = (engine.breathe as ReturnType<typeof vi.fn>).mock.calls.length;
+    survival.getSnapshot().stamina = 100; // recovered
+    for (let t = 0; t < 3.5; t += 0.1) sys.update(CTX(0.1));
+    expect((engine.breathe as ReturnType<typeof vi.fn>).mock.calls.length).toBe(before);
+    sys.dispose();
   });
 
   it("plays each comedy one-shot exactly once per drained edge (J1 #221)", () => {
