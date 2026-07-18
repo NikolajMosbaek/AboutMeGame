@@ -7,6 +7,7 @@ import {
   DROP_TTL,
   FIRST_HEIST_HEAD_START,
   FLEE_RADIUS,
+  HEIST_MAX_RANGE,
   HEIST_MIN_GAP,
   HEIST_SEEK_RADIUS,
   HEIST_TIMEOUT,
@@ -159,6 +160,23 @@ describe("heist reachability and timeout", () => {
     }
     expect(s.mode).not.toBe("heist");
     expect(t).toBeLessThanOrEqual(HEIST_TIMEOUT + 1);
+  });
+
+  it("never steals off a steered sidestep — arrival only counts on the direct line", () => {
+    // The plant sits just past the water line: the thief closes to within
+    // reach but every direct step is wet. Sidesteps must not count as
+    // arrival, so the steal never fires and the give-up clock resolves it.
+    let s: MonkeyState = { ...calmState(0), x: 9.5, z: 0, mode: "heist", timer: 0,
+      heistTarget: { x: 10.6, z: 0, kind: "banana", plantIndex: 0 } };
+    const e = env({ waterDepthAt: WALL });
+    let stole = false;
+    for (let t = 0; t < HEIST_TIMEOUT + 2 && s.mode === "heist"; t += 0.1) {
+      const r = stepMonkey(s, 0.1, e, COMIC_TIMING);
+      s = r.state;
+      if (r.stolePlant !== null) stole = true;
+    }
+    expect(stole).toBe(false);
+    expect(s.mode).toBe("flee"); // gave up honestly instead
   });
 
   it("a carrier blocked on the way to its perch drops the fruit where it stands and bails", () => {
@@ -519,6 +537,28 @@ describe("MonkeysSystem", () => {
     expect(sys.describe().carrying).toBe(0); // slunk off empty-handed
     expect(plant.regrowIn).toBe(42); // regrow clock untouched
     expect(eaten).toHaveLength(0); // and no phantom second meal ever arrives
+    sys.dispose();
+  });
+
+  it("never elects a thief beyond the timeout's travel budget — a far plant stays unrobbed, and the troop drifts closer", () => {
+    // (-34, -140) is dry land in the far south-west highland foot, > 120 u
+    // from every monkey — inside a heist's reach only by a sprint that would
+    // blow the give-up clock. The old code elected the runner anyway and
+    // shipped a sprint-give-up-retry loop that also suppressed the drift.
+    const plant: FruitPlant = { kind: "berries", x: -34, z: -140, ripe: true, regrowIn: 0 };
+    expect(WORLD.seaLevel - terrain.heightAt(plant.x, plant.z)).toBeLessThanOrEqual(0);
+    const { sys } = rig({ plants: [plant], px: plant.x + 3, pz: plant.z });
+    for (const m of sys.describe().positions as Array<{ x: number; z: number }>) {
+      expect(Math.hypot(m.x - plant.x, m.z - plant.z)).toBeGreaterThan(HEIST_MAX_RANGE);
+    }
+    // Well past HEIST_MAX_WAIT: the gag must never arm on the out-of-budget
+    // plant — no sprint-give-up-retry loop, no phantom robbery. (The drift
+    // fallback retargets patrols, but this plant is beyond every anchor.)
+    for (let t = 0; t < 300; t += 0.25) {
+      sys.update(STEP);
+      expect(sys.describe().heisting).toBe(false);
+    }
+    expect(plant.ripe).toBe(true);
     sys.dispose();
   });
 

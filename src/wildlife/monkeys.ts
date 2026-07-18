@@ -104,6 +104,12 @@ export const FIRST_HEIST_HEAD_START = 60;
 /** A heist that can't reach its plant or perch (water in the way) gives up
  *  after this long, freeing the gag slot instead of stalling comedy forever. */
 export const HEIST_TIMEOUT = 25;
+/** No thief is elected beyond this range — the timeout's travel budget is
+ *  HEIST_SPEED × HEIST_TIMEOUT (150 u), and electing a marginal runner ships
+ *  a sprint-give-up-retry loop at the map's far plants (review finding). The
+ *  0.8 margin absorbs bank-skirting detours; out-of-range plants fall through
+ *  to the drift-toward-player fallback instead. */
+export const HEIST_MAX_RANGE = HEIST_SPEED * HEIST_TIMEOUT * 0.8;
 /** A heist arms when the player is within this of a ripe plant. */
 export const HEIST_SEEK_RADIUS = 10;
 /** How long the thief taunts on its perch before dropping the fruit. */
@@ -281,7 +287,10 @@ function moveToward(
       s.heading = a;
       s.x = nx;
       s.z = nz;
-      return len <= REACHED;
+      // Arrival only counts off the DIRECT step — a steered sidestep moved
+      // away from the target and must not report it reached (review finding:
+      // a thief could "steal" from a plant it physically stepped around).
+      return off === 0 && len <= REACHED;
     }
   }
   s.heading = base; // feet stay dry; it faces where it wanted to go
@@ -614,10 +623,14 @@ export class MonkeysSystem implements System {
       let assigned = false;
       if (plantIndex >= 0) {
         const plant = this.heist.plants[plantIndex];
-        // Only a monkey with a dry line to the plant can take the job — a
-        // thief across the river would swim (or stall against the bank).
-        const eligible = this.states.map((s) =>
-          dryPath(s.x, s.z, plant.x, plant.z, this.waterDepthAt),
+        // Only a monkey with a dry line to the plant AND enough travel budget
+        // to beat the give-up clock can take the job — a thief across the
+        // river would swim, and a marginal runner would sprint, give up and
+        // retry forever while suppressing the drift fallback below.
+        const eligible = this.states.map(
+          (s) =>
+            Math.hypot(s.x - plant.x, s.z - plant.z) <= HEIST_MAX_RANGE &&
+            dryPath(s.x, s.z, plant.x, plant.z, this.waterDepthAt),
         );
         const idx = electThief(this.states, plant, eligible);
         if (idx >= 0) {
