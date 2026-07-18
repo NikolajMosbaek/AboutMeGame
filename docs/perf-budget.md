@@ -24,7 +24,7 @@ connection. If it is smooth there, desktop is comfortable.
 | Frame rate (desktop) | **60 fps** | Headroom is expected on desktop. |
 | Draw calls / frame | **≤ 150** | Three.js does not batch across materials; draw-call count is the first thing that blows up as the world grows, so it is watched first. |
 | Triangles / frame | **≤ 500 k** | Comfortable for the target GPU with low-poly terrain + landmarks. |
-| JS shipped (gzip) | **≤ 400 KB** | `three` is ~155 KB gz; this leaves room for game code without hurting time-to-interactive. (M1 baseline: **165 KB gz**.) |
+| JS shipped (gzip) | **≤ 432 KB** | `three` is ~155 KB gz; this leaves room for game code without hurting time-to-interactive. (M1 baseline: **165 KB gz**. Amended 400 → 432 on 2026-07-18 for the reactive-jungle epic — behavior code only, zero asset bytes; the cap sat 4.8 KB from full after the visual overhaul. See `docs/superpowers/specs/2026-07-18-jungle-notices-you-design.md`.) |
 | Total initial download | **≤ 6 MB** | Textures + models + audio before the world is interactive, over 4G. |
 | Time to interactive | **≤ 4 s** on 4G | The "just a link" promise dies if the first load drags. |
 

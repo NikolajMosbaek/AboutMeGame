@@ -32,7 +32,11 @@ export const PERF_BUDGET: PerfBudget = {
   frameBudgetMsMobile: 1000 / 30,
   maxDrawCalls: 150,
   maxTriangles: 500_000,
-  maxJsGzipKb: 400,
+  // 400 → 432 (2026-07-18, approved): the reactive-jungle epic ("The Jungle
+  // Notices You", docs/superpowers/specs/2026-07-18-jungle-notices-you-design.md)
+  // ships behavior code only — zero asset bytes — and the cap sat 4.8 KB from
+  // full. Deliberate amendment, recorded in docs/perf-budget.md.
+  maxJsGzipKb: 432,
   maxInitialDownloadKb: 6_000,
   maxTimeToInteractiveSec: 4,
 };
