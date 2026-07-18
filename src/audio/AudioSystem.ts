@@ -105,6 +105,11 @@ export interface HeistSource {
   justStole(): boolean;
   justTaunted(): boolean;
 }
+/** The live weather (W1 #228) — `World.weather` satisfies it. */
+export interface WeatherAudioSource {
+  snapshot(): { rain01: number };
+  justThundered(): boolean;
+}
 
 // --- Tuning (pacing/thresholds, no magic numbers below) ---------------------
 
@@ -196,6 +201,7 @@ export class AudioSystem implements System {
     private readonly birdsFlush?: FlushSource,
     private readonly fishScatter?: ScatterSource,
     private readonly monkeyHeist?: HeistSource,
+    private readonly weatherSource?: WeatherAudioSource,
   ) {
     // Apply the persisted mute before anything plays.
     this.engine.setMuted(this.muted.getSnapshot().muted);
@@ -329,6 +335,10 @@ export class AudioSystem implements System {
     if (this.monkeyHeist) {
       if (this.monkeyHeist.justStole()) this.engine.monkeyChitter();
       if (this.monkeyHeist.justTaunted()) this.engine.monkeyRaspberry();
+    }
+    if (this.weatherSource) {
+      this.engine.setRainLevel(this.weatherSource.snapshot().rain01);
+      if (this.weatherSource.justThundered()) this.engine.thunder();
     }
   }
 

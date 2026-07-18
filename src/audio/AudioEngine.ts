@@ -31,12 +31,27 @@ export interface AudioContextLike {
   readonly currentTime: number;
   readonly destination: AudioNodeLike;
   readonly state: string;
+  /** Sample rate for runtime-generated noise buffers (W1 #228). */
+  readonly sampleRate: number;
   createGain(): GainNodeLike;
   createOscillator(): OscillatorNodeLike;
   createBiquadFilter(): BiquadFilterNodeLike;
+  createBuffer(channels: number, length: number, sampleRate: number): AudioBufferLike;
+  createBufferSource(): AudioBufferSourceNodeLike;
   resume(): Promise<void>;
   suspend(): Promise<void>;
   close(): Promise<void>;
+}
+
+export interface AudioBufferLike {
+  getChannelData(channel: number): Float32Array;
+}
+
+export interface AudioBufferSourceNodeLike extends AudioNodeLike {
+  buffer: AudioBufferLike | null;
+  loop: boolean;
+  start(when?: number): void;
+  stop(when?: number): void;
 }
 
 export interface AudioNodeLike {
@@ -111,6 +126,16 @@ const COMPLETION_DUCK_OUT = 0.35;
 function bedLevelFor(night: number): number {
   return AMBIENT_DAY_GAIN + (AMBIENT_NIGHT_GAIN - AMBIENT_DAY_GAIN) * night;
 }
+
+/** Rain bed (W1 #228): full-intensity level, ramp time, and bandpass centre.
+ *  The bed's 3 nodes (noise source → bandpass → gain) exist ONLY while it
+ *  rains — created at the 0→positive boundary, torn down at the return to 0 —
+ *  so the persistent-node budget is only borrowed during a shower. */
+const RAIN_MAX_GAIN = 0.14;
+const RAIN_RAMP = 1.5;
+const RAIN_FILTER_FREQ = 2400;
+/** One second of looped white noise — generated at runtime, zero asset bytes. */
+const NOISE_SECONDS = 1;
 
 /** River water-texture level at the bank (`setRiverProximity(1)`). */
 const RIVER_MAX_GAIN = 0.11;
@@ -589,12 +614,131 @@ export class AudioEngine {
     this.riverGain.gain.linearRampToValueAtTime(clamped * RIVER_MAX_GAIN, t + RIVER_FADE);
   }
 
+  /** Rain bed nodes — alive only while it rains (see RAIN_* docs). */
+  private rainSource: AudioBufferSourceNodeLike | null = null;
+  private rainGain: GainNodeLike | null = null;
+  private lastRainLevel = 0;
+
+  /**
+   * Drive the rain bed from the weather envelope (W1 #228). Idempotent per
+   * frame: skips redundant ramps (the ambient-phase epsilon posture), builds
+   * the noise chain lazily on the first positive level and tears it down
+   * when the level returns to 0.
+   */
+  setRainLevel(level01: number): void {
+    if (this.disposed) return;
+    // While muted the context is suspended and its clock is FROZEN — any
+    // ramps scheduled now would pile up at one instant and replay as a
+    // phantom swell on unmute (review finding). The bed simply doesn't run
+    // muted; the next unmuted frame rebuilds it from the live envelope.
+    if (this.muted) {
+      if (this.rainSource) {
+        this.rainSource.stop();
+        this.stopRainBed();
+        this.lastRainLevel = 0;
+      }
+      return;
+    }
+    const level = Math.min(1, Math.max(0, level01));
+    if (Math.abs(level - this.lastRainLevel) < 0.01 && !(level === 0 && this.rainSource)) return;
+    this.lastRainLevel = level;
+    const t = this.ctx.currentTime;
+
+    if (level > 0 && !this.rainSource) {
+      const buffer = this.ctx.createBuffer(1, this.ctx.sampleRate * NOISE_SECONDS, this.ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      // Deterministic-enough runtime noise: a cheap LCG, no Math.random so
+      // headless snapshots stay stable.
+      let seed = 1234567;
+      for (let i = 0; i < data.length; i++) {
+        seed = (seed * 1664525 + 1013904223) >>> 0;
+        data[i] = (seed / 0xffffffff) * 2 - 1;
+      }
+      const source = this.ctx.createBufferSource();
+      source.buffer = buffer;
+      source.loop = true;
+      const filter = this.ctx.createBiquadFilter();
+      filter.type = "bandpass";
+      filter.frequency.value = RAIN_FILTER_FREQ;
+      filter.Q.value = 0.4;
+      const gain = this.ctx.createGain();
+      gain.gain.value = 0.0001;
+      source.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.master);
+      source.start(t);
+      this.rainSource = source;
+      this.rainGain = gain;
+    }
+    if (this.rainGain) {
+      this.rainGain.gain.setValueAtTime(this.rainGain.gain.value, t);
+      this.rainGain.gain.linearRampToValueAtTime(
+        Math.max(0.0001, level * RAIN_MAX_GAIN),
+        t + RAIN_RAMP,
+      );
+    }
+    if (level === 0 && this.rainSource) {
+      this.rainSource.stop(t + RAIN_RAMP + 0.1);
+      this.stopRainBed();
+    }
+  }
+
+  private stopRainBed(): void {
+    this.rainSource = null;
+    this.rainGain = null;
+  }
+
+  /** Distant thunder (W1 #228): a noise burst through a low lowpass with a
+   *  slow ~2 s decay, plus one 45 Hz sine sub — a rumble, never a crack. */
+  thunder(): void {
+    if (!this.canPlay()) return;
+    const t = this.ctx.currentTime;
+    const buffer = this.ctx.createBuffer(1, this.ctx.sampleRate * 2, this.ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    let seed = 7654321;
+    for (let i = 0; i < data.length; i++) {
+      seed = (seed * 1664525 + 1013904223) >>> 0;
+      data[i] = (seed / 0xffffffff) * 2 - 1;
+    }
+    const source = this.ctx.createBufferSource();
+    source.buffer = buffer;
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = "lowpass";
+    filter.frequency.value = 140;
+    filter.Q.value = 0.7;
+    const gain = this.ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.linearRampToValueAtTime(0.3, t + 0.15);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 2.1);
+    source.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.master);
+    source.start(t);
+    source.stop(t + 2.2);
+
+    const sub = this.ctx.createOscillator();
+    const subGain = this.ctx.createGain();
+    sub.type = "sine";
+    sub.frequency.setValueAtTime(45, t);
+    subGain.gain.setValueAtTime(0.0001, t);
+    subGain.gain.linearRampToValueAtTime(0.12, t + 0.2);
+    subGain.gain.exponentialRampToValueAtTime(0.0001, t + 1.8);
+    sub.connect(subGain);
+    subGain.connect(this.master);
+    sub.start(t);
+    sub.stop(t + 1.9);
+  }
+
   /** Stop the ambient bed, kill the master, and close the context. Safe to
    *  call once. */
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
     this.stopMusic();
+    if (this.rainSource) {
+      this.rainSource.stop();
+      this.stopRainBed();
+    }
     this.master.disconnect();
     void this.ctx.close().catch(() => {});
   }

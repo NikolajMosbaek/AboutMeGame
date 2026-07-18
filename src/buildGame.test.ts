@@ -31,6 +31,7 @@ function fakeCtx(): { ctx: AudioContextLike; close: ReturnType<typeof vi.fn> } {
   const close = vi.fn(async () => {});
   const ctx = {
     currentTime: 0,
+    sampleRate: 8000,
     destination: node(),
     // Stays "suspended" (the fake's resume never transitions it) so the
     // engine's resume() guard doesn't swallow the wiring assertions below.
@@ -45,6 +46,8 @@ function fakeCtx(): { ctx: AudioContextLike; close: ReturnType<typeof vi.fn> } {
       stop: vi.fn(),
     }),
     createBiquadFilter: () => ({ ...node(), type: "lowpass", frequency: param(), Q: param() }),
+    createBuffer: (_c: number, length: number) => ({ getChannelData: () => new Float32Array(length) }),
+    createBufferSource: () => ({ ...node(), buffer: null, loop: false, start: vi.fn(), stop: vi.fn() }),
     resume: vi.fn(async () => {}),
     suspend: vi.fn(async () => {}),
     close,

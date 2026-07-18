@@ -279,6 +279,7 @@ export function buildGame(
         wildlife.birds,
         wildlife.fish,
         wildlife.monkeys,
+        world.weather,
       ),
     );
     // Mobile-Safari survival net (S4): a PERSISTENT resume on every gesture and
