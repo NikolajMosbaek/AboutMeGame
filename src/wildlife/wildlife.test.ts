@@ -35,7 +35,7 @@ describe("wildlife draw-call and triangle budget", () => {
     const engine = new Engine({ renderer: stubRenderer() });
     const world = buildWorld(engine, QUALITY_TIERS.high);
     const session = createSession();
-    const player = { state: { position: new THREE.Vector3(0, 0, 0) } };
+    const player = { state: { position: new THREE.Vector3(0, 0, 0), speed: 0 } };
 
     buildWildlife(engine, world, player, session, () => {});
 

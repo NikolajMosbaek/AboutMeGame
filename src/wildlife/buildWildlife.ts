@@ -13,10 +13,17 @@ import { FishSystem } from "./fish.ts";
 import { SnakesSystem, type HurtFn } from "./snakes.ts";
 import { JaguarSystem } from "./jaguar.ts";
 
-/** Where the player is — the explorer satisfies it via `state.position` (same
- *  shape every wildlife system reads). */
+/** Where the player is and how fast they're moving — the explorer satisfies
+ *  it via `state.position`/`state.speed` (speed feeds the sprint-flush and
+ *  wading-splash reactions, J1 #219). */
 export interface PositionSource {
-  readonly state: { position: THREE.Vector3 };
+  readonly state: { position: THREE.Vector3; speed: number };
+}
+
+/** Live reduced-motion flag — a `SettingsStore` satisfies it. Collapses the
+ *  reaction grammar's comic freeze-beat to plain flight. */
+export interface ReducedMotionSource {
+  getSnapshot(): { reducedMotion: boolean };
 }
 
 /** Hold all movement while true — the shared session pause flag satisfies it. */
@@ -43,10 +50,11 @@ export function buildWildlife(
   player: PositionSource,
   session: PauseSource,
   hurt: HurtFn,
+  reducedMotion?: ReducedMotionSource,
 ): Wildlife {
-  const birds = new BirdsSystem(engine.scene, world.terrain, player, session);
+  const birds = new BirdsSystem(engine.scene, world.terrain, player, session, reducedMotion);
   const fliers = new FliersSystem(engine.scene, world.terrain, world.dayCycle, session);
-  const fish = new FishSystem(engine.scene, world.waterDepthAt, player, session);
+  const fish = new FishSystem(engine.scene, world.waterDepthAt, player, session, reducedMotion);
   const snakes = new SnakesSystem(engine.scene, world.terrain, player, session, hurt);
   const jaguar = new JaguarSystem(
     engine.scene,

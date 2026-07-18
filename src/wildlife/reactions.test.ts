@@ -84,7 +84,7 @@ describe("overshoot", () => {
 
 describe("justReacted", () => {
   it("is true exactly on the transition INTO react", () => {
-    let prev = stepReaction(initialReaction(), 0.1, TRIGGER, PLAIN_TIMING); // → react
+    const prev = stepReaction(initialReaction(), 0.1, TRIGGER, PLAIN_TIMING); // → react
     expect(justReacted(initialReaction(), prev)).toBe(true);
     const next = stepReaction(prev, 0.1, CALM, PLAIN_TIMING);
     expect(justReacted(prev, next)).toBe(false); // held react ≠ a new edge

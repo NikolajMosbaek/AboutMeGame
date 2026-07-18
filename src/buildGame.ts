@@ -189,8 +189,13 @@ export function buildGame(
   // (buildWildlife never sees the SurvivalSystem itself). Captured (not
   // discarded) so the audio slice can poll snakes/jaguar for their warning
   // edges, and the finale can startle the birds.
-  const wildlife = buildWildlife(engine, world, player.explorer, session, (amount) =>
-    survivalSystem.hurt(amount),
+  const wildlife = buildWildlife(
+    engine,
+    world,
+    player.explorer,
+    session,
+    (amount) => survivalSystem.hurt(amount),
+    settings,
   );
   onFinaleStart = () => wildlife.birds.startle();
 
