@@ -166,19 +166,18 @@ export function buildGame(
   const forage = buildForage(world.terrain, quality.propDensity);
   engine.scene.add(forage.group);
   const forageStore = forageStoreEarly;
-  engine.addSystem(
-    new ForageSystem(
-      forage.plants,
-      player.explorer,
-      player.input,
-      discovery.store,
-      (amount) => survivalSystem.eat(amount),
-      forageStore,
-      session,
-      forage.setRipe,
-      () => forage.dispose(),
-    ),
+  const forageSystem = new ForageSystem(
+    forage.plants,
+    player.explorer,
+    player.input,
+    discovery.store,
+    (amount) => survivalSystem.eat(amount),
+    forageStore,
+    session,
+    forage.setRipe,
+    () => forage.dispose(),
   );
+  engine.addSystem(forageSystem);
   engine.addSystem(survivalSystem);
   sprintGate = survivalSystem.canSprint;
 
@@ -196,6 +195,13 @@ export function buildGame(
     session,
     (amount) => survivalSystem.hurt(amount),
     settings,
+    // The monkey heist steals through the SAME plants/ripeness seam the
+    // forage system owns; a scooped drop nourishes like a real pick (J1 #220).
+    {
+      plants: forage.plants,
+      setRipe: forage.setRipe,
+      creditEat: (kind) => forageSystem.creditExternalEat(kind),
+    },
   );
   onFinaleStart = () => wildlife.birds.startle();
 
@@ -289,6 +295,8 @@ export function buildGame(
       respawn: () => {
         discovery.store.closePoi();
         survivalSystem.respawn();
+        // The troop goes back to its own life — no thief mid-gag over a body.
+        wildlife.monkeys.reset();
       },
       eat: (amount: number) => survivalSystem.eat(amount),
       hurt: (amount: number) => survivalSystem.hurt(amount),
