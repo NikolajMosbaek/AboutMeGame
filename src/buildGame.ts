@@ -24,6 +24,7 @@ import { AudioSystem } from "./audio/AudioSystem.ts";
 import { installAudioResume } from "./audio/resumeNet.ts";
 import { DiscoveryBurstSystem } from "./fx/DiscoveryBurstSystem.ts";
 import { LeafBurstSystem } from "./fx/LeafBurstSystem.ts";
+import { HandsSystem } from "./player/hands.ts";
 import { TreasureBurstSystem } from "./fx/TreasureBurstSystem.ts";
 import { buildWildlife } from "./wildlife/buildWildlife.ts";
 
@@ -253,6 +254,9 @@ export function buildGame(
     QUEST_TUNE.finaleSeconds,
   );
   engine.addSystem(treasureBurst);
+
+  // First-person hands (E1 #233) — the body in the frame: drink/eat/dig.
+  engine.addSystem(new HandsSystem(engine.scene, survivalStore, forageStore, questStore, settings));
 
   // Leaf burst on a bird flush (J1 #221) — the gag's visual half; the squawk
   // cascade is wired through the AudioSystem below.
