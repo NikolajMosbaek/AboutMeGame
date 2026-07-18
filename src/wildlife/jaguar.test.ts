@@ -249,6 +249,22 @@ describe("stepJaguar — the snake double-take (J1 #221)", () => {
     expect(r.state.mode).toBe("prowl");
   });
 
+  it("a bolt blocked by water on every side resolves early to prowl — never a rooted statue", () => {
+    const snake = { x: s0.x + 2, z: s0.z };
+    // Water everywhere: forbidden() rejects every bolt step.
+    const flooded = env({
+      player: { x: s0.x + 20, z: s0.z },
+      snakes: [snake],
+      waterDepthAt: () => 10,
+    });
+    let r = stepJaguar(stalkState(), DT, flooded);
+    expect(r.state.mode).toBe("startled");
+    for (let t = 0; t < STARTLE_FREEZE + 0.2; t += DT) r = stepJaguar(r.state, DT, flooded);
+    // First blocked bolt frame after the freeze bails out with the cooldown.
+    expect(r.state.mode).toBe("prowl");
+    expect(r.state.cooldown).toBeGreaterThan(STARTLED_COOLDOWN - 5);
+  });
+
   it("a committed CHARGE is never interrupted by a snake — the pounce stays dangerous", () => {
     const snake = { x: s0.x + 1, z: s0.z };
     const charging: JaguarState = { ...s0, mode: "charge" };

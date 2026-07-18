@@ -31,6 +31,21 @@ describe("LeafBurstSystem", () => {
     sys.dispose();
   });
 
+  it("buffers a second flush until the active burst has finished — no teleporting cloud", () => {
+    const scene = new THREE.Scene();
+    const source = queueSource({ x: 0, y: 10, z: 0 }, { x: 50, y: 10, z: 50 });
+    const sys = new LeafBurstSystem(scene, source);
+    sys.update(FRAME); // fires burst 1
+    sys.update(FRAME); // burst 1 still active — burst 2 must WAIT in the queue
+    expect(source.queue.length).toBe(1);
+    // Let burst 1 finish, then the queued flush fires.
+    for (let i = 0; i < 300 && sys.describe().active; i++) sys.update(FRAME);
+    sys.update(FRAME);
+    expect(source.queue.length).toBe(0);
+    expect(sys.describe().active).toBe(true);
+    sys.dispose();
+  });
+
   it("disposes cleanly and detaches its points from the scene", () => {
     const scene = new THREE.Scene();
     const sys = new LeafBurstSystem(scene, queueSource());

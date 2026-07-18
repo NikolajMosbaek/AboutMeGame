@@ -35,11 +35,18 @@ export class LeafBurstSystem implements System {
   }
 
   update(ctx: FrameContext): void {
-    const pos = this.source.consumeFlushBurst();
-    // Non-essential motion: under reduced motion the queue still drains (no
-    // buildup), the particles just never fire.
-    if (pos && !this.reducedMotion?.getSnapshot().reducedMotion) {
-      this.burst.trigger(this.at.set(pos.x, pos.y, pos.z), LEAF_COLOR);
+    if (this.reducedMotion?.getSnapshot().reducedMotion) {
+      // Non-essential motion: drain the queue (no buildup) without firing.
+      while (this.source.consumeFlushBurst() !== null) {
+        /* drained */
+      }
+    } else if (!this.burst.active) {
+      // The pool re-seeds ALL particles on trigger — consuming while a burst
+      // is mid-flight would teleport the visible cloud to the new flock
+      // (review finding). The queue buffers the second flush until this one
+      // lands; the source caps it at 4 so nothing accumulates unbounded.
+      const pos = this.source.consumeFlushBurst();
+      if (pos) this.burst.trigger(this.at.set(pos.x, pos.y, pos.z), LEAF_COLOR);
     }
     this.burst.update(ctx.dt);
   }

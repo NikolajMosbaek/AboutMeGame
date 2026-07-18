@@ -192,8 +192,13 @@ export function stepFish(
   } else {
     timer += dt;
     if (timer >= FLEE_DURATION && distToPlayer >= FLEE_RADIUS) {
+      // A fish that just fled is refractory to splashes too — without this,
+      // stragglers that were mid-flee when a splash landed would re-freeze
+      // the moment they touched patrol and re-fire the one-shot (review
+      // finding: duplicate plip-clusters trickling out per straggler).
       mode = "patrol";
       timer = 0;
+      return { ...state, mode, timer, refractory: timing.cooldownSeconds };
     }
   }
 

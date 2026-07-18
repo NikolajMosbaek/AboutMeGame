@@ -325,10 +325,20 @@ export function stepJaguar(state: JaguarState, dt: number, env: JaguarEnv): Jagu
         break;
       }
       // The bolt: directly away from the snake, faster than its own charge.
+      // A bolt into forbidden ground (river, camp ring) falls back to
+      // away-from-the-player; if that's blocked too, the startle resolves
+      // early — a rooted 2.5 s statue is a hang, not a gag (review finding).
       const scare = nearestSnakeDist(s.x, s.z, env.snakes);
       const from = scare.snake ?? env.player;
       const away = { x: 2 * s.x - from.x, z: 2 * s.z - from.z };
-      stepToward(s, away.x, away.z, CHARGE_SPEED * BOLT_SPEED_MULT, dt, env);
+      if (!stepToward(s, away.x, away.z, CHARGE_SPEED * BOLT_SPEED_MULT, dt, env)) {
+        const alt = { x: 2 * s.x - env.player.x, z: 2 * s.z - env.player.z };
+        if (!stepToward(s, alt.x, alt.z, CHARGE_SPEED * BOLT_SPEED_MULT, dt, env)) {
+          s.mode = "prowl";
+          s.waypoint = nearestWaypoint(s.x, s.z);
+          s.cooldown = STARTLED_COOLDOWN;
+        }
+      }
       break;
     }
 
