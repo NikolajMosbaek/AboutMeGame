@@ -31,6 +31,8 @@ function fakeEngine() {
     monkeyRaspberry: vi.fn(),
     jaguarYelp: vi.fn(),
     splashScatter: vi.fn(),
+    setRainLevel: vi.fn(),
+    thunder: vi.fn(),
     setMuted: vi.fn(),
     resume: vi.fn(),
     recoverIfInterrupted: vi.fn(),
@@ -462,6 +464,38 @@ describe("AudioSystem", () => {
     expect(engine.splashScatter).toHaveBeenCalledTimes(1);
     expect(engine.monkeyChitter).toHaveBeenCalledTimes(1);
     expect(engine.monkeyRaspberry).toHaveBeenCalledTimes(1);
+    sys.dispose();
+  });
+
+  it("drives the rain bed from the weather snapshot and rumbles once per thunder edge (W1 #228)", () => {
+    let thundered = true;
+    const engine = fakeEngine();
+    const store = createDiscoveryStore(3);
+    const args = neutralArgs();
+    const sys = new AudioSystem(
+      engine,
+      store,
+      args.explorer,
+      args.muted,
+      args.dayPhase,
+      args.waterDepthAt,
+      args.survival,
+      args.forage,
+      args.quest,
+      args.snakes,
+      { isStalking: () => false, justStartled: () => false },
+      undefined,
+      undefined,
+      undefined,
+      {
+        snapshot: () => ({ rain01: 0.7 }),
+        justThundered: () => { const e = thundered; thundered = false; return e; },
+      },
+    );
+    sys.update(CTX());
+    sys.update(CTX());
+    expect(engine.setRainLevel).toHaveBeenLastCalledWith(0.7);
+    expect(engine.thunder).toHaveBeenCalledTimes(1);
     sys.dispose();
   });
 

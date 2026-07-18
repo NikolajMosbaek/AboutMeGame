@@ -38,8 +38,10 @@ function fakeContext() {
   };
 
   let state = "suspended";
+  const bufferSources: Array<Record<string, unknown>> = [];
   const ctx: AudioContextLike = {
     currentTime: 0,
+    sampleRate: 8000,
     destination: withNode({}) as unknown as AudioContextLike["destination"],
     get state() {
       return state;
@@ -69,6 +71,20 @@ function fakeContext() {
       filters.push(f);
       return f;
     },
+    createBuffer(_ch: number, length: number) {
+      const data = new Float32Array(length);
+      return { getChannelData: () => data };
+    },
+    createBufferSource() {
+      const src = withNode({
+        buffer: null,
+        loop: false,
+        start: vi.fn(),
+        stop: vi.fn(),
+      });
+      bufferSources.push(src as Record<string, unknown>);
+      return src as never;
+    },
     resume: vi.fn(async () => {
       state = "running";
     }),
@@ -84,7 +100,7 @@ function fakeContext() {
   const setState = (s: string) => {
     state = s;
   };
-  return { ctx, oscillators, gains, filters, connections, setState };
+  return { ctx, oscillators, gains, filters, connections, setState, bufferSources };
 }
 
 describe("AudioEngine", () => {
@@ -358,6 +374,51 @@ describe("AudioEngine", () => {
     const before = oscillators.length;
     engine.chime();
     expect(oscillators.length).toBe(before);
+  });
+});
+
+describe("rain bed + thunder (W1 #228)", () => {
+  it("builds the 3-node rain chain lazily, ramps with the level, tears down at 0", () => {
+    const { ctx, gains, bufferSources } = fakeContext();
+    const engine = new AudioEngine(() => ctx);
+    engine.setRainLevel(0); // dry: nothing built
+    expect(bufferSources.length).toBe(0);
+
+    engine.setRainLevel(0.6);
+    expect(bufferSources.length).toBe(1); // looped noise source exists
+    expect((bufferSources[0] as { loop: boolean }).loop).toBe(true);
+    const rainGain = gains.at(-1)!;
+    const ramps = (rainGain.gain.linearRampToValueAtTime as ReturnType<typeof vi.fn>).mock.calls;
+    expect(ramps.at(-1)?.[0]).toBeGreaterThan(0.01);
+
+    engine.setRainLevel(0.6); // redundant level: no extra chain
+    expect(bufferSources.length).toBe(1);
+
+    engine.setRainLevel(0);
+    expect((bufferSources[0] as { stop: ReturnType<typeof vi.fn> }).stop).toHaveBeenCalled();
+    engine.setRainLevel(0.5); // a NEW shower builds a NEW chain
+    expect(bufferSources.length).toBe(2);
+    engine.dispose();
+  });
+
+  it("thunder is a one-shot noise burst + sub oscillator, gated by mute", () => {
+    const { ctx, oscillators, bufferSources } = fakeContext();
+    const engine = new AudioEngine(() => ctx);
+    engine.thunder();
+    expect(bufferSources.length).toBe(1);
+    expect(oscillators.length).toBe(1); // the 45 Hz sub
+    engine.setMuted(true);
+    engine.thunder();
+    expect(bufferSources.length).toBe(1); // muted: nothing
+    engine.dispose();
+  });
+
+  it("dispose stops a live rain bed", () => {
+    const { ctx, bufferSources } = fakeContext();
+    const engine = new AudioEngine(() => ctx);
+    engine.setRainLevel(1);
+    engine.dispose();
+    expect((bufferSources[0] as { stop: ReturnType<typeof vi.fn> }).stop).toHaveBeenCalled();
   });
 });
 
