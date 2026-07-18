@@ -73,7 +73,7 @@ export function buildWildlife(
     () => snakes.positions(), // the double-take reads real snake placements
     reducedMotion,
   );
-  const monkeys = new MonkeysSystem(engine.scene, world.terrain, player, session, heist, reducedMotion);
+  const monkeys = new MonkeysSystem(engine.scene, world.terrain, world.waterDepthAt, player, session, heist, reducedMotion);
 
   engine.addSystem(birds);
   engine.addSystem(fliers);
