@@ -37,6 +37,9 @@ import type { GameSession } from "../gameSession.ts";
 /** The slice of the built game the React shell needs. A subset of `Game`, so the
  *  default `buildGame` satisfies it and a preview/test can return a minimal one. */
 export interface GameHandle {
+  /** The live weather read (W1 #226) — EnvLight's dim hook. Optional so
+   *  preview/legacy builders without a weather system stay valid. */
+  weather?: { snapshot(): { dim: number } };
   discovery: {
     store: DiscoveryStore;
     reset(): void;
@@ -237,7 +240,13 @@ export function GameCanvas({
     // registered system — no separate teardown needed.
     if (built?.dayCycle) {
       eng.addSystem(
-        new EnvLightSystem(renderer, scene, built.dayCycle, { dynamic: quality.envDynamic }),
+        new EnvLightSystem(renderer, scene, built.dayCycle, {
+          dynamic: quality.envDynamic,
+          // This system writes environmentIntensity AFTER WeatherSystem runs,
+          // so the shower's ambient darkening applies here, at the write
+          // (W1 #226).
+          weatherDim: built.weather ? () => built.weather!.snapshot().dim : undefined,
+        }),
       );
     }
 

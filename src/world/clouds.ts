@@ -197,6 +197,7 @@ export class CloudSystem implements System {
   private readonly pos = new THREE.Vector3();
   private readonly sc = new THREE.Vector3();
   private readonly tint = new THREE.Color();
+  private weatherDark = 0;
 
   constructor(
     scene: THREE.Scene,
@@ -233,9 +234,18 @@ export class CloudSystem implements System {
     const sunDirY = this.dayCycle.getSunDirection().y;
     const { sunColor } = this.dayCycle.getPalette();
     const t = cloudTint(sunDirY, sunColor);
-    this.tint.setRGB(t.r, t.g, t.b);
+    // Weather darkening (W1 #226): a shower drags the whole layer toward
+    // storm-grey — applied on top of the day tint, so dawn/dusk warmth still
+    // reads through a light shower.
+    const dark = 1 - 0.55 * this.weatherDark;
+    this.tint.setRGB(t.r * dark, t.g * dark, t.b * dark);
     for (let i = 0; i < this.placements.length; i++) this.mesh.setColorAt(i, this.tint);
     if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
+  }
+
+  /** Storm darkening 0..1 — `WeatherSystem` drives this each frame. */
+  setWeatherDark(dark01: number): void {
+    this.weatherDark = Math.min(1, Math.max(0, dark01));
   }
 
   /** Rebuild every instance matrix: drifted position (wrapping) + a full

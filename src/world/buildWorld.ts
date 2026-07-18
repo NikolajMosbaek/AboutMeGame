@@ -14,6 +14,8 @@ import { ShadowFrustumSystem } from "./shadowFrustumSystem.ts";
 import { StarfieldSystem } from "./starfield.ts";
 import { CloudSystem } from "./clouds.ts";
 import { WindSystem, type WindUniforms } from "./windSystem.ts";
+import { WeatherSystem } from "./weatherSystem.ts";
+import type { WeatherSnapshot } from "./weather.ts";
 import { AmbientMotesSystem } from "../fx/AmbientMotesSystem.ts";
 import type { FloraUpgradeHandle } from "./floraUpgrade.ts";
 import type { LandmarksUpgradeHandle } from "./landmarksUpgrade.ts";
@@ -61,6 +63,9 @@ export interface World {
    *  (by `GameCanvas`, which owns the real renderer they each need) and read
    *  this same accessor. */
   dayCycle: Pick<DayCycleSystem, "getPhase" | "getPalette" | "getSunDirection">;
+  /** The live weather (W1 #226): the rain layer, EnvLight dim and audio read
+   *  `snapshot()`; the thunder rumble drains `justThundered()`. */
+  weather: { snapshot(): WeatherSnapshot; justThundered(): boolean };
   dispose(): void;
 }
 
@@ -161,9 +166,12 @@ export function buildWorld(
   // no point advancing a clock nothing reads).
   let floraUpgradeCancelled = false;
   let floraUpgradeHandle: FloraUpgradeHandle | null = null;
+  let windSystem: WindSystem | undefined;
+  let cloudSystem: CloudSystem | undefined;
   if (quality.floraDetail === "full") {
     const windUniforms: WindUniforms = { uTime: { value: 0 } };
-    engine.addSystem(new WindSystem(windUniforms, reducedMotion));
+    windSystem = new WindSystem(windUniforms, reducedMotion);
+    engine.addSystem(windSystem);
     import("./floraUpgrade.ts").then(
       ({ upgradeFlora }) => {
         if (floraUpgradeCancelled) return;
@@ -196,6 +204,13 @@ export function buildWorld(
       getPhase: () => dayCycleSystem.getPhase(),
       getPalette: () => dayCycleSystem.getPalette(),
       getSunDirection: () => dayCycleSystem.getSunDirection(),
+    },
+    // Lazy closures: `weatherSystem` is constructed (and registered) below,
+    // after the cloud/wind systems it drives exist. Callers only invoke these
+    // once the world is running.
+    weather: {
+      snapshot: () => weatherSystem.snapshot(),
+      justThundered: () => weatherSystem.justThundered(),
     },
     dispose() {
       floraUpgradeCancelled = true; // an in-flight model load must not attach to a torn-down world
@@ -274,8 +289,16 @@ export function buildWorld(
   // medium/high only (`quality.cloudDetail`): a bake-at-mount knob, like
   // `terrainDetail`/`waterDetail`, so it "applies on reload".
   if (quality.cloudDetail === "full") {
-    engine.addSystem(new CloudSystem(scene, dayCycleSystem, reducedMotion));
+    cloudSystem = new CloudSystem(scene, dayCycleSystem, reducedMotion);
+    engine.addSystem(cloudSystem);
   }
+
+  // Weather (W1 #226) — registered AFTER the day cycle (engine order), so its
+  // dim multiplies the fresh per-frame sun write. Clouds/wind poll their
+  // knobs, so their own order is free; EnvLightSystem (GameCanvas) dims
+  // itself via the injected weatherDim read.
+  const weatherSystem = new WeatherSystem(sky, dayCycleSystem, cloudSystem, windSystem);
+  engine.addSystem(weatherSystem);
 
   // Ambient jungle motes (visual-overhaul slice 7, polish) — 2 more `Points`
   // draw calls (dust/pollen + falling leaves), medium/high only

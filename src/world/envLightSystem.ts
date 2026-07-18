@@ -57,6 +57,10 @@ export interface EnvLightQuality {
    *  never again — the low tier's free visual upgrade with zero steady-state
    *  cost. */
   dynamic: boolean;
+  /** Optional weather dim 0..1 (W1 #226) — this system writes
+   *  `environmentIntensity` every frame AFTER `WeatherSystem` runs, so the
+   *  shower's ambient darkening must be applied HERE, at the write. */
+  weatherDim?: () => number;
 }
 
 /** Small PMREM source resolution — well inside the 64-128px range the design
@@ -143,7 +147,9 @@ export class EnvLightSystem implements System {
     // The intensity scalar is cheap (a number write) and tracks every frame
     // regardless of the coarser texture-rebake cadence below, so brightness
     // fades smoothly even between rebakes.
-    this.scene.environmentIntensity = environmentIntensityForSunIntensity(current.sunIntensity);
+    this.scene.environmentIntensity =
+      environmentIntensityForSunIntensity(current.sunIntensity) *
+      (1 - (this.quality.weatherDim?.() ?? 0));
 
     this.secondsSinceBake += ctx.dt;
     const delta = this.lastBaked ? paletteDelta(current, this.lastBaked) : Infinity;
