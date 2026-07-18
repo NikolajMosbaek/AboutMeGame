@@ -24,6 +24,9 @@ export class WindSystem implements System {
   readonly id = "wind";
 
   private t = 0;
+  /** Gust factor 0..1 (W1 #226): the sway clock runs up to 2.2x during a
+   *  gust — frequency agitation, zero shader changes. */
+  private gust = 0;
 
   constructor(
     private readonly uniforms: WindUniforms,
@@ -34,8 +37,16 @@ export class WindSystem implements System {
     const still = this.reducedMotion?.getSnapshot().reducedMotion ?? false;
     if (still) return; // HOLD the current phase — don't advance, don't reset.
 
-    this.t = THREE.MathUtils.euclideanModulo(this.t + ctx.dt, WIND_WRAP_PERIOD);
+    this.t = THREE.MathUtils.euclideanModulo(
+      this.t + ctx.dt * (1 + 1.2 * this.gust),
+      WIND_WRAP_PERIOD,
+    );
     this.uniforms.uTime.value = this.t;
+  }
+
+  /** Storm agitation 0..1 — `WeatherSystem` drives this each frame. */
+  setGust(gust01: number): void {
+    this.gust = Math.min(1, Math.max(0, gust01));
   }
 
   // No describe() — the sway phase churns every frame (see `WaterSystem`'s own

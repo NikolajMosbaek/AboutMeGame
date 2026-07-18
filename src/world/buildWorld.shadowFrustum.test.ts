@@ -116,7 +116,10 @@ describe("buildWorld → ShadowFrustumSystem registration (visual-overhaul slice
     const dayCycleIdx = ids.indexOf("dayCycle");
     const shadowFrustumIdx = ids.indexOf("shadowFrustum");
     expect(dayCycleIdx).toBeGreaterThanOrEqual(0);
-    expect(shadowFrustumIdx).toBe(dayCycleIdx + 1);
+    // W1 (#226): WeatherSystem sits directly after the day cycle — its dim
+    // must multiply the fresh per-frame sun write.
+    expect(ids[dayCycleIdx + 1]).toBe("weather");
+    expect(shadowFrustumIdx).toBe(dayCycleIdx + 2);
 
     world.dispose();
     engine.dispose();

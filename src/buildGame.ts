@@ -29,6 +29,8 @@ import { buildWildlife } from "./wildlife/buildWildlife.ts";
 
 export interface Game {
   world: World;
+  /** The live weather read (W1 #226) — the shell/EnvLight dim hook. */
+  weather: World["weather"];
   player: Player;
   discovery: Discovery;
   session: GameSession;
@@ -289,6 +291,7 @@ export function buildGame(
 
   return {
     world,
+    weather: world.weather,
     player,
     discovery,
     session,

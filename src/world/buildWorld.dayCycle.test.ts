@@ -133,7 +133,10 @@ describe("buildWorld → DayCycleSystem registration (G3, T4)", () => {
     const waterIdx = ids.indexOf("water");
     const dayCycleIdx = ids.indexOf("dayCycle");
     expect(waterIdx).toBeGreaterThanOrEqual(0);
-    expect(dayCycleIdx).toBe(waterIdx + 1);
+    // W1 (#226): the cloud layer now registers between water and the day
+    // cycle (its storm-dark knob must exist before WeatherSystem constructs).
+    expect(dayCycleIdx).toBe(waterIdx + 2);
+    expect(ids[waterIdx + 1]).toBe("clouds");
 
     world.dispose();
     engine.dispose();
