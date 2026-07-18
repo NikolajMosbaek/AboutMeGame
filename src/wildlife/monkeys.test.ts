@@ -5,17 +5,21 @@ import {
   CURIOUS_RADIUS,
   CURIOUS_STILL_SECONDS,
   DROP_TTL,
+  FIRST_HEIST_HEAD_START,
   FLEE_RADIUS,
   HEIST_MIN_GAP,
   HEIST_SEEK_RADIUS,
+  HEIST_TIMEOUT,
   MonkeysSystem,
   PICKUP_RADIUS,
   TAUNT_SECONDS,
   TROOP_ANCHORS,
+  TROOP_BANKS,
   TROOP_SIZE,
+  WADE_DEPTH,
+  dryPath,
   electThief,
   hopPose,
-  nearestAnchor,
   initialMonkeyState,
   stepMonkey,
   type MonkeyState,
@@ -34,9 +38,13 @@ function env(overrides: Partial<TroopEnv> = {}): TroopEnv {
     player: { x: 1000, z: 1000 },
     playerSpeed: 0,
     playerStillSeconds: 0,
+    waterDepthAt: () => -1, // bone dry unless a test says otherwise
     ...overrides,
   };
 }
+
+/** A north–south river wall: deep water everywhere east of x = 10. */
+const WALL = (x: number) => (x > 10 ? 3 : -1);
 
 const calmState = (i = 0): MonkeyState => initialMonkeyState(i);
 
@@ -51,6 +59,129 @@ describe("TROOP_ANCHORS", () => {
         WORLD.campClearRadius + 4,
       );
     }
+  });
+
+  it("every intra-bank patrol leg stays dry on the REAL terrain — the river splits the banks", () => {
+    // This is the invariant behind the user-visible bug: the old single-ring
+    // route crossed the carved river bed on 4 of 5 legs, so the troop swam
+    // the river every patrol cycle. Banks must never route over deep water.
+    const terrain = buildTerrain();
+    const depth = (x: number, z: number) => WORLD.seaLevel - terrain.heightAt(x, z);
+    expect(TROOP_BANKS.flat()).toEqual(TROOP_ANCHORS);
+    for (const bank of TROOP_BANKS) {
+      expect(bank.length).toBeGreaterThanOrEqual(2);
+      for (let i = 0; i < bank.length; i++) {
+        const a = bank[i];
+        const b = bank[(i + 1) % bank.length];
+        for (let t = 0; t <= 1.0001; t += 0.02) {
+          const d = depth(a.x + (b.x - a.x) * t, a.z + (b.z - a.z) * t);
+          expect(d).toBeLessThanOrEqual(0);
+        }
+      }
+    }
+  });
+
+  it("the troop splits across both banks, each monkey starting on dry ground", () => {
+    const terrain = buildTerrain();
+    const banks = new Set<number>();
+    for (let i = 0; i < TROOP_SIZE; i++) {
+      const s = initialMonkeyState(i);
+      banks.add(s.bank);
+      expect(WORLD.seaLevel - terrain.heightAt(s.x, s.z)).toBeLessThanOrEqual(0);
+      expect(s.anchor).toBeLessThan(TROOP_BANKS[s.bank].length);
+    }
+    expect(banks.size).toBe(TROOP_BANKS.length); // both banks staffed
+  });
+});
+
+describe("water discipline (the monkeys-in-the-river fix)", () => {
+  it("dryPath samples the straight line against deep water", () => {
+    expect(dryPath(-30, 0, 5, 0, WALL)).toBe(true);
+    expect(dryPath(-30, 0, 30, 0, WALL)).toBe(false);
+    expect(dryPath(20, 5, 30, -5, WALL)).toBe(false); // both ends past the wall
+  });
+
+  it("a fleeing monkey never crosses deep water — it skirts the bank instead", () => {
+    let s: MonkeyState = { ...calmState(0), x: 8, z: 0, mode: "flee", timer: 0 };
+    // Player due west pushes the flee east, straight at the wall.
+    const e = env({ player: { x: 0, z: 0 }, waterDepthAt: WALL });
+    for (let t = 0; t < COMIC_TIMING.reactSeconds; t += 0.05) {
+      s = stepMonkey(s, 0.05, e, COMIC_TIMING).state;
+      expect(WALL(s.x)).toBeLessThanOrEqual(WADE_DEPTH);
+    }
+  });
+
+  it("troop travel refuses steps into deep water even when the route points at it", () => {
+    // Monkey 0's anchor is east of the wall; it must pace the bank, not swim.
+    let s: MonkeyState = { ...calmState(0), x: 0, z: TROOP_ANCHORS[0].z, dwell: 0 };
+    const e = env({ waterDepthAt: WALL });
+    for (let i = 0; i < 400; i++) {
+      s = stepMonkey(s, 0.05, e, COMIC_TIMING).state;
+      expect(WALL(s.x)).toBeLessThanOrEqual(WADE_DEPTH);
+    }
+  });
+
+  it("a curious approach stops at the water's edge — it stares from across the river", () => {
+    let s: MonkeyState = { ...calmState(0), x: 4, z: 0, mode: "curious", timer: 0 };
+    const e = env({ player: { x: 16, z: 0 }, playerStillSeconds: 10, waterDepthAt: WALL });
+    for (let t = 0; t < 10; t += 0.1) {
+      s = stepMonkey(s, 0.1, e, COMIC_TIMING).state;
+      expect(WALL(s.x)).toBeLessThanOrEqual(WADE_DEPTH);
+    }
+  });
+});
+
+describe("heist reachability and timeout", () => {
+  it("electThief skips ineligible monkeys and returns -1 when nobody can reach", () => {
+    const states = [
+      { x: 30, z: 0 },
+      { x: 21, z: 1 },
+    ];
+    const plant = { x: 20, z: 0 };
+    expect(electThief(states, plant, [true, false])).toBe(0);
+    expect(electThief(states, plant, [false, false])).toBe(-1);
+    expect(electThief(states, plant)).toBe(1); // no mask: nearest, as before
+  });
+
+  it("a heist blocked by water gives up after HEIST_TIMEOUT instead of stalling the gag forever", () => {
+    let s: MonkeyState = {
+      ...calmState(0),
+      x: 0,
+      z: 0,
+      mode: "heist",
+      heistTarget: { x: 40, z: 0, kind: "banana", plantIndex: 0 },
+    };
+    const e = env({ waterDepthAt: WALL });
+    let t = 0;
+    while (s.mode === "heist" && t < HEIST_TIMEOUT + 5) {
+      s = stepMonkey(s, 0.25, e, COMIC_TIMING).state;
+      t += 0.25;
+    }
+    expect(s.mode).not.toBe("heist");
+    expect(t).toBeLessThanOrEqual(HEIST_TIMEOUT + 1);
+  });
+
+  it("a carrier blocked on the way to its perch drops the fruit where it stands and bails", () => {
+    let s: MonkeyState = {
+      ...calmState(0),
+      x: 0,
+      z: 0,
+      mode: "heist",
+      carrying: "mango",
+      timer: 0,
+      heistTarget: { x: 40, z: 0, kind: "mango", plantIndex: -1 },
+    };
+    const e = env({ waterDepthAt: WALL });
+    let dropped: { x: number; z: number } | null = null;
+    for (let t = 0; t < HEIST_TIMEOUT + 5 && !dropped; t += 0.25) {
+      const r = stepMonkey(s, 0.25, e, COMIC_TIMING);
+      s = r.state;
+      if (r.dropped) dropped = r.dropped;
+    }
+    expect(dropped).not.toBeNull();
+    expect(WALL(dropped!.x)).toBeLessThanOrEqual(WADE_DEPTH); // dropped on land
+    expect(s.mode).toBe("flee");
+    expect(s.carrying).toBeNull();
   });
 });
 
@@ -159,10 +290,11 @@ describe("the fruit heist (pure)", () => {
     expect(s.mode).toBe("flee"); // scarpers after the gag
   });
 
-  it("the perch heading points toward the troop's nearest anchor — never out to sea", () => {
-    // Steal at a plant sitting right on anchor 0; the perch must head toward
-    // a real anchor (validated land), not away from the player (which could
-    // point past the boundary for a coastal plant).
+  it("the perch heads toward a REAL home anchor of the thief's bank — never out to sea, never at the plant", () => {
+    // Steal near anchor 0; the perch must head toward an anchor of the
+    // thief's own bank (validated dry land), and toward one far enough away
+    // that the perch isn't the plant itself (or the chase radius eats the
+    // gag the same frame).
     const s: MonkeyState = { ...calmState(0), mode: "heist", heistTarget: target };
     const e = env({ player: { x: 38, z: 30 } });
     let r = stepMonkey(s, 0.1, e, COMIC_TIMING);
@@ -170,11 +302,14 @@ describe("the fruit heist (pure)", () => {
       r = stepMonkey(r.state, 0.1, e, COMIC_TIMING);
     }
     const perch = r.state.heistTarget!;
-    const home = TROOP_ANCHORS[nearestAnchor(target.x, target.z)];
-    const towardHome =
-      (perch.x - target.x) * (home.x - target.x) + (perch.z - target.z) * (home.z - target.z);
-    expect(towardHome).toBeGreaterThan(0); // same half-plane as home turf
+    expect(Math.hypot(perch.x - target.x, perch.z - target.z)).toBeGreaterThan(5);
     expect(Math.hypot(perch.x, perch.z)).toBeLessThan(WORLD.boundaryRadius);
+    // Same half-plane as at least one of the thief's own bank anchors.
+    const towardOwnBank = TROOP_BANKS[r.state.bank].some(
+      (a) =>
+        (perch.x - target.x) * (a.x - target.x) + (perch.z - target.z) * (a.z - target.z) > 0,
+    );
+    expect(towardOwnBank).toBe(true);
   });
 
   it("chasing the perched thief forces the drop early", () => {
@@ -206,7 +341,8 @@ describe("MonkeysSystem", () => {
     const ripeFlips: Array<[number, boolean]> = [];
     const position = new THREE.Vector3(opts.px ?? 1000, 0, opts.pz ?? 1000);
     const playerState = { position, speed: opts.speed ?? 0 };
-    const sys = new MonkeysSystem(scene, terrain, { state: playerState }, { paused: false }, {
+    const waterDepthAt = (x: number, z: number) => WORLD.seaLevel - terrain.heightAt(x, z);
+    const sys = new MonkeysSystem(scene, terrain, waterDepthAt, { state: playerState }, { paused: false }, {
       plants,
       setRipe: (i, ripe) => ripeFlips.push([i, ripe]),
       creditEat: (kind) => eaten.push(kind),
@@ -240,7 +376,7 @@ describe("MonkeysSystem", () => {
     sys.dispose();
   });
 
-  it("never triggers a heist before the pacing gap has elapsed", () => {
+  it("paces the first gag off a head start: no heist before the shortened first gap, armed soon after", () => {
     const plant: FruitPlant = {
       kind: "banana",
       x: TROOP_ANCHORS[0].x,
@@ -248,10 +384,59 @@ describe("MonkeysSystem", () => {
       ripe: true,
       regrowIn: 0,
     };
+    const firstGap = HEIST_MIN_GAP - FIRST_HEIST_HEAD_START;
+    expect(firstGap).toBeGreaterThan(10); // still a real wait, never instant
     const { sys } = rig({ plants: [plant], px: plant.x + 3, pz: plant.z });
-    run(sys, HEIST_MIN_GAP - 2);
+    run(sys, firstGap - 2);
     expect(sys.describe().heisting).toBe(false);
     expect(plant.ripe).toBe(true);
+    run(sys, 6); // …but the first gag lands minutes sooner than the steady gap
+    expect(sys.describe().heisting).toBe(true);
+    sys.dispose();
+  });
+
+  it("an idle monkey sits still at its anchor — no perpetual bouncing", () => {
+    const { scene, sys } = rig();
+    run(sys, 2); // far player: the whole troop is dwelling
+    let body: THREE.InstancedMesh | undefined;
+    scene.traverse((o) => {
+      if (o instanceof THREE.InstancedMesh && o.name === "wildlife-monkey-body") body = o;
+    });
+    const m = new THREE.Matrix4();
+    const p = new THREE.Vector3();
+    const q = new THREE.Quaternion();
+    const sc = new THREE.Vector3();
+    const snap = sys.describe().positions as Array<{ x: number; z: number }>;
+    for (let i = 0; i < TROOP_SIZE; i++) {
+      body!.getMatrixAt(i, m);
+      m.decompose(p, q, sc);
+      expect(p.y).toBeCloseTo(terrain.heightAt(snap[i].x, snap[i].z), 3);
+    }
+    sys.dispose();
+  });
+
+  it("a traveling monkey bounces — the hop belongs to movement, not to idling", () => {
+    const { scene, sys } = rig();
+    run(sys, 30); // past the first anchor dwell: someone is mid-leg
+    let body: THREE.InstancedMesh | undefined;
+    scene.traverse((o) => {
+      if (o instanceof THREE.InstancedMesh && o.name === "wildlife-monkey-body") body = o;
+    });
+    const m = new THREE.Matrix4();
+    const p = new THREE.Vector3();
+    const q = new THREE.Quaternion();
+    const sc = new THREE.Vector3();
+    let maxHop = 0;
+    for (let t = 0; t < 1; t += 0.05) {
+      sys.update({ ...STEP, dt: 0.05 });
+      const snap = sys.describe().positions as Array<{ x: number; z: number }>;
+      for (let i = 0; i < TROOP_SIZE; i++) {
+        body!.getMatrixAt(i, m);
+        m.decompose(p, q, sc);
+        maxHop = Math.max(maxHop, p.y - terrain.heightAt(snap[i].x, snap[i].z));
+      }
+    }
+    expect(maxHop).toBeGreaterThan(0.05);
     sys.dispose();
   });
 
@@ -368,6 +553,7 @@ describe("MonkeysSystem", () => {
     const sys = new MonkeysSystem(
       scene,
       terrain,
+      () => -1,
       { state: { position: new THREE.Vector3(0, 0, 0), speed: 0 } },
       session,
       { plants: [], setRipe: () => {}, creditEat: () => {} },

@@ -49,16 +49,32 @@ export interface HeistSeam {
 
 export const TROOP_SIZE = 4;
 
-/** Canopy hangouts on the valley floor and mid-slopes — near the fruit bands,
- *  clear of every site (≥ 10 u) and the camp clearing (a monkey never robs
- *  you at home). Verified against `POI_ANCHORS`/`SPAWN` by test. */
-export const TROOP_ANCHORS: ReadonlyArray<{ x: number; z: number }> = [
-  { x: 20, z: 40 },
-  { x: -30, z: 10 },
-  { x: 45, z: -40 },
-  { x: -60, z: 60 },
-  { x: 60, z: 70 },
+/** Canopy hangouts split by the river: the carved channel is deep water the
+ *  whole way from the highland spring to the lagoon, so a single anchor ring
+ *  would send the troop SWIMMING four legs out of five (the shipped bug).
+ *  Each monkey patrols one bank; every intra-bank leg is verified dry on the
+ *  real terrain by test, as is each anchor's site/camp clearance. */
+export const TROOP_BANKS: ReadonlyArray<ReadonlyArray<{ x: number; z: number }>> = [
+  // East bank — the ruin-side valley and hills.
+  [
+    { x: 20, z: 40 },
+    { x: 45, z: -40 },
+    { x: 60, z: 70 },
+  ],
+  // West bank — the canoe/last-camp country.
+  [
+    { x: -30, z: 10 },
+    { x: -60, z: 60 },
+  ],
 ];
+
+/** All anchors, flat — for site-clearance checks and as the default pool for
+ *  {@link nearestAnchor}. */
+export const TROOP_ANCHORS: ReadonlyArray<{ x: number; z: number }> = TROOP_BANKS.flat();
+
+/** Water deeper than a wade is monkey-forbidden (the jaguar's threshold —
+ *  matches the explorer's wadeDepth; capuchins don't swim rivers either). */
+export const WADE_DEPTH = 0.35;
 
 /** Player closer than this to a monkey → grammar freeze-beat, then flee. */
 export const FLEE_RADIUS = 3;
@@ -82,6 +98,12 @@ const REACHED = 1.2;
  *  scarcity is what keeps it funny. */
 export const HEIST_MIN_GAP = 90;
 export const HEIST_MAX_WAIT = 240;
+/** The gag clock starts here, not at zero, so the FIRST heist can land ~30 s
+ *  into a session — the comedy has to introduce itself before it can be rare. */
+export const FIRST_HEIST_HEAD_START = 60;
+/** A heist that can't reach its plant or perch (water in the way) gives up
+ *  after this long, freeing the gag slot instead of stalling comedy forever. */
+export const HEIST_TIMEOUT = 25;
 /** A heist arms when the player is within this of a ripe plant. */
 export const HEIST_SEEK_RADIUS = 10;
 /** How long the thief taunts on its perch before dropping the fruit. */
@@ -104,9 +126,13 @@ export interface MonkeyState {
   z: number;
   /** Facing (radians; rotation.y for a +Z-forward body). */
   heading: number;
-  /** Seconds in the current mode (taunt clock while perched). */
+  /** Seconds in the current mode (taunt clock while perched, and the give-up
+   *  clock while running a heist). */
   timer: number;
-  /** Current anchor index into {@link TROOP_ANCHORS}. */
+  /** Which side of the river this monkey lives on — index into
+   *  {@link TROOP_BANKS}. Fixed for life; monkeys never cross the river. */
+  bank: number;
+  /** Current anchor index into its bank's list. */
   anchor: number;
   /** Seconds dwelt at the current anchor. */
   dwell: number;
@@ -120,8 +146,9 @@ export interface MonkeyState {
 }
 
 export function initialMonkeyState(i: number): MonkeyState {
-  const anchor = i % TROOP_ANCHORS.length;
-  const a = TROOP_ANCHORS[anchor];
+  const bank = i % TROOP_BANKS.length;
+  const anchor = Math.floor(i / TROOP_BANKS.length) % TROOP_BANKS[bank].length;
+  const a = TROOP_BANKS[bank][anchor];
   // Deterministic per-index spread around the anchor — no Math.random.
   const spread = hash2(i * 7.3, i * 3.1) * Math.PI * 2;
   return {
@@ -130,6 +157,7 @@ export function initialMonkeyState(i: number): MonkeyState {
     z: a.z + Math.sin(spread) * 2.5,
     heading: 0,
     timer: 0,
+    bank,
     anchor,
     dwell: i * 5, // stagger departures so the troop never moves in lockstep
     carrying: null,
@@ -138,12 +166,17 @@ export function initialMonkeyState(i: number): MonkeyState {
   };
 }
 
+/** Still-water depth at a ground point (`<= 0` = dry) — `World.waterDepthAt`. */
+export type WaterDepthAt = (x: number, z: number) => number;
+
 /** Everything one monkey reads about the world this frame. */
 export interface TroopEnv {
   player: { x: number; z: number };
   playerSpeed: number;
   /** Seconds the player has been standing still (speed under a soft floor). */
   playerStillSeconds: number;
+  /** Depth probe every step is checked against — monkeys never swim. */
+  waterDepthAt: WaterDepthAt;
 }
 
 export interface MonkeyStepResult {
@@ -162,12 +195,17 @@ export function hopPose(t: number, phase: number): number {
   return 0.35 * Math.abs(Math.sin(t * 5 + phase));
 }
 
-/** Index of the troop anchor nearest a point — the thief's retreat heading. */
-export function nearestAnchor(x: number, z: number): number {
+/** Index of the anchor (from `anchors`) nearest a point — the thief's retreat
+ *  heading and the drift retarget, always within one bank when passed one. */
+export function nearestAnchor(
+  x: number,
+  z: number,
+  anchors: ReadonlyArray<{ x: number; z: number }> = TROOP_ANCHORS,
+): number {
   let best = 0;
   let bestDist = Infinity;
-  for (let i = 0; i < TROOP_ANCHORS.length; i++) {
-    const d = Math.hypot(x - TROOP_ANCHORS[i].x, z - TROOP_ANCHORS[i].z);
+  for (let i = 0; i < anchors.length; i++) {
+    const d = Math.hypot(x - anchors[i].x, z - anchors[i].z);
     if (d < bestDist) {
       best = i;
       bestDist = d;
@@ -176,14 +214,17 @@ export function nearestAnchor(x: number, z: number): number {
   return best;
 }
 
-/** Index of the troop member nearest the plant — the elected thief. */
+/** Index of the nearest eligible troop member — the elected thief. `-1` when
+ *  nobody in the mask can take the job (the gag is skipped, not stalled). */
 export function electThief(
   states: ReadonlyArray<{ x: number; z: number }>,
   plant: { x: number; z: number },
+  eligible?: ReadonlyArray<boolean>,
 ): number {
-  let best = 0;
+  let best = -1;
   let bestDist = Infinity;
   for (let i = 0; i < states.length; i++) {
+    if (eligible && !eligible[i]) continue;
     const d = Math.hypot(states[i].x - plant.x, states[i].z - plant.z);
     if (d < bestDist) {
       bestDist = d;
@@ -193,16 +234,58 @@ export function electThief(
   return best;
 }
 
-function moveToward(s: MonkeyState, tx: number, tz: number, speed: number, dt: number): boolean {
+/** True when the straight line a→b never dips into deep water (sampled every
+ *  ~3 u) — the heist director's reachability check. */
+export function dryPath(
+  ax: number,
+  az: number,
+  bx: number,
+  bz: number,
+  waterDepthAt: WaterDepthAt,
+): boolean {
+  const len = Math.hypot(bx - ax, bz - az);
+  const steps = Math.max(1, Math.ceil(len / 3));
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    if (waterDepthAt(ax + (bx - ax) * t, az + (bz - az) * t) > WADE_DEPTH) return false;
+  }
+  return true;
+}
+
+/** Steering offsets tried in order when the direct step lands in deep water —
+ *  the monkey veers along the bank rather than swimming (or teleporting). */
+const STEER = [0, 0.7, -0.7, 1.4, -1.4];
+
+/** Move `speed·dt` toward the target, refusing any step into deep water; a
+ *  blocked direct line slides along the bank via {@link STEER}. Returns true
+ *  once within {@link REACHED} of the target (never while fully blocked). */
+function moveToward(
+  s: MonkeyState,
+  tx: number,
+  tz: number,
+  speed: number,
+  dt: number,
+  waterDepthAt: WaterDepthAt,
+): boolean {
   const dx = tx - s.x;
   const dz = tz - s.z;
   const len = Math.hypot(dx, dz);
   if (len < 1e-6) return true;
-  s.heading = Math.atan2(dx, dz);
   const step = Math.min(len, speed * dt);
-  s.x += (dx / len) * step;
-  s.z += (dz / len) * step;
-  return len <= REACHED;
+  const base = Math.atan2(dx, dz);
+  for (const off of STEER) {
+    const a = base + off;
+    const nx = s.x + Math.sin(a) * step;
+    const nz = s.z + Math.cos(a) * step;
+    if (waterDepthAt(nx, nz) <= WADE_DEPTH) {
+      s.heading = a;
+      s.x = nx;
+      s.z = nz;
+      return len <= REACHED;
+    }
+  }
+  s.heading = base; // feet stay dry; it faces where it wanted to go
+  return false;
 }
 
 /**
@@ -243,17 +326,18 @@ export function stepMonkey(
         s.timer = 0;
         break;
       }
-      const a = TROOP_ANCHORS[s.anchor];
+      const bankAnchors = TROOP_BANKS[s.bank];
+      const a = bankAnchors[s.anchor];
       const there = Math.hypot(s.x - a.x, s.z - a.z) <= 3;
       if (there) {
         s.dwell += dt;
         // Idle shuffle around the anchor: tiny deterministic drift.
         if (s.dwell >= ANCHOR_DWELL + (s.anchor % 3) * 4) {
-          s.anchor = (s.anchor + 1) % TROOP_ANCHORS.length;
+          s.anchor = (s.anchor + 1) % bankAnchors.length;
           s.dwell = 0;
         }
       } else {
-        moveToward(s, a.x, a.z, TROOP_SPEED, dt);
+        moveToward(s, a.x, a.z, TROOP_SPEED, dt, env.waterDepthAt);
       }
       s.timer += dt;
       break;
@@ -267,7 +351,7 @@ export function stepMonkey(
         s.refractory = 15;
         break;
       }
-      if (dist > CURIOUS_KEEP) moveToward(s, env.player.x, env.player.z, CURIOUS_SPEED, dt);
+      if (dist > CURIOUS_KEEP) moveToward(s, env.player.x, env.player.z, CURIOUS_SPEED, dt, env.waterDepthAt);
       else s.heading = Math.atan2(env.player.x - s.x, env.player.z - s.z); // sit and stare
       s.timer += dt;
       if (s.timer > 15) {
@@ -293,9 +377,15 @@ export function stepMonkey(
       const awayX = s.x - env.player.x;
       const awayZ = s.z - env.player.z;
       const len = Math.hypot(awayX, awayZ) || 1;
-      s.heading = Math.atan2(awayX / len, awayZ / len);
-      s.x += (awayX / len) * FLEE_SPEED * dt;
-      s.z += (awayZ / len) * FLEE_SPEED * dt;
+      // A bolt toward the river skirts the bank instead of swimming it.
+      moveToward(
+        s,
+        s.x + (awayX / len) * 10,
+        s.z + (awayZ / len) * 10,
+        FLEE_SPEED,
+        dt,
+        env.waterDepthAt,
+      );
       if (s.timer >= timing.reactSeconds) {
         s.mode = "troop";
         s.timer = 0;
@@ -306,16 +396,36 @@ export function stepMonkey(
 
     case "heist": {
       if (s.heistTarget && s.carrying === null) {
-        // Phase 1 — bound to the plant.
+        // Phase 1 — bound to the plant. The give-up clock runs the whole way:
+        // a thief walled off by the river frees the gag slot, never stalls it.
         const t = s.heistTarget;
-        if (moveToward(s, t.x, t.z, HEIST_SPEED, dt)) {
+        s.timer += dt;
+        if (s.timer >= HEIST_TIMEOUT) {
+          s.mode = "flee";
+          s.heistTarget = null;
+          s.timer = 0;
+          break;
+        }
+        if (moveToward(s, t.x, t.z, HEIST_SPEED, dt, env.waterDepthAt)) {
           stolePlant = t.plantIndex;
           s.carrying = t.kind;
-          // Phase 2 target: the perch, toward the troop's NEAREST anchor —
-          // home turf is always validated land inside the boundary, so the
-          // drop can never strand beyond the world clamp or out at sea
-          // (review finding: "away from the player" could point offshore).
-          const home = TROOP_ANCHORS[nearestAnchor(t.x, t.z)];
+          // Phase 2 target: the perch, toward the nearest anchor of the
+          // thief's OWN bank — home turf is validated dry land inside the
+          // boundary, so the drop can never strand offshore or over the river
+          // (review finding: "away from the player" could point out to sea).
+          // A plant sitting ON an anchor needs a home that's actually
+          // elsewhere, or the perch degenerates to the plant and the gag
+          // self-destructs against the chase radius.
+          const bankAnchors = TROOP_BANKS[s.bank];
+          let home = bankAnchors[nearestAnchor(t.x, t.z, bankAnchors)];
+          if (Math.hypot(home.x - t.x, home.z - t.z) < PERCH_DISTANCE * 1.5) {
+            for (const a of bankAnchors) {
+              if (Math.hypot(a.x - t.x, a.z - t.z) >= PERCH_DISTANCE * 1.5) {
+                home = a;
+                break;
+              }
+            }
+          }
           const homeX = home.x - t.x;
           const homeZ = home.z - t.z;
           const len = Math.hypot(homeX, homeZ) || 1;
@@ -328,8 +438,18 @@ export function stepMonkey(
           s.timer = 0;
         }
       } else if (s.heistTarget && s.carrying !== null) {
-        // Phase 2 — carry to the perch.
-        if (moveToward(s, s.heistTarget.x, s.heistTarget.z, HEIST_SPEED, dt)) {
+        // Phase 2 — carry to the perch (same give-up clock: a blocked carrier
+        // drops the fruit where it stands and bails).
+        s.timer += dt;
+        if (s.timer >= HEIST_TIMEOUT) {
+          dropped = { x: s.x, z: s.z, kind: s.carrying };
+          s.carrying = null;
+          s.heistTarget = null;
+          s.mode = "flee";
+          s.timer = 0;
+          break;
+        }
+        if (moveToward(s, s.heistTarget.x, s.heistTarget.z, HEIST_SPEED, dt, env.waterDepthAt)) {
           s.heistTarget = null;
           s.timer = 0;
         }
@@ -431,8 +551,11 @@ export class MonkeysSystem implements System {
   /** Play-time clocks the system owns (BirdsSystem's own-clock convention). */
   private elapsed = 0;
   private stillSeconds = 0;
-  private heistClock = 0;
+  private heistClock = FIRST_HEIST_HEAD_START;
   private thief = -1;
+  /** Per-monkey "actually displaced this frame" — the hop belongs to
+   *  movement; an idle monkey sits still instead of bouncing forever. */
+  private readonly moved: boolean[] = new Array(TROOP_SIZE).fill(false);
 
   /** Drained one-shot edges for the audio slice (PR III). */
   private stoleEdge = false;
@@ -449,6 +572,7 @@ export class MonkeysSystem implements System {
   constructor(
     scene: THREE.Scene,
     private readonly terrain: Terrain,
+    private readonly waterDepthAt: WaterDepthAt,
     private readonly player: PositionSource,
     private readonly session: PauseSource,
     private readonly heist: HeistSeam,
@@ -487,25 +611,40 @@ export class MonkeysSystem implements System {
     const playerInCamp = Math.hypot(p.x - SPAWN.x, p.z - SPAWN.z) < CAMP_SANCTUARY;
     if (!heistInProgress && this.heistClock >= HEIST_MIN_GAP && !playerInCamp) {
       const plantIndex = this.nearestRipePlant(p.x, p.z);
+      let assigned = false;
       if (plantIndex >= 0) {
         const plant = this.heist.plants[plantIndex];
-        const idx = electThief(this.states, plant);
-        this.states[idx] = {
-          ...this.states[idx],
-          mode: "heist",
-          heistTarget: { x: plant.x, z: plant.z, kind: plant.kind, plantIndex },
-          timer: 0,
-        };
-        this.thief = idx;
-      } else if (this.heistClock >= HEIST_MAX_WAIT) {
-        // Starved for a mark: drift the troop's route toward the player so
-        // the next encounter actually happens.
-        const nearest = nearestAnchor(p.x, p.z);
+        // Only a monkey with a dry line to the plant can take the job — a
+        // thief across the river would swim (or stall against the bank).
+        const eligible = this.states.map((s) =>
+          dryPath(s.x, s.z, plant.x, plant.z, this.waterDepthAt),
+        );
+        const idx = electThief(this.states, plant, eligible);
+        if (idx >= 0) {
+          this.states[idx] = {
+            ...this.states[idx],
+            mode: "heist",
+            heistTarget: { x: plant.x, z: plant.z, kind: plant.kind, plantIndex },
+            timer: 0,
+          };
+          this.thief = idx;
+          assigned = true;
+        }
+      }
+      if (!assigned && this.heistClock >= HEIST_MAX_WAIT) {
+        // Starved for a mark (no plant near, or nobody can reach it): drift
+        // each monkey toward its OWN bank's anchor nearest the player so the
+        // next encounter actually happens.
         for (let i = 0; i < this.states.length; i++) {
           if (this.states[i].mode === "troop") {
+            const bankAnchors = TROOP_BANKS[this.states[i].bank];
             // Fresh dwell too, or a stale clock bounces the monkey straight
             // past the retargeted anchor (review finding).
-            this.states[i] = { ...this.states[i], anchor: nearest, dwell: 0 };
+            this.states[i] = {
+              ...this.states[i],
+              anchor: nearestAnchor(p.x, p.z, bankAnchors),
+              dwell: 0,
+            };
           }
         }
         this.heistClock = HEIST_MIN_GAP; // re-check as soon as a plant is near
@@ -519,6 +658,7 @@ export class MonkeysSystem implements System {
       // Curiosity is routed to ONE monkey (the nearest) so the whole troop
       // doesn't crowd a still player.
       playerStillSeconds: this.stillSeconds,
+      waterDepthAt: this.waterDepthAt,
     };
     // The player may pick the very plant the thief is mid-flight toward
     // (forage runs earlier in the frame): the moment the mark goes bare, the
@@ -543,8 +683,11 @@ export class MonkeysSystem implements System {
     for (let i = 0; i < this.states.length; i++) {
       const perMonkeyEnv =
         i === nearestIdx ? env : { ...env, playerStillSeconds: 0 };
+      const prevX = this.states[i].x;
+      const prevZ = this.states[i].z;
       const r = stepMonkey(this.states[i], ctx.dt, perMonkeyEnv, timing);
       this.states[i] = r.state;
+      this.moved[i] = Math.hypot(r.state.x - prevX, r.state.z - prevZ) > 1e-4;
 
       if (r.stolePlant !== null && r.stolePlant >= 0) {
         const plant = this.heist.plants[r.stolePlant];
@@ -625,8 +768,9 @@ export class MonkeysSystem implements System {
     for (let i = 0; i < this.states.length; i++) {
       const s = this.states[i];
       const ground = this.terrain.heightAt(s.x, s.z);
-      const moving = s.mode !== "freeze" && !(s.mode === "heist" && s.heistTarget === null);
-      const hop = moving ? hopPose(this.elapsed, i * 1.9) : 0;
+      // The hop belongs to actual travel — a dwelling monkey sits calm, so
+      // the freeze-beat and the taunt-bounce read against stillness.
+      const hop = this.moved[i] ? hopPose(this.elapsed, i * 1.9) : 0;
       // Perched taunt: a big cheeky bounce instead of the travel hop.
       const tauntBounce =
         s.mode === "heist" && s.heistTarget === null && s.carrying !== null
@@ -680,7 +824,8 @@ export class MonkeysSystem implements System {
     this.states = Array.from({ length: TROOP_SIZE }, (_, i) => initialMonkeyState(i));
     this.drops = [];
     this.thief = -1;
-    this.heistClock = 0;
+    this.heistClock = FIRST_HEIST_HEAD_START;
+    this.moved.fill(false);
     this.upload();
   }
 
