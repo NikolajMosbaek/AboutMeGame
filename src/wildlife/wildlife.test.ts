@@ -31,7 +31,7 @@ function triangles(mesh: THREE.Mesh): number {
 }
 
 describe("wildlife draw-call and triangle budget", () => {
-  it("stays within ≤9 draw calls and ≤40k triangles across birds/fliers/fish/snakes/jaguar", () => {
+  it("stays within ≤11 draw calls and ≤40k triangles across birds/fliers/fish/snakes/jaguar/monkeys", () => {
     const engine = new Engine({ renderer: stubRenderer() });
     const world = buildWorld(engine, QUALITY_TIERS.high);
     const session = createSession();
@@ -48,8 +48,9 @@ describe("wildlife draw-call and triangle budget", () => {
       if (o.name.startsWith("wildlife-") && o instanceof THREE.Mesh) meshes.push(o);
     });
 
-    // 2 bird + 2 flier + 1 fish + 2 snake instanced draws, + 2 jaguar meshes.
-    expect(meshes.length).toBeLessThanOrEqual(9);
+    // 2 bird + 2 flier + 1 fish + 2 snake instanced draws, + 2 jaguar,
+    // + 2 monkey (body + shared carried/dropped fruit — J1 #220) meshes.
+    expect(meshes.length).toBeLessThanOrEqual(11);
 
     let totalTris = 0;
     for (const m of meshes) totalTris += triangles(m);

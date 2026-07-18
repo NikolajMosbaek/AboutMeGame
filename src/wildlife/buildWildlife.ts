@@ -12,6 +12,7 @@ import { FliersSystem } from "./fliers.ts";
 import { FishSystem } from "./fish.ts";
 import { SnakesSystem, type HurtFn } from "./snakes.ts";
 import { JaguarSystem } from "./jaguar.ts";
+import { MonkeysSystem, type HeistSeam } from "./monkeys.ts";
 
 /** Where the player is and how fast they're moving — the explorer satisfies
  *  it via `state.position`/`state.speed` (speed feeds the sprint-flush and
@@ -37,6 +38,7 @@ export interface Wildlife {
   fish: FishSystem;
   snakes: SnakesSystem;
   jaguar: JaguarSystem;
+  monkeys: MonkeysSystem;
 }
 
 /**
@@ -51,6 +53,9 @@ export function buildWildlife(
   session: PauseSource,
   hurt: HurtFn,
   reducedMotion?: ReducedMotionSource,
+  // The forage seam the monkey heist steals through (J1 #220). Optional so
+  // headless rigs without forage still get a trooping (non-thieving) troop.
+  heist: HeistSeam = { plants: [], setRipe: () => {}, creditEat: () => {} },
 ): Wildlife {
   const birds = new BirdsSystem(engine.scene, world.terrain, player, session, reducedMotion);
   const fliers = new FliersSystem(engine.scene, world.terrain, world.dayCycle, session);
@@ -65,12 +70,14 @@ export function buildWildlife(
     session,
     hurt,
   );
+  const monkeys = new MonkeysSystem(engine.scene, world.terrain, player, session, heist, reducedMotion);
 
   engine.addSystem(birds);
   engine.addSystem(fliers);
   engine.addSystem(fish);
   engine.addSystem(snakes);
   engine.addSystem(jaguar);
+  engine.addSystem(monkeys);
 
-  return { birds, fliers, fish, snakes, jaguar };
+  return { birds, fliers, fish, snakes, jaguar, monkeys };
 }

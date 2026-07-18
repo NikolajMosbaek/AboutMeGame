@@ -129,6 +129,15 @@ export class ForageSystem implements System {
     });
   }
 
+  /** Credit an eat that happened OUTSIDE the pick flow — scooping a fruit the
+   *  monkey dropped (J1 #220). Same nourishment, same `eaten` count (so the
+   *  bite cue and journal stats treat it as a real meal); the store snapshot
+   *  catches up on this system's next update tick. */
+  creditExternalEat(kind: FruitKind): void {
+    this.eat(NOURISH[kind]);
+    this.eaten += 1;
+  }
+
   describe(): Record<string, unknown> {
     return {
       plants: this.plants.length,
