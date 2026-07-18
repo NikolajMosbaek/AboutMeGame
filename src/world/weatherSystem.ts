@@ -1,12 +1,14 @@
 // WeatherSystem (W1 slice 2, #226) — the thin applier over the pure schedule
-// in `weather.ts`. Registered AFTER `DayCycleSystem` (which re-writes
-// `sun.intensity` every frame), so the shower's dim is a MULTIPLY on the
-// fresh frame value — it can never accumulate. Fog rides the live `FogExp2`
-// handle from a base density captured at construction; clouds and wind get
-// their factors through the small knobs added for this epic
-// (`CloudSystem.setWeatherDark`, `WindSystem.setGust`). The environment-map
-// intensity is dimmed by `EnvLightSystem` itself via an injected `dim` read
-// (it writes after this system in registration order — see GameCanvas).
+// in `weather.ts`. Registered AFTER `DayCycleSystem` (which re-writes BOTH
+// `sun.intensity` and `fog.density` every frame — the slice-5 low-sun haze),
+// so the shower's dim and fog boost are MULTIPLIES on the fresh frame values
+// — never accumulating, never stomping the day cycle's own curves. It also
+// registers BEFORE `UnderwaterFxSystem`, whose absolute submerged density
+// must win over weather (you can't see the rain from under the lagoon).
+// Clouds and wind get their factors through the small knobs added for this
+// epic (`CloudSystem.setWeatherDark`, `WindSystem.setGust`). The
+// environment-map intensity is dimmed by `EnvLightSystem` itself via an
+// injected `dim` read (it writes after this system, and on every bake).
 //
 // The clock is system-owned play time (the `BirdsSystem` convention) and, like
 // the day cycle it modulates, keeps running while the session is paused —
@@ -43,7 +45,6 @@ export class WeatherSystem implements System {
   private elapsed = 0;
   private snap: WeatherSnapshot;
   private thunderEdge = false;
-  private readonly baseFogDensity: number | null;
 
   constructor(
     private readonly sky: WeatherSky,
@@ -52,7 +53,6 @@ export class WeatherSystem implements System {
     private readonly wind?: GustSink,
     private readonly seed = 1,
   ) {
-    this.baseFogDensity = sky.fog?.density ?? null;
     this.snap = weatherAt(0, seed);
   }
 
@@ -65,9 +65,12 @@ export class WeatherSystem implements System {
     // The shower takes light (multiply on the day cycle's fresh write).
     this.sky.sun.intensity *= 1 - this.snap.dim;
 
-    if (this.sky.fog && this.baseFogDensity !== null) {
+    if (this.sky.fog) {
+      // Multiply the density the day cycle just wrote (its low-sun haze curve
+      // stays authoritative); UnderwaterFxSystem runs after us and overrides
+      // absolutely while submerged.
       const mist = mistAt(this.dayCycle.getPhase()) * MIST_FOG_BOOST;
-      this.sky.fog.density = this.baseFogDensity * (1 + this.snap.fogBoost + mist);
+      this.sky.fog.density *= 1 + this.snap.fogBoost + mist;
     }
 
     this.clouds?.setWeatherDark(this.snap.cloudDark);

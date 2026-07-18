@@ -81,3 +81,22 @@ describe("WIND_WRAP_PERIOD", () => {
     expect(Number.isFinite(WIND_WRAP_PERIOD)).toBe(true);
   });
 });
+
+describe("WindSystem.setGust (W1 #226)", () => {
+  it("runs the sway clock up to 2.2x under a full gust, clamped 0..1", async () => {
+    const { WindSystem } = await import("./windSystem.ts");
+    const THREE = await import("three");
+    const FRAME = { scene: new THREE.Scene(), camera: new THREE.PerspectiveCamera(), dt: 0.1, elapsed: 0 };
+    const uniforms = { uTime: { value: 0 } };
+    const sys = new WindSystem(uniforms);
+    sys.update(FRAME);
+    expect(uniforms.uTime.value).toBeCloseTo(0.1, 6);
+    sys.setGust(1);
+    sys.update(FRAME);
+    expect(uniforms.uTime.value).toBeCloseTo(0.1 + 0.22, 6);
+    sys.setGust(9); // clamped to 1
+    sys.update(FRAME);
+    expect(uniforms.uTime.value).toBeCloseTo(0.32 + 0.22, 6);
+    sys.dispose();
+  });
+});

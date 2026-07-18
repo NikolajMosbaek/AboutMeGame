@@ -191,3 +191,34 @@ describe("CloudSystem (GPU wiring)", () => {
     expect(matDispose).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("CloudSystem.setWeatherDark (W1 #226)", () => {
+  it("darkens the day tint toward storm-grey, clamped 0..1", async () => {
+    const THREE = await import("three");
+    const { CloudSystem } = await import("./clouds.ts");
+    const scene = new THREE.Scene();
+    const dayCycle = {
+      getSunDirection: () => new THREE.Vector3(0, 1, 0),
+      getPalette: () => ({ sunColor: [1, 1, 1] as const }),
+    };
+    const sys = new CloudSystem(scene, dayCycle as never, undefined);
+    const mesh = scene.children.find((o) => o instanceof THREE.InstancedMesh) as THREE.InstancedMesh;
+    const FRAME = { scene, camera: new THREE.PerspectiveCamera(), dt: 0.016, elapsed: 0 };
+    sys.update(FRAME);
+    const bright = new THREE.Color();
+    mesh.getColorAt(0, bright);
+
+    sys.setWeatherDark(1);
+    sys.update(FRAME);
+    const dark = new THREE.Color();
+    mesh.getColorAt(0, dark);
+    expect(dark.r).toBeLessThan(bright.r);
+
+    sys.setWeatherDark(-5); // clamped: renders exactly the bright tint again
+    sys.update(FRAME);
+    const clamped = new THREE.Color();
+    mesh.getColorAt(0, clamped);
+    expect(clamped.r).toBeCloseTo(bright.r, 6);
+    sys.dispose();
+  });
+});

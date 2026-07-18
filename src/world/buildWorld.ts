@@ -249,7 +249,21 @@ export function buildWorld(
   // null-guarded for the low tier. Injected the three live sky handles
   // individually (never the whole World/Sky), and the reduced-motion gate so it
   // pins to golden hour and holds when the player asks for less motion.
+  // Drifting clouds (visual-overhaul slice 5) — ONE InstancedMesh draw call,
+  // medium/high only (`quality.cloudDetail`). Constructed BEFORE weather so
+  // the storm-dark knob has a real sink (they poll it, so update order is free).
+  if (quality.cloudDetail === "full") {
+    cloudSystem = new CloudSystem(scene, dayCycleSystem, reducedMotion);
+    engine.addSystem(cloudSystem);
+  }
+
   engine.addSystem(dayCycleSystem);
+  // Weather (W1 #226) — AFTER the day cycle (its per-frame sun/fog writes are
+  // what weather multiplies), BEFORE UnderwaterFxSystem (whose absolute
+  // submerged fog must win). EnvLightSystem (GameCanvas) dims itself via the
+  // injected weatherDim read.
+  const weatherSystem = new WeatherSystem(sky, dayCycleSystem, cloudSystem, windSystem);
+  engine.addSystem(weatherSystem);
 
   // The player-following, texel-snapped shadow frustum (visual-overhaul slice
   // 2) — visual-only, registered here alongside the sky/water systems, NOT the
@@ -285,20 +299,6 @@ export function buildWorld(
   // sway's gate.
   engine.addSystem(new StarfieldSystem(scene, dayCycleSystem, reducedMotion));
 
-  // Drifting clouds (visual-overhaul slice 5) — ONE InstancedMesh draw call,
-  // medium/high only (`quality.cloudDetail`): a bake-at-mount knob, like
-  // `terrainDetail`/`waterDetail`, so it "applies on reload".
-  if (quality.cloudDetail === "full") {
-    cloudSystem = new CloudSystem(scene, dayCycleSystem, reducedMotion);
-    engine.addSystem(cloudSystem);
-  }
-
-  // Weather (W1 #226) — registered AFTER the day cycle (engine order), so its
-  // dim multiplies the fresh per-frame sun write. Clouds/wind poll their
-  // knobs, so their own order is free; EnvLightSystem (GameCanvas) dims
-  // itself via the injected weatherDim read.
-  const weatherSystem = new WeatherSystem(sky, dayCycleSystem, cloudSystem, windSystem);
-  engine.addSystem(weatherSystem);
 
   // Ambient jungle motes (visual-overhaul slice 7, polish) — 2 more `Points`
   // draw calls (dust/pollen + falling leaves), medium/high only

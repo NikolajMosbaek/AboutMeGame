@@ -243,7 +243,9 @@ export class CloudSystem implements System {
     if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
   }
 
-  /** Storm darkening 0..1 — `WeatherSystem` drives this each frame. */
+  /** Storm darkening 0..1 — `WeatherSystem` drives this each frame. Darkening
+   *  only: the material's base opacity is already 1 (translucency lives in
+   *  the puff texture's alpha), so there is no opacity headroom to raise. */
   setWeatherDark(dark01: number): void {
     this.weatherDark = Math.min(1, Math.max(0, dark01));
   }

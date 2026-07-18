@@ -46,16 +46,21 @@ describe("WeatherSystem", () => {
     expect(sky.sun.intensity).toBeGreaterThan(1.2 * (1 - 0.45) - 0.01);
   });
 
-  it("boosts fog density from the base while raining and restores it when clear", () => {
+  it("MULTIPLIES the fog density the day cycle wrote — boosted in rain, untouched when clear", () => {
     const { sky, sys } = rig();
     sys.update(FRAME(rainingMoment()));
     expect(sky.fog!.density).toBeGreaterThan(0.01);
-    // Jump far into a clear gap: density returns to base exactly.
-    const clearT = 30;
+    // A clear moment: the day cycle's own write passes through ×1 exactly
+    // (its low-sun haze curve stays authoritative — review finding).
     const { sky: sky2, sys: sys2 } = rig();
-    sys2.update(FRAME(clearT));
-    expect(weatherAt(clearT).rain01).toBe(0);
+    sys2.update(FRAME(30));
+    expect(weatherAt(30).rain01).toBe(0);
     expect(sky2.fog!.density).toBeCloseTo(0.01, 6);
+    // Emulate the day cycle's per-frame rewrite: fresh base, second frame —
+    // the multiply lands on the fresh value, never compounding.
+    sky2.fog!.density = 0.0032;
+    sys2.update(FRAME(0.016));
+    expect(sky2.fog!.density).toBeCloseTo(0.0032, 6);
   });
 
   it("adds dawn mist to the fog even in dry weather", () => {

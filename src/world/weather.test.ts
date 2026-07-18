@@ -99,6 +99,15 @@ describe("weatherAt — the shower schedule", () => {
     expect(sawLeadingGust).toBe(true);
   });
 
+  it("gust01 is continuous too — no pops at the gather/rain or tail/gap boundaries", () => {
+    let prev = weatherAt(0).gust01;
+    for (let t = 0.5; t < 1200; t += 0.5) {
+      const cur = weatherAt(t).gust01;
+      expect(Math.abs(cur - prev)).toBeLessThanOrEqual((0.5 / CLEAR_SECONDS) * 1.5 + 1e-6);
+      prev = cur;
+    }
+  });
+
   it("different seeds shuffle the schedule", () => {
     let differs = false;
     for (let t = 200; t < 2000; t += 10) {

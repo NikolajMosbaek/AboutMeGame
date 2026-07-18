@@ -102,12 +102,18 @@ export function weatherAt(playSeconds: number, seed = 1): WeatherSnapshot {
       // Clearing tail.
       env = cap * (1 - smoothstep(0, 1, (sinceRain - p.rain) / CLEAR_SECONDS));
     }
+    // Gusts hand over CONTINUOUSLY (review finding): the gather's full-cap
+    // agitation decays over the first gather-window of rain while the rain
+    // envelope ramps up — the max() crossover has no step at either boundary,
+    // and the clearing tail rides env straight down to the gap's zero.
+    const gustFloor =
+      sinceRain < p.rain ? cap * (1 - smoothstep(0, 1, sinceRain / GATHER_SECONDS)) : 0;
     return {
       rain01: env,
       dim: DIM_PER_RAIN * env,
       fogBoost: FOG_PER_RAIN * env,
       cloudDark: env,
-      gust01: Math.max(env, cap * 0.4), // agitation never dies mid-shower
+      gust01: Math.max(env, gustFloor),
       heavy: p.heavy,
     };
   }

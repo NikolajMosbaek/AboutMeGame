@@ -90,6 +90,9 @@ export class EnvLightSystem implements System {
   readonly id = "envLight";
 
   private readonly pmrem: THREE.PMREMGenerator;
+  /** The undimmed intensity of the most recent bake — the static (low-tier)
+   *  path re-applies the live weather dim over it each frame. */
+  private staticIntensity = 1;
   private readonly miniScene: THREE.Scene;
   private readonly domeGeo: THREE.SphereGeometry;
   private readonly domeMat: THREE.ShaderMaterial;
@@ -141,7 +144,15 @@ export class EnvLightSystem implements System {
     // this is a true no-op (zero steady-state cost), even though the day
     // cycle itself keeps cycling live underneath (unconditionally, on every
     // tier) — that live palette is simply never read here.
-    if (!this.quality.dynamic) return;
+    if (!this.quality.dynamic) {
+      // Static (low-tier) bake: the texture never regenerates, but the shower
+      // must still take the ambient light — on low, dimming IS the weather.
+      if (this.quality.weatherDim) {
+        this.scene.environmentIntensity =
+          this.staticIntensity * (1 - this.quality.weatherDim());
+      }
+      return;
+    }
 
     const current = this.dayCycle.getPalette();
     // The intensity scalar is cheap (a number write) and tracks every frame
@@ -175,7 +186,9 @@ export class EnvLightSystem implements System {
     const target = this.pmrem.fromScene(this.miniScene, 0, ENV_NEAR, ENV_FAR, { size: ENV_CUBE_SIZE });
     const old = this.currentTarget;
     this.scene.environment = target.texture;
-    this.scene.environmentIntensity = environmentIntensityForSunIntensity(palette.sunIntensity);
+    this.staticIntensity = environmentIntensityForSunIntensity(palette.sunIntensity);
+    this.scene.environmentIntensity =
+      this.staticIntensity * (1 - (this.quality.weatherDim?.() ?? 0));
     this.currentTarget = target;
     old?.dispose();
 
