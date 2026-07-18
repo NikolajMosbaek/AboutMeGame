@@ -1465,3 +1465,23 @@ body {
   padding: var(--space-4) var(--space-2);
   text-align: center;
 }
+
+/* Rain on the lens (E1 #234) — a static droplet field from layered radial
+   gradients; opacity is driven per-frame from the weather envelope by
+   GameCanvas. Static (no animation), so it is reduced-motion safe as-is. */
+.lens-rain {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  background-image:
+    radial-gradient(ellipse 3px 5px at 12% 22%, rgba(215, 230, 240, 0.5), transparent 70%),
+    radial-gradient(ellipse 2px 4px at 33% 61%, rgba(215, 230, 240, 0.42), transparent 70%),
+    radial-gradient(ellipse 3px 6px at 54% 13%, rgba(215, 230, 240, 0.48), transparent 70%),
+    radial-gradient(ellipse 2px 3px at 68% 44%, rgba(215, 230, 240, 0.4), transparent 70%),
+    radial-gradient(ellipse 3px 5px at 81% 74%, rgba(215, 230, 240, 0.46), transparent 70%),
+    radial-gradient(ellipse 2px 4px at 24% 85%, rgba(215, 230, 240, 0.4), transparent 70%),
+    radial-gradient(ellipse 3px 5px at 91% 29%, rgba(215, 230, 240, 0.45), transparent 70%),
+    radial-gradient(ellipse 2px 4px at 45% 37%, rgba(215, 230, 240, 0.38), transparent 70%);
+  background-size: 37% 41%, 53% 47%, 41% 59%, 61% 43%, 47% 53%, 59% 61%, 43% 39%, 67% 57%;
+}

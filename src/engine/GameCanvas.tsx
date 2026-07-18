@@ -39,7 +39,7 @@ import type { GameSession } from "../gameSession.ts";
 export interface GameHandle {
   /** The live weather read (W1 #226) — EnvLight's dim hook. Optional so
    *  preview/legacy builders without a weather system stay valid. */
-  weather?: { snapshot(): { dim: number } };
+  weather?: { snapshot(): { dim: number; rain01: number } };
   discovery: {
     store: DiscoveryStore;
     reset(): void;
@@ -364,6 +364,21 @@ export function GameCanvas({
     return () => cancelAnimationFrame(raf);
   }, [game, journalOpen]);
 
+  // Rain on the lens (E1 #234): a pure-CSS droplet overlay whose opacity rides
+  // the live weather envelope — zero draw calls, decorative only.
+  const lensRainRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!game?.weather) return;
+    let raf = 0;
+    const tick = () => {
+      const el = lensRainRef.current;
+      if (el) el.style.opacity = String(game.weather!.snapshot().rain01 * 0.35);
+      raf = requestAnimationFrame(tick);
+    };
+    tick();
+    return () => cancelAnimationFrame(raf);
+  }, [game]);
+
   // The single keyboard opener. Escape opens the menu and J opens the journal,
   // each only when no other modal owns the foreground — so two modals never
   // stack (RevealPanel/SettingsMenu/TreasurePanel/Onboarding/journal each own
@@ -446,6 +461,7 @@ export function GameCanvas({
     // stand-in). -1 keeps the container out of the Tab order.
     <div ref={containerRef} className="game-canvas-container" tabIndex={-1}>
       <canvas ref={canvasRef} className="game-canvas" aria-hidden="true" />
+      <div ref={lensRainRef} className="lens-rain" aria-hidden="true" />
       {showStats && engine && <StatsOverlay engine={engine} />}
       {game && (
         <>

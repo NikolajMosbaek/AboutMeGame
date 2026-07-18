@@ -60,7 +60,7 @@ export type WaterDepthAt = (x: number, z: number) => number;
 /** Survival's live read — thirst/health rises and falls, alive flips. A
  *  `SurvivalStore` satisfies it via `getSnapshot()`. */
 export interface SurvivalSource {
-  getSnapshot(): { thirst: number; health: number; alive: boolean };
+  getSnapshot(): { thirst: number; health: number; alive: boolean; stamina: number };
 }
 
 /** Foraging's live read — fruit eaten this expedition. A `ForageStore`
@@ -123,6 +123,11 @@ const FOOTSTEP_SPRINT_INTERVAL = 0.3;
  *  hit (a snake strike, a fall) rather than the slow hunger/thirst drain. */
 const HURT_DROP_THRESHOLD = 5;
 
+/** Exhaustion panting (E1 #234): while stamina is under this floor AND the
+ *  player keeps moving, the sprint breath repeats on this cadence. */
+const PANT_STAMINA_FLOOR = 20;
+const PANT_INTERVAL = 1.6;
+
 /** Beyond this distance (world units) from the nearest wet point, the river
  *  layer is silent; at the bank (distance 0) it's full. */
 const RIVER_SILENCE_DIST = 25;
@@ -174,6 +179,7 @@ export class AudioSystem implements System {
   private lastSprinting = false;
   private critterTimer = CRITTER_MIN_INTERVAL;
 
+  private pantTimer = 0;
   private lastThirst: number;
   private lastHealth: number;
   private lastAlive: boolean;
@@ -287,6 +293,19 @@ export class AudioSystem implements System {
     // Sprint rising edge → soft breathing cue.
     if (state.sprinting && !this.lastSprinting) this.engine.breathe();
     this.lastSprinting = state.sprinting;
+
+    // Exhaustion panting (E1 #234): drained stamina + still moving → the
+    // breath repeats until either recovers.
+    const svPant = this.survival.getSnapshot();
+    if (svPant.stamina < PANT_STAMINA_FLOOR && state.speed > 0.5) {
+      this.pantTimer -= ctx.dt;
+      if (this.pantTimer <= 0) {
+        this.engine.breathe();
+        this.pantTimer = PANT_INTERVAL;
+      }
+    } else {
+      this.pantTimer = 0;
+    }
 
     // Survival edges: drink (thirst rises), a sharp health drop, death.
     const sv = this.survival.getSnapshot();
