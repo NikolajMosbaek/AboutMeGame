@@ -19,6 +19,9 @@ import {
   initialJaguarState,
   isNightPhase,
   stepJaguar,
+  STARTLE_BOLT_SECONDS,
+  STARTLE_FREEZE,
+  STARTLED_COOLDOWN,
   type JaguarEnv,
   type JaguarState,
 } from "./jaguar.ts";
@@ -193,6 +196,71 @@ describe("stepJaguar — the hunt state machine", () => {
     const s0 = at({ mode: "stalk", x: 10, z: -80, stalkSeconds: 1 });
     const e = env({ player: { x: 30, z: -80 } });
     expect(stepJaguar(s0, DT, e)).toEqual(stepJaguar(s0, DT, e));
+  });
+});
+
+describe("stepJaguar — the snake double-take (J1 #221)", () => {
+  const s0 = initialJaguarState();
+  const stalkState = (): JaguarState => ({ ...s0, mode: "stalk", stalkSeconds: 1 });
+
+  it("a snake underfoot mid-stalk startles it: freeze-beat, then a bolt, then prowl on a long cooldown", () => {
+    // Snake right on the stalk path.
+    const snake = { x: s0.x + 2, z: s0.z };
+    const e = env({ player: { x: s0.x + 20, z: s0.z }, snakes: [snake] });
+    let r = stepJaguar(stalkState(), DT, e);
+    expect(r.state.mode).toBe("startled");
+    expect(r.startled).toBe(true);
+
+    // The freeze beat: held dead-still.
+    const frozenX = r.state.x;
+    for (let t = 0; t < STARTLE_FREEZE - DT; t += DT) {
+      r = stepJaguar(r.state, DT, e);
+      expect(r.state.x).toBe(frozenX);
+    }
+    // Then the ignominious bolt — AWAY from the snake, faster than a charge.
+    for (let t = 0; t < 0.5; t += DT) r = stepJaguar(r.state, DT, e);
+    expect(Math.hypot(r.state.x - snake.x, r.state.z - snake.z)).toBeGreaterThan(2);
+
+    // The bolt resolves into prowl with the long humiliation cooldown.
+    for (let t = 0; t < STARTLE_BOLT_SECONDS + 0.2; t += DT) r = stepJaguar(r.state, DT, e);
+    expect(r.state.mode).toBe("prowl");
+    expect(r.state.cooldown).toBeGreaterThan(STARTLED_COOLDOWN - 5);
+  });
+
+  it("startled reports its edge exactly once", () => {
+    const snake = { x: s0.x + 2, z: s0.z };
+    const e = env({ player: { x: s0.x + 20, z: s0.z }, snakes: [snake] });
+    let r = stepJaguar(stalkState(), DT, e);
+    expect(r.startled).toBe(true);
+    r = stepJaguar(r.state, DT, e);
+    expect(r.startled).toBe(false); // held startled ≠ a new edge
+  });
+
+  it("will not stalk again during the humiliation cooldown", () => {
+    const snake = { x: s0.x + 2, z: s0.z };
+    const e = env({ player: { x: s0.x + 6, z: s0.z }, snakes: [snake] });
+    let r = stepJaguar(stalkState(), DT, e);
+    for (let t = 0; t < STARTLE_FREEZE + STARTLE_BOLT_SECONDS + 1; t += DT) {
+      r = stepJaguar(r.state, DT, e);
+    }
+    expect(r.state.mode).toBe("prowl");
+    // Player well inside stalk range, but the cat has had enough today.
+    r = stepJaguar(r.state, DT, env({ player: { x: r.state.x + 5, z: r.state.z }, snakes: [] }));
+    expect(r.state.mode).toBe("prowl");
+  });
+
+  it("a committed CHARGE is never interrupted by a snake — the pounce stays dangerous", () => {
+    const snake = { x: s0.x + 1, z: s0.z };
+    const charging: JaguarState = { ...s0, mode: "charge" };
+    const e = env({ player: { x: s0.x + 8, z: s0.z }, snakes: [snake] });
+    const r = stepJaguar(charging, DT, e);
+    expect(r.state.mode === "charge" || r.state.mode === "retreat").toBe(true);
+  });
+
+  it("no snakes in the env: stalking is byte-for-byte unaffected", () => {
+    const e = env({ player: { x: s0.x + 20, z: s0.z } }); // no snakes field
+    const r = stepJaguar(stalkState(), DT, e);
+    expect(r.state.mode).toBe("stalk");
   });
 });
 

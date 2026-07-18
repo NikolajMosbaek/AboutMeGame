@@ -69,6 +69,9 @@ export function buildWildlife(
     player,
     session,
     hurt,
+    undefined, // camp default (the base-camp anchor)
+    () => snakes.positions(), // the double-take reads real snake placements
+    reducedMotion,
   );
   const monkeys = new MonkeysSystem(engine.scene, world.terrain, player, session, heist, reducedMotion);
 

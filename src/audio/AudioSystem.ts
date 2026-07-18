@@ -85,9 +85,25 @@ export interface SnakeAlertSource {
 /** Whether the jaguar is committed to the player (stalk or charge) — polled
  *  on the same posture as {@link SnakeAlertSource}. `JaguarSystem` satisfies
  *  it via `isStalking()`. The growl is the warning: hearing it means head for
- *  the camp, the water, or open ground. */
+ *  the camp, the water, or open ground. `justStartled` is the snake
+ *  double-take's drained edge (J1 #221) — the yelp. */
 export interface JaguarStalkSource {
   isStalking(): boolean;
+  justStartled(): boolean;
+}
+
+/** The comedy edges (J1 #221) — every one a DRAINED one-shot flag polled once
+ *  per frame, the same posture as the jaguar's. All optional: a rig without
+ *  the reactive-wildlife systems simply never hears them. */
+export interface FlushSource {
+  justFlushed(): boolean;
+}
+export interface ScatterSource {
+  justScattered(): boolean;
+}
+export interface HeistSource {
+  justStole(): boolean;
+  justTaunted(): boolean;
 }
 
 // --- Tuning (pacing/thresholds, no magic numbers below) ---------------------
@@ -177,6 +193,9 @@ export class AudioSystem implements System {
     private readonly quest: QuestSource,
     private readonly snakes: SnakeAlertSource,
     private readonly jaguar: JaguarStalkSource,
+    private readonly birdsFlush?: FlushSource,
+    private readonly fishScatter?: ScatterSource,
+    private readonly monkeyHeist?: HeistSource,
   ) {
     // Apply the persisted mute before anything plays.
     this.engine.setMuted(this.muted.getSnapshot().muted);
@@ -302,6 +321,15 @@ export class AudioSystem implements System {
     const stalking = this.jaguar.isStalking();
     if (stalking && !this.lastJaguarStalking) this.engine.growl();
     this.lastJaguarStalking = stalking;
+
+    // The comedy edges (J1 #221) — each already drained-once by its source.
+    if (this.jaguar.justStartled()) this.engine.jaguarYelp();
+    if (this.birdsFlush?.justFlushed()) this.engine.squawkCascade();
+    if (this.fishScatter?.justScattered()) this.engine.splashScatter();
+    if (this.monkeyHeist) {
+      if (this.monkeyHeist.justStole()) this.engine.monkeyChitter();
+      if (this.monkeyHeist.justTaunted()) this.engine.monkeyRaspberry();
+    }
   }
 
   dispose(): void {

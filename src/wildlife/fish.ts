@@ -416,6 +416,8 @@ export class FishSystem implements System {
    *  resumes its beat exactly where it froze rather than jumping. */
   private readonly swayUniforms = { uTime: { value: 0 } };
   private swayElapsed = 0;
+  /** Set when any fish enters the splash startle; drained by justScattered. */
+  private scatteredEdge = false;
 
   private readonly m = new THREE.Matrix4();
   private readonly q = new THREE.Quaternion();
@@ -479,7 +481,16 @@ export class FishSystem implements System {
     const timing = this.reducedMotion?.getSnapshot().reducedMotion ? PLAIN_TIMING : COMIC_TIMING;
     for (let i = 0; i < this.states.length; i++) {
       const pool = this.pools[i % this.pools.length];
+      const prevMode = this.states[i].mode;
       const next = stepFish(this.states[i], ctx.dt, pool, { x: p.x, z: p.z }, wadingSplash, timing);
+      // The splash startle's audio edge: entering freeze (or, under reduced
+      // motion, straight into dart from patrol).
+      if (
+        (next.mode === "freeze" && prevMode !== "freeze") ||
+        (next.mode === "dart" && prevMode === "patrol")
+      ) {
+        this.scatteredEdge = true;
+      }
       this.states[i] = next;
 
       this.posv.set(next.x, WORLD.seaLevel - SWIM_DEPTH, next.z);
@@ -493,6 +504,14 @@ export class FishSystem implements System {
       this.mesh.setMatrixAt(i, this.m);
     }
     this.mesh.instanceMatrix.needsUpdate = true;
+  }
+
+  /** True once per pool startle — drained on read (the plip-cluster's audio
+   *  edge, same polled posture as `snakes.anyAlert()`). */
+  justScattered(): boolean {
+    const e = this.scatteredEdge;
+    this.scatteredEdge = false;
+    return e;
   }
 
   describe(): Record<string, unknown> {

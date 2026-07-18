@@ -335,6 +335,66 @@ export class AudioEngine {
     osc.stop(t + 1.05);
   }
 
+  /** Five staggered falling chirps — a whole flock exploding out of a tree
+   *  (J1 #221). Frequencies descend across the cascade so it reads as birds
+   *  peeling away, not an alarm clock. */
+  squawkCascade(): void {
+    if (!this.canPlay()) return;
+    const t = this.ctx.currentTime;
+    for (let i = 0; i < 5; i++) {
+      this.blip(1750 - i * 160, t + i * 0.055, 0.09, 0.16, "square");
+    }
+  }
+
+  /** A rapid high chitter — the thief's giddy getaway (J1 #221). */
+  monkeyChitter(): void {
+    if (!this.canPlay()) return;
+    const t = this.ctx.currentTime;
+    for (let i = 0; i < 6; i++) {
+      this.blip(i % 2 === 0 ? 1500 : 1750, t + i * 0.04, 0.035, 0.12, "triangle");
+    }
+  }
+
+  /** A low, rude little burr from the perch — the taunt (J1 #221). Three
+   *  overlapping low square blips read as a raspberry without ever being a
+   *  cartoon sound: it stays a plausible primate noise. */
+  monkeyRaspberry(): void {
+    if (!this.canPlay()) return;
+    const t = this.ctx.currentTime;
+    this.blip(130, t, 0.16, 0.14, "square");
+    this.blip(110, t + 0.05, 0.16, 0.13, "square");
+    this.blip(95, t + 0.1, 0.18, 0.12, "square");
+  }
+
+  /** One rising startled yelp — the apex predator meets a snake (J1 #221). */
+  jaguarYelp(): void {
+    if (!this.canPlay()) return;
+    const t = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = "sawtooth";
+    osc.frequency.setValueAtTime(300, t);
+    osc.frequency.exponentialRampToValueAtTime(720, t + 0.22);
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.linearRampToValueAtTime(0.22, t + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.28);
+    osc.connect(gain);
+    gain.connect(this.master);
+    osc.start(t);
+    osc.stop(t + 0.3);
+  }
+
+  /** A quick descending plip-cluster — a pool of fish scattering from a
+   *  wading splash (J1 #221). */
+  splashScatter(): void {
+    if (!this.canPlay()) return;
+    const t = this.ctx.currentTime;
+    this.blip(880, t, 0.07, 0.12, "sine");
+    this.blip(700, t + 0.05, 0.07, 0.11, "sine");
+    this.blip(560, t + 0.1, 0.08, 0.1, "sine");
+    this.blip(430, t + 0.16, 0.1, 0.09, "sine");
+  }
+
   /** A bright four-note ascending fanfare — the idol comes out of the ground. */
   fanfare(): void {
     if (!this.canPlay()) return;
