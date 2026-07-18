@@ -87,6 +87,9 @@ export interface FishState {
   x: number;
   z: number;
   mode: FishMode;
+  /** Seconds of splash refractory left — the grammar's cooldown, so a player
+   *  swimming in the pool can't machine-gun freeze→dart cycles (J1 #219). */
+  refractory: number;
   /** Seconds spent fleeing (patrol mode keeps this at 0). */
   timer: number;
   /** Patrol wander CLOCK, radians — drifts continuously while patrolling. This
@@ -115,6 +118,7 @@ export function initialFishState(pool: Pool, index: number): FishState {
     x: pool.x + Math.cos(angle) * 2,
     z: pool.z + Math.sin(angle) * 2,
     mode: "patrol",
+    refractory: 0,
     timer: 0,
     angle,
     // First frame's dominant velocity term is (cos(angle), sin(angle)) *
@@ -149,14 +153,22 @@ export function stepFish(
   let mode = state.mode;
   let timer = state.timer;
 
+  const refractory = Math.max(0, state.refractory - dt);
+
   if (mode === "patrol") {
-    if (distToPlayer < FLEE_RADIUS) {
-      mode = "flee";
-      timer = 0;
-    } else if (wadingSplash && Math.hypot(player.x - pool.x, player.z - pool.z) < SPLASH_RADIUS) {
-      // The splash startles the WHOLE pool through the grammar's comic beat:
-      // an instant of held stillness, then an overshooting radial dart.
+    // Splash outranks the plain flee: the fish AT the epicentre must get the
+    // full comic beat, never a weaker reaction than fish 10 u away (review
+    // finding). The grammar's refractory stops a swimming player from
+    // machine-gunning the pool through endless freeze→dart cycles.
+    if (
+      wadingSplash &&
+      refractory <= 0 &&
+      Math.hypot(player.x - pool.x, player.z - pool.z) < SPLASH_RADIUS
+    ) {
       mode = timing.freezeSeconds <= 0 ? "dart" : "freeze";
+      timer = 0;
+    } else if (distToPlayer < FLEE_RADIUS) {
+      mode = "flee";
       timer = 0;
     }
   } else if (mode === "freeze") {
@@ -166,7 +178,16 @@ export function stepFish(
       timer = 0;
     } else {
       // Held dead-still — the "…!" beat (position, heading, wander all frozen).
-      return { ...state, mode, timer };
+      return { ...state, mode, timer, refractory };
+    }
+  } else if (mode === "dart") {
+    timer += dt;
+    // The dart owns the grammar's FULL react window, so the overshoot
+    // envelope completes instead of being cut off mid-settle.
+    if (timer >= timing.reactSeconds && distToPlayer >= FLEE_RADIUS) {
+      mode = "patrol";
+      timer = 0;
+      return { ...state, mode, timer, refractory: timing.cooldownSeconds };
     }
   } else {
     timer += dt;
@@ -184,10 +205,12 @@ export function stepFish(
     const awayX = state.x - player.x;
     const awayZ = state.z - player.z;
     const len = Math.hypot(awayX, awayZ) || 1;
+    // The dart rides the overshoot envelope and FADES OUT over its last 30 %
+    // so the handover to patrol is a glide, not a 15× velocity pop.
+    const phase = timer / timing.reactSeconds;
+    const fade = 1 - Math.min(1, Math.max(0, (phase - 0.7) / 0.3));
     const speed =
-      mode === "dart"
-        ? FLEE_SPEED * DART_SPEED_MULT * overshoot(timer / timing.reactSeconds)
-        : FLEE_SPEED;
+      mode === "dart" ? FLEE_SPEED * DART_SPEED_MULT * overshoot(phase) * fade : FLEE_SPEED;
     vx = (awayX / len) * speed;
     vz = (awayZ / len) * speed;
   } else {
@@ -204,7 +227,7 @@ export function stepFish(
   // never a raw state field re-purposed as facing (review finding 1).
   const heading = Math.atan2(vx, vz);
 
-  return { x: state.x + vx * dt, z: state.z + vz * dt, mode, timer, angle, heading };
+  return { x: state.x + vx * dt, z: state.z + vz * dt, mode, refractory, timer, angle, heading };
 }
 
 const FISH_COLOR = 0x121f26;
@@ -473,7 +496,9 @@ export class FishSystem implements System {
   }
 
   describe(): Record<string, unknown> {
-    const fleeing = this.states.filter((s) => s.mode === "flee").length;
+    // "fleeing" counts every reacting mode (flee, freeze, dart) so the render
+    // gate's text snapshot can SEE a startled pool, not just walk-up flees.
+    const fleeing = this.states.filter((s) => s.mode !== "patrol").length;
     return { fish: this.states.length, fleeing };
   }
 

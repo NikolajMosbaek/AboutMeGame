@@ -56,14 +56,14 @@ describe("stepFlock (birds scatter/regroup state machine)", () => {
   });
 
   it("regroup restarts scatter if the player closes in again", () => {
-    let s: FlockState = { mode: "regroup", timer: 0.5 };
+    let s: FlockState = { mode: "regroup", timer: 0.5, refractory: 0 };
     s = stepFlock(s, 1 / 60, ALERT_RADIUS - 1);
     expect(s.mode).toBe("scatter");
     expect(s.timer).toBe(0);
   });
 
   it("regroup completes into orbit after REGROUP_DURATION with the player clear", () => {
-    let s: FlockState = { mode: "regroup", timer: 0 };
+    let s: FlockState = { mode: "regroup", timer: 0, refractory: 0 };
     s = stepFlock(s, REGROUP_DURATION + 0.01, ALERT_RADIUS + 50);
     expect(s.mode).toBe("orbit");
   });
@@ -116,8 +116,28 @@ describe("birdPose (determinism)", () => {
     expect(s.mode).toBe("flush");
   });
 
+  it("the flush arms the grammar's refractory — lapping the flock is one gag per cooldown", () => {
+    // Complete a full flush cycle, then keep sprinting in the annulus: no
+    // re-flush until the cooldown has drained.
+    let s = stepFlock(initialFlockState(), 0.1, 20, 8, COMIC_TIMING);
+    expect(s.mode).toBe("freeze");
+    let elapsed = 0.1;
+    while (s.mode !== "orbit" && elapsed < 20) {
+      s = stepFlock(s, 0.1, 20, 8, COMIC_TIMING);
+      elapsed += 0.1;
+    }
+    expect(s.mode).toBe("orbit");
+    // Still inside the refractory (cooldown 8 s > the ~5.5 s cycle): no flush.
+    s = stepFlock(s, 0.1, 20, 8, COMIC_TIMING);
+    expect(s.mode).toBe("orbit");
+    // Drain the remaining refractory, then the NEXT sprint-past fires again.
+    while (s.refractory > 0) s = stepFlock(s, 0.1, 40, 0, COMIC_TIMING);
+    s = stepFlock(s, 0.1, 20, 8, COMIC_TIMING);
+    expect(s.mode).toBe("freeze");
+  });
+
   it("flush settles into regroup like a scatter once the player is clear", () => {
-    let s: FlockState = { mode: "flush", timer: 0 };
+    let s: FlockState = { mode: "flush", timer: 0, refractory: 0 };
     for (let t = 0; t < SCATTER_MIN_DURATION + 0.2; t += 0.1) {
       s = stepFlock(s, 0.1, 40, 0, COMIC_TIMING);
     }

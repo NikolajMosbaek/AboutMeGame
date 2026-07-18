@@ -125,9 +125,37 @@ describe("stepFish (patrol/flee state machine)", () => {
     const d0 = Math.hypot(s.x - playerPos.x, s.z - playerPos.z);
     s = stepFish(s, 0.3, pool, playerPos, false, COMIC_TIMING);
     expect(Math.hypot(s.x - playerPos.x, s.z - playerPos.z)).toBeGreaterThan(d0);
-    for (let t = 0; t < FLEE_DURATION + 0.3; t += 0.1) {
+    // The dart owns the grammar's FULL react window (2.2 s), not the plain
+    // flee's 1.4 s — the overshoot envelope completes and fades out.
+    for (let t = 0; t < COMIC_TIMING.reactSeconds + 0.3; t += 0.1) {
       s = stepFish(s, 0.1, pool, playerPos, false, COMIC_TIMING);
     }
+    expect(s.mode).toBe("patrol");
+  });
+
+  it("the fish AT the splash epicentre gets the comic beat too — never a weaker reaction", () => {
+    const pool = { x: 0, z: 0 };
+    // 4 u from the player: inside FLEE_RADIUS — without a splash this flees.
+    const near = { ...initialFishState(pool, 0), x: 3, z: 0 };
+    const s = stepFish(near, 0.1, pool, { x: 7, z: 0 }, true, COMIC_TIMING);
+    expect(s.mode).toBe("freeze");
+  });
+
+  it("a swimming player cannot machine-gun the pool: the dart arms a refractory", () => {
+    const pool = { x: 0, z: 0 };
+    let s: ReturnType<typeof initialFishState> = {
+      ...initialFishState(pool, 0),
+      x: -3,
+      z: 0,
+      mode: "dart",
+      timer: COMIC_TIMING.reactSeconds - 0.05,
+    };
+    // Finish the dart far from the player → patrol with a full cooldown armed.
+    s = stepFish(s, 0.1, pool, { x: 40, z: 0 }, false, COMIC_TIMING);
+    expect(s.mode).toBe("patrol");
+    expect(s.refractory).toBeGreaterThan(0);
+    // A continuing splash does NOT re-freeze until the refractory drains.
+    s = stepFish(s, 0.1, pool, { x: 7, z: 0 }, true, COMIC_TIMING);
     expect(s.mode).toBe("patrol");
   });
 

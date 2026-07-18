@@ -76,10 +76,14 @@ export interface FlockState {
   mode: FlockMode;
   /** Seconds spent in the current mode (semantics per mode, see {@link stepFlock}). */
   timer: number;
+  /** Seconds of sprint-flush refractory left — the grammar's cooldown, so a
+   *  player lapping the flock can't re-trigger the gag on a metronome
+   *  (J1 #219). Walk-up scatters are unaffected. */
+  refractory: number;
 }
 
 export function initialFlockState(): FlockState {
-  return { mode: "orbit", timer: 0 };
+  return { mode: "orbit", timer: 0, refractory: 0 };
 }
 
 /**
@@ -107,28 +111,41 @@ export function stepFlock(
   playerSpeed = 0,
   timing: ReactionTiming = COMIC_TIMING,
 ): FlockState {
+  const refractory = Math.max(0, state.refractory - dt);
   if (state.mode === "orbit") {
-    if (distToPlayer < ALERT_RADIUS) return { mode: "scatter", timer: 0 };
-    if (playerSpeed >= SPRINT_FLUSH_SPEED && distToPlayer < SPRINT_FLUSH_RADIUS) {
-      return timing.freezeSeconds <= 0 ? { mode: "flush", timer: 0 } : { mode: "freeze", timer: 0 };
+    if (distToPlayer < ALERT_RADIUS) return { mode: "scatter", timer: 0, refractory };
+    if (
+      playerSpeed >= SPRINT_FLUSH_SPEED &&
+      distToPlayer < SPRINT_FLUSH_RADIUS &&
+      refractory <= 0
+    ) {
+      // The flush arms the grammar's refractory the moment it commits, so a
+      // player lapping the annulus gets one gag per cooldown, not a metronome.
+      return timing.freezeSeconds <= 0
+        ? { mode: "flush", timer: 0, refractory: timing.cooldownSeconds }
+        : { mode: "freeze", timer: 0, refractory: timing.cooldownSeconds };
     }
-    return state;
+    return state.refractory === refractory ? state : { ...state, refractory };
   }
   if (state.mode === "freeze") {
     const timer = state.timer + dt;
-    return timer >= timing.freezeSeconds ? { mode: "flush", timer: 0 } : { mode: "freeze", timer };
+    return timer >= timing.freezeSeconds
+      ? { mode: "flush", timer: 0, refractory }
+      : { mode: "freeze", timer, refractory };
   }
   if (state.mode === "scatter" || state.mode === "flush") {
     const timer = state.timer + dt;
     if (timer >= SCATTER_MIN_DURATION && distToPlayer >= ALERT_RADIUS) {
-      return { mode: "regroup", timer: 0 };
+      return { mode: "regroup", timer: 0, refractory };
     }
-    return { mode: state.mode, timer };
+    return { mode: state.mode, timer, refractory };
   }
   // regroup
-  if (distToPlayer < ALERT_RADIUS) return { mode: "scatter", timer: 0 };
+  if (distToPlayer < ALERT_RADIUS) return { mode: "scatter", timer: 0, refractory };
   const timer = state.timer + dt;
-  return timer >= REGROUP_DURATION ? { mode: "orbit", timer: 0 } : { mode: "regroup", timer };
+  return timer >= REGROUP_DURATION
+    ? { mode: "orbit", timer: 0, refractory }
+    : { mode: "regroup", timer, refractory };
 }
 
 /** 0 (tight orbit) .. 1 (fully scattered) puff-out factor for the current
@@ -373,7 +390,9 @@ export class BirdsSystem implements System {
    *  exact scatter state a close player triggers, so the committed-startle
    *  minimum and regroup glide apply unchanged. */
   startle(): void {
-    for (const flock of this.flocks) flock.state = { mode: "scatter", timer: 0 };
+    for (const flock of this.flocks) {
+      flock.state = { mode: "scatter", timer: 0, refractory: flock.state.refractory };
+    }
   }
 
   describe(): Record<string, unknown> {
