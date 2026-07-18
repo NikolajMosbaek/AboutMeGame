@@ -10,10 +10,18 @@ import type { FrameContext, System } from "../engine/types.ts";
 import { glslFloat } from "../world/glslFormat.ts";
 import { LAGOON, RIVER, WORLD } from "../world/worldConfig.ts";
 import { mergeOrThrow, stampVertexColor } from "./geometry.ts";
+import { COMIC_TIMING, PLAIN_TIMING, overshoot, type ReactionTiming } from "./reactions.ts";
 
-/** Where the player is — the explorer satisfies it via `state.position`. */
+/** Where the player is and how fast they're moving — the explorer satisfies
+ *  it (speed feeds the wading-splash startle, J1 #219). */
 export interface PositionSource {
-  readonly state: { position: THREE.Vector3 };
+  readonly state: { position: THREE.Vector3; speed: number };
+}
+
+/** Live reduced-motion flag — a `SettingsStore` satisfies it. Optional: when
+ *  absent, full comic timing applies. */
+export interface ReducedMotionSource {
+  getSnapshot(): { reducedMotion: boolean };
 }
 
 /** Hold all movement while true — the shared session pause flag satisfies it. */
@@ -67,12 +75,21 @@ export function selectPools(waterDepthAt: WaterDepthAt): Pool[] {
   return candidates.filter((p) => waterDepthAt(p.x, p.z) > MIN_POOL_DEPTH);
 }
 
-export type FishMode = "patrol" | "flee";
+/** A wading splash (player moving in water) startles the WHOLE pool when it
+ *  lands within this of the pool centre — every fish, not just the near ones
+ *  (J1 #219). The dart that follows outruns a plain flee by this multiple. */
+export const SPLASH_RADIUS = 8;
+export const DART_SPEED_MULT = 1.5;
+
+export type FishMode = "patrol" | "flee" | "freeze" | "dart";
 
 export interface FishState {
   x: number;
   z: number;
   mode: FishMode;
+  /** Seconds of splash refractory left — the grammar's cooldown, so a player
+   *  swimming in the pool can't machine-gun freeze→dart cycles (J1 #219). */
+  refractory: number;
   /** Seconds spent fleeing (patrol mode keeps this at 0). */
   timer: number;
   /** Patrol wander CLOCK, radians — drifts continuously while patrolling. This
@@ -101,6 +118,7 @@ export function initialFishState(pool: Pool, index: number): FishState {
     x: pool.x + Math.cos(angle) * 2,
     z: pool.z + Math.sin(angle) * 2,
     mode: "patrol",
+    refractory: 0,
     timer: 0,
     angle,
     // First frame's dominant velocity term is (cos(angle), sin(angle)) *
@@ -128,15 +146,48 @@ export function stepFish(
   dt: number,
   pool: Pool,
   player: { x: number; z: number },
+  wadingSplash = false,
+  timing: ReactionTiming = COMIC_TIMING,
 ): FishState {
   const distToPlayer = Math.hypot(state.x - player.x, state.z - player.z);
   let mode = state.mode;
   let timer = state.timer;
 
+  const refractory = Math.max(0, state.refractory - dt);
+
   if (mode === "patrol") {
-    if (distToPlayer < FLEE_RADIUS) {
+    // Splash outranks the plain flee: the fish AT the epicentre must get the
+    // full comic beat, never a weaker reaction than fish 10 u away (review
+    // finding). The grammar's refractory stops a swimming player from
+    // machine-gunning the pool through endless freeze→dart cycles.
+    if (
+      wadingSplash &&
+      refractory <= 0 &&
+      Math.hypot(player.x - pool.x, player.z - pool.z) < SPLASH_RADIUS
+    ) {
+      mode = timing.freezeSeconds <= 0 ? "dart" : "freeze";
+      timer = 0;
+    } else if (distToPlayer < FLEE_RADIUS) {
       mode = "flee";
       timer = 0;
+    }
+  } else if (mode === "freeze") {
+    timer += dt;
+    if (timer >= timing.freezeSeconds) {
+      mode = "dart";
+      timer = 0;
+    } else {
+      // Held dead-still — the "…!" beat (position, heading, wander all frozen).
+      return { ...state, mode, timer, refractory };
+    }
+  } else if (mode === "dart") {
+    timer += dt;
+    // The dart owns the grammar's FULL react window, so the overshoot
+    // envelope completes instead of being cut off mid-settle.
+    if (timer >= timing.reactSeconds && distToPlayer >= FLEE_RADIUS) {
+      mode = "patrol";
+      timer = 0;
+      return { ...state, mode, timer, refractory: timing.cooldownSeconds };
     }
   } else {
     timer += dt;
@@ -150,12 +201,18 @@ export function stepFish(
   let vz: number;
   let angle = state.angle;
 
-  if (mode === "flee") {
+  if (mode === "flee" || mode === "dart") {
     const awayX = state.x - player.x;
     const awayZ = state.z - player.z;
     const len = Math.hypot(awayX, awayZ) || 1;
-    vx = (awayX / len) * FLEE_SPEED;
-    vz = (awayZ / len) * FLEE_SPEED;
+    // The dart rides the overshoot envelope and FADES OUT over its last 30 %
+    // so the handover to patrol is a glide, not a 15× velocity pop.
+    const phase = timer / timing.reactSeconds;
+    const fade = 1 - Math.min(1, Math.max(0, (phase - 0.7) / 0.3));
+    const speed =
+      mode === "dart" ? FLEE_SPEED * DART_SPEED_MULT * overshoot(phase) * fade : FLEE_SPEED;
+    vx = (awayX / len) * speed;
+    vz = (awayZ / len) * speed;
   } else {
     angle += dt * 0.6;
     const toCenterX = pool.x - state.x;
@@ -170,7 +227,7 @@ export function stepFish(
   // never a raw state field re-purposed as facing (review finding 1).
   const heading = Math.atan2(vx, vz);
 
-  return { x: state.x + vx * dt, z: state.z + vz * dt, mode, timer, angle, heading };
+  return { x: state.x + vx * dt, z: state.z + vz * dt, mode, refractory, timer, angle, heading };
 }
 
 const FISH_COLOR = 0x121f26;
@@ -368,9 +425,10 @@ export class FishSystem implements System {
 
   constructor(
     scene: THREE.Scene,
-    waterDepthAt: WaterDepthAt,
+    private readonly waterDepthAt: WaterDepthAt,
     private readonly player: PositionSource,
     private readonly session: PauseSource,
+    private readonly reducedMotion?: ReducedMotionSource,
   ) {
     this.geo = buildFishGeometry();
     this.mat = new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.6 });
@@ -415,9 +473,13 @@ export class FishSystem implements System {
     this.swayElapsed = THREE.MathUtils.euclideanModulo(this.swayElapsed + ctx.dt, FISH_SWAY_WRAP_PERIOD);
     this.swayUniforms.uTime.value = this.swayElapsed;
     const p = this.player.state.position;
+    // A "splash" is the player actually churning water: standing in it (any
+    // depth) while moving at a real pace (J1 #219).
+    const wadingSplash = this.player.state.speed > 1 && this.waterDepthAt(p.x, p.z) > 0.05;
+    const timing = this.reducedMotion?.getSnapshot().reducedMotion ? PLAIN_TIMING : COMIC_TIMING;
     for (let i = 0; i < this.states.length; i++) {
       const pool = this.pools[i % this.pools.length];
-      const next = stepFish(this.states[i], ctx.dt, pool, { x: p.x, z: p.z });
+      const next = stepFish(this.states[i], ctx.dt, pool, { x: p.x, z: p.z }, wadingSplash, timing);
       this.states[i] = next;
 
       this.posv.set(next.x, WORLD.seaLevel - SWIM_DEPTH, next.z);
@@ -434,7 +496,9 @@ export class FishSystem implements System {
   }
 
   describe(): Record<string, unknown> {
-    const fleeing = this.states.filter((s) => s.mode === "flee").length;
+    // "fleeing" counts every reacting mode (flee, freeze, dart) so the render
+    // gate's text snapshot can SEE a startled pool, not just walk-up flees.
+    const fleeing = this.states.filter((s) => s.mode !== "patrol").length;
     return { fish: this.states.length, fleeing };
   }
 

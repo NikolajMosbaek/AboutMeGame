@@ -8,11 +8,19 @@ import * as THREE from "three";
 import type { FrameContext, System } from "../engine/types.ts";
 import type { Terrain } from "../world/terrain.ts";
 import { mergeOrThrow, stampVertexColor } from "./geometry.ts";
+import { COMIC_TIMING, PLAIN_TIMING, overshoot, type ReactionTiming } from "./reactions.ts";
 
-/** Where the player is — the explorer satisfies it via `state.position` (same
- *  shape `DiscoverySystem`/`SurvivalSystem` read). */
+/** Where the player is and how fast they're moving — the explorer satisfies
+ *  it via `state.position`/`state.speed` (the `AudioSystem` stride shape).
+ *  Speed is what separates a sprint-flush from a walk-up scatter. */
 export interface PositionSource {
-  readonly state: { position: THREE.Vector3 };
+  readonly state: { position: THREE.Vector3; speed: number };
+}
+
+/** Live reduced-motion flag — a `SettingsStore` satisfies it. Optional: when
+ *  absent, full comic timing applies. */
+export interface ReducedMotionSource {
+  getSnapshot(): { reducedMotion: boolean };
 }
 
 /** Hold all movement while true — the shared session pause flag satisfies it. */
@@ -56,16 +64,26 @@ export const SCATTER_CLIMB = 6;
 export const FLAP_SPEED = 10;
 export const FLAP_AMPLITUDE = 0.5;
 
-export type FlockMode = "orbit" | "scatter" | "regroup";
+/** Sprint-past flush (J1 #219): faster than this, within the flush radius,
+ *  startles the flock through the grammar's freeze-beat. The radius is wider
+ *  than the walk {@link ALERT_RADIUS} — a sprinter is louder than a walker. */
+export const SPRINT_FLUSH_SPEED = 5.5;
+export const SPRINT_FLUSH_RADIUS = 26;
+
+export type FlockMode = "orbit" | "freeze" | "flush" | "scatter" | "regroup";
 
 export interface FlockState {
   mode: FlockMode;
   /** Seconds spent in the current mode (semantics per mode, see {@link stepFlock}). */
   timer: number;
+  /** Seconds of sprint-flush refractory left — the grammar's cooldown, so a
+   *  player lapping the flock can't re-trigger the gag on a metronome
+   *  (J1 #219). Walk-up scatters are unaffected. */
+  refractory: number;
 }
 
 export function initialFlockState(): FlockState {
-  return { mode: "orbit", timer: 0 };
+  return { mode: "orbit", timer: 0, refractory: 0 };
 }
 
 /**
@@ -73,35 +91,72 @@ export function initialFlockState(): FlockState {
  * distance from the player to the flock's centre. Pure: same inputs, same
  * output, every time.
  *
- * `orbit` → `scatter` the instant the player closes inside {@link ALERT_RADIUS}.
- * `scatter` holds for at least {@link SCATTER_MIN_DURATION} even if the player
- * immediately backs off (a committed startle, not a flicker), then moves to
- * `regroup` once BOTH the minimum has elapsed AND the player is clear again.
- * `regroup` glides back to `orbit` over {@link REGROUP_DURATION} — unless the
- * player closes in again first, which restarts `scatter` at once.
+ * `orbit` → `scatter` the instant the player closes inside {@link ALERT_RADIUS}
+ * (a walk-up, unchanged since the pivot). A SPRINT past — `playerSpeed` over
+ * {@link SPRINT_FLUSH_SPEED} within {@link SPRINT_FLUSH_RADIUS} — instead
+ * plays the reaction grammar's comic beat: `freeze` (wings dead-still for
+ * `timing.freezeSeconds`, COMMITTED even if the sprint stops) then `flush`,
+ * an overshooting explosive scatter. Reduced motion passes `PLAIN_TIMING`
+ * (freeze 0) and goes straight to `flush`. `scatter`/`flush` hold for at
+ * least {@link SCATTER_MIN_DURATION} (a committed startle, not a flicker),
+ * then move to `regroup` once BOTH the minimum has elapsed AND the player is
+ * clear again. `regroup` glides back to `orbit` over
+ * {@link REGROUP_DURATION} — unless the player closes in again first, which
+ * restarts `scatter` at once.
  */
-export function stepFlock(state: FlockState, dt: number, distToPlayer: number): FlockState {
+export function stepFlock(
+  state: FlockState,
+  dt: number,
+  distToPlayer: number,
+  playerSpeed = 0,
+  timing: ReactionTiming = COMIC_TIMING,
+): FlockState {
+  const refractory = Math.max(0, state.refractory - dt);
   if (state.mode === "orbit") {
-    return distToPlayer < ALERT_RADIUS ? { mode: "scatter", timer: 0 } : state;
+    if (distToPlayer < ALERT_RADIUS) return { mode: "scatter", timer: 0, refractory };
+    if (
+      playerSpeed >= SPRINT_FLUSH_SPEED &&
+      distToPlayer < SPRINT_FLUSH_RADIUS &&
+      refractory <= 0
+    ) {
+      // The flush arms the grammar's refractory the moment it commits, so a
+      // player lapping the annulus gets one gag per cooldown, not a metronome.
+      return timing.freezeSeconds <= 0
+        ? { mode: "flush", timer: 0, refractory: timing.cooldownSeconds }
+        : { mode: "freeze", timer: 0, refractory: timing.cooldownSeconds };
+    }
+    return state.refractory === refractory ? state : { ...state, refractory };
   }
-  if (state.mode === "scatter") {
+  if (state.mode === "freeze") {
+    const timer = state.timer + dt;
+    return timer >= timing.freezeSeconds
+      ? { mode: "flush", timer: 0, refractory }
+      : { mode: "freeze", timer, refractory };
+  }
+  if (state.mode === "scatter" || state.mode === "flush") {
     const timer = state.timer + dt;
     if (timer >= SCATTER_MIN_DURATION && distToPlayer >= ALERT_RADIUS) {
-      return { mode: "regroup", timer: 0 };
+      return { mode: "regroup", timer: 0, refractory };
     }
-    return { mode: "scatter", timer };
+    return { mode: state.mode, timer, refractory };
   }
   // regroup
-  if (distToPlayer < ALERT_RADIUS) return { mode: "scatter", timer: 0 };
+  if (distToPlayer < ALERT_RADIUS) return { mode: "scatter", timer: 0, refractory };
   const timer = state.timer + dt;
-  return timer >= REGROUP_DURATION ? { mode: "orbit", timer: 0 } : { mode: "regroup", timer };
+  return timer >= REGROUP_DURATION
+    ? { mode: "orbit", timer: 0, refractory }
+    : { mode: "regroup", timer, refractory };
 }
 
 /** 0 (tight orbit) .. 1 (fully scattered) puff-out factor for the current
- *  mode/timer — the one knob {@link birdPose} scales radius/height/flap by. */
+ *  mode/timer — the one knob {@link birdPose} scales radius/height/flap by.
+ *  `freeze` pins 0 (the held comic beat); `flush` rides the grammar's
+ *  {@link overshoot} envelope, so it bursts PAST a plain scatter (~1.15×)
+ *  before settling at 1. */
 export function scatterFactor(mode: FlockMode, timer: number): number {
-  if (mode === "orbit") return 0;
+  if (mode === "orbit" || mode === "freeze") return 0;
   if (mode === "scatter") return Math.min(1, timer / SCATTER_CLIMB_TIME);
+  if (mode === "flush") return overshoot(timer / SCATTER_CLIMB_TIME);
   return Math.max(0, 1 - timer / REGROUP_DURATION);
 }
 
@@ -143,7 +198,9 @@ export function birdPose(
     y: center.y + height,
     z: center.z + Math.sin(angle) * radius,
     yaw: angle + Math.PI / 2,
-    flap: Math.sin(elapsed * flapSpeed + birdIndex * 0.9) * FLAP_AMPLITUDE,
+    // The freeze beat holds the wings DEAD STILL — the "…!" instant that
+    // sells the flush that follows (J1 #219).
+    flap: mode === "freeze" ? 0 : Math.sin(elapsed * flapSpeed + birdIndex * 0.9) * FLAP_AMPLITUDE,
   };
 }
 
@@ -253,11 +310,15 @@ export class BirdsSystem implements System {
   private readonly posv = new THREE.Vector3();
   private readonly euler = new THREE.Euler();
 
+  /** Set when any flock enters `flush`; drained by {@link justFlushed}. */
+  private flushedEdge = false;
+
   constructor(
     scene: THREE.Scene,
     terrain: Terrain,
     private readonly player: PositionSource,
     private readonly session: PauseSource,
+    private readonly reducedMotion?: ReducedMotionSource,
   ) {
     this.group.name = "wildlife-birds";
 
@@ -288,10 +349,14 @@ export class BirdsSystem implements System {
     this.elapsed += ctx.dt;
 
     const p = this.player.state.position;
+    const speed = this.player.state.speed;
+    const timing = this.reducedMotion?.getSnapshot().reducedMotion ? PLAIN_TIMING : COMIC_TIMING;
     let i = 0;
     for (const flock of this.flocks) {
       const dist = Math.hypot(p.x - flock.center.x, p.z - flock.center.z);
-      flock.state = stepFlock(flock.state, ctx.dt, dist);
+      const prev = flock.state.mode;
+      flock.state = stepFlock(flock.state, ctx.dt, dist, speed, timing);
+      if (flock.state.mode === "flush" && prev !== "flush") this.flushedEdge = true;
 
       for (let b = 0; b < BIRDS_PER_FLOCK; b++, i++) {
         const pose = birdPose(flock.center, flock.state.mode, flock.state.timer, this.elapsed, b);
@@ -312,12 +377,22 @@ export class BirdsSystem implements System {
     this.wingMesh.instanceMatrix.needsUpdate = true;
   }
 
+  /** True once per flush event — drained on read. The audio system polls this
+   *  for the squawk-cascade one-shot (same posture as `snakes.anyAlert()`). */
+  justFlushed(): boolean {
+    const edge = this.flushedEdge;
+    this.flushedEdge = false;
+    return edge;
+  }
+
   /** Startle every flock into a fresh scatter at once — the treasure finale's
    *  "the whole jungle answers" beat (owner note, 2026-07-10). Reuses the
    *  exact scatter state a close player triggers, so the committed-startle
    *  minimum and regroup glide apply unchanged. */
   startle(): void {
-    for (const flock of this.flocks) flock.state = { mode: "scatter", timer: 0 };
+    for (const flock of this.flocks) {
+      flock.state = { mode: "scatter", timer: 0, refractory: flock.state.refractory };
+    }
   }
 
   describe(): Record<string, unknown> {

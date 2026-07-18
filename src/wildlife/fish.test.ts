@@ -15,13 +15,15 @@ import {
   selectPools,
   stepFish,
 } from "./fish.ts";
+import { DART_SPEED_MULT, SPLASH_RADIUS } from "./fish.ts";
+import { COMIC_TIMING, PLAIN_TIMING } from "./reactions.ts";
 import { buildTerrain } from "../world/terrain.ts";
 import { LAGOON } from "../world/worldConfig.ts";
 
 const FRAME = { scene: new THREE.Scene(), camera: new THREE.PerspectiveCamera(), dt: 1 / 60, elapsed: 0 };
 
-function player(x: number, z: number) {
-  return { state: { position: new THREE.Vector3(x, 0, z) } };
+function player(x: number, z: number, speed = 0) {
+  return { state: { position: new THREE.Vector3(x, 0, z), speed } };
 }
 
 describe("selectPools", () => {
@@ -75,6 +77,105 @@ describe("stepFish (patrol/flee state machine)", () => {
     // Enough time AND clear: resumes patrol.
     probe = stepFish(s, FLEE_DURATION + 0.1, pool, { x: 1000, z: 1000 });
     expect(probe.mode).toBe("patrol");
+  });
+
+  it("a wading splash startles the WHOLE pool — even fish beyond the flee radius (J1 #219)", () => {
+    const pool = { x: 0, z: 0 };
+    // Player splashes 7 u from the pool centre (inside SPLASH_RADIUS 8); this
+    // fish is 10 u from the player — beyond FLEE_RADIUS, calm without a splash.
+    const fish = { ...initialFishState(pool, 0), x: -3, z: 0 };
+    const playerPos = { x: 7, z: 0 };
+    expect(Math.hypot(fish.x - playerPos.x, fish.z - playerPos.z)).toBeGreaterThan(FLEE_RADIUS);
+
+    const calm = stepFish(fish, 0.1, pool, playerPos, false, COMIC_TIMING);
+    expect(calm.mode).toBe("patrol");
+    const startled = stepFish(fish, 0.1, pool, playerPos, true, COMIC_TIMING);
+    expect(startled.mode).toBe("freeze");
+  });
+
+  it("freeze holds the fish dead-still for the comic beat, then darts faster than a flee", () => {
+    const pool = { x: 0, z: 0 };
+    let s = stepFish({ ...initialFishState(pool, 0), x: -3, z: 0 }, 0.1, pool, { x: 7, z: 0 }, true, COMIC_TIMING);
+    const frozenX = s.x;
+    for (let t = 0; t < COMIC_TIMING.freezeSeconds - 0.1; t += 0.1) {
+      s = stepFish(s, 0.1, pool, { x: 7, z: 0 }, false, COMIC_TIMING);
+      expect(s.mode).toBe("freeze");
+      expect(s.x).toBe(frozenX); // held — not drifting
+    }
+    s = stepFish(s, 0.2, pool, { x: 7, z: 0 }, false, COMIC_TIMING);
+    expect(s.mode).toBe("dart");
+    // The dart's first burst outruns a plain flee (overshoot × DART multiplier).
+    const before = s.x;
+    s = stepFish(s, 0.5, pool, { x: 7, z: 0 }, false, COMIC_TIMING);
+    const dartDist = Math.abs(s.x - before);
+    expect(dartDist).toBeGreaterThan(5.5 * 0.5); // > FLEE_SPEED over the same window
+    expect(DART_SPEED_MULT).toBeGreaterThan(1);
+  });
+
+  it("darts AWAY from the player and settles back to patrol once clear", () => {
+    const pool = { x: 0, z: 0 };
+    let s: ReturnType<typeof initialFishState> = {
+      ...initialFishState(pool, 0),
+      x: -3,
+      z: 0,
+      mode: "dart",
+      timer: 0,
+    };
+    const playerPos = { x: 7, z: 0 };
+    const d0 = Math.hypot(s.x - playerPos.x, s.z - playerPos.z);
+    s = stepFish(s, 0.3, pool, playerPos, false, COMIC_TIMING);
+    expect(Math.hypot(s.x - playerPos.x, s.z - playerPos.z)).toBeGreaterThan(d0);
+    // The dart owns the grammar's FULL react window (2.2 s), not the plain
+    // flee's 1.4 s — the overshoot envelope completes and fades out.
+    for (let t = 0; t < COMIC_TIMING.reactSeconds + 0.3; t += 0.1) {
+      s = stepFish(s, 0.1, pool, playerPos, false, COMIC_TIMING);
+    }
+    expect(s.mode).toBe("patrol");
+  });
+
+  it("the fish AT the splash epicentre gets the comic beat too — never a weaker reaction", () => {
+    const pool = { x: 0, z: 0 };
+    // 4 u from the player: inside FLEE_RADIUS — without a splash this flees.
+    const near = { ...initialFishState(pool, 0), x: 3, z: 0 };
+    const s = stepFish(near, 0.1, pool, { x: 7, z: 0 }, true, COMIC_TIMING);
+    expect(s.mode).toBe("freeze");
+  });
+
+  it("a swimming player cannot machine-gun the pool: the dart arms a refractory", () => {
+    const pool = { x: 0, z: 0 };
+    let s: ReturnType<typeof initialFishState> = {
+      ...initialFishState(pool, 0),
+      x: -3,
+      z: 0,
+      mode: "dart",
+      timer: COMIC_TIMING.reactSeconds - 0.05,
+    };
+    // Finish the dart far from the player → patrol with a full cooldown armed.
+    s = stepFish(s, 0.1, pool, { x: 40, z: 0 }, false, COMIC_TIMING);
+    expect(s.mode).toBe("patrol");
+    expect(s.refractory).toBeGreaterThan(0);
+    // A continuing splash does NOT re-freeze until the refractory drains.
+    s = stepFish(s, 0.1, pool, { x: 7, z: 0 }, true, COMIC_TIMING);
+    expect(s.mode).toBe("patrol");
+  });
+
+  it("reduced motion (PLAIN_TIMING) skips the freeze beat — straight to dart", () => {
+    const pool = { x: 0, z: 0 };
+    const s = stepFish({ ...initialFishState(pool, 0), x: -3, z: 0 }, 0.1, pool, { x: 7, z: 0 }, true, PLAIN_TIMING);
+    expect(s.mode).toBe("dart");
+  });
+
+  it("no splash beyond SPLASH_RADIUS of the pool: behavior unchanged", () => {
+    const pool = { x: 0, z: 0 };
+    const s = stepFish(
+      { ...initialFishState(pool, 0), x: -3, z: 0 },
+      0.1,
+      pool,
+      { x: SPLASH_RADIUS + 2, z: 0 },
+      true,
+      COMIC_TIMING,
+    );
+    expect(s.mode).toBe("patrol");
   });
 
   it("is deterministic: identical inputs produce identical output", () => {

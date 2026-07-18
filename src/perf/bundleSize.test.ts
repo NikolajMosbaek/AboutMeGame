@@ -123,7 +123,7 @@ describe("measureDist fail-loud", () => {
 
 describe("formatReport", () => {
   // formatReport renders the human-facing measured-vs-cap delta table. It is
-  // display-only: the cap column (400 KB / 6000 KB) is read from PERF_BUDGET in
+  // display-only: the cap column (432 KB / 6000 KB) is read from PERF_BUDGET in
   // perfBudget.ts, NOT hard-coded here and NOT re-derived — it never re-runs the
   // measured > cap comparison, which lives solely in checkBundleBudget. The
   // table prints on BOTH pass and fail so a creeping regression's shrinking
@@ -131,7 +131,7 @@ describe("formatReport", () => {
 
   it("prints the measured-vs-cap table with the budget caps and a 'within budget' token on a PASS", () => {
     // overBudget:false ⇒ no breaches; the caps must still be shown so the reader
-    // sees the headroom. The cap values come from PERF_BUDGET (maxJsGzipKb 400,
+    // sees the headroom. The cap values come from PERF_BUDGET (maxJsGzipKb 432,
     // maxInitialDownloadKb 6000), proving the display column is single-sourced.
     const verdict: BundleVerdict = {
       jsGzipKb: 201.9,
@@ -142,7 +142,7 @@ describe("formatReport", () => {
 
     const report = formatReport(verdict);
 
-    expect(report).toContain("/ 400 KB");
+    expect(report).toContain("/ 432 KB");
     expect(report).toContain("/ 6000 KB");
     expect(report).toContain("within budget");
     // The measured side of each row is rendered too, so the table is legible.
@@ -156,17 +156,17 @@ describe("formatReport", () => {
     // The breach message is authored once, in checkBundleBudget, and must reach
     // the CI log unrephrased so the contract and the shell output cannot drift.
     const jsBreachMessage =
-      "JS gzip 412.3 KB > cap 400 KB (over by 12.3 KB)";
+      "JS gzip 445.3 KB > cap 432 KB (over by 13.3 KB)";
     const verdict: BundleVerdict = {
-      jsGzipKb: 412.3,
-      initialDownloadKb: 418.0,
+      jsGzipKb: 445.3,
+      initialDownloadKb: 451.0,
       overBudget: true,
       breaches: [
         {
           metric: "jsGzip",
-          measuredKb: 412.3,
-          capKb: 400,
-          overByKb: 12.3,
+          measuredKb: 445.3,
+          capKb: 432,
+          overByKb: 13.3,
           message: jsBreachMessage,
         },
       ],
@@ -177,7 +177,7 @@ describe("formatReport", () => {
     expect(report).toContain(jsBreachMessage);
     expect(report).toContain("over budget");
     // The cap table still renders on a FAIL.
-    expect(report).toContain("/ 400 KB");
+    expect(report).toContain("/ 432 KB");
     expect(report).toContain("/ 6000 KB");
   });
 });
@@ -216,10 +216,10 @@ describe("measureDist + checkBundleBudget end-to-end on a fixture dist (T5)", ()
   }
 
   it("flags an oversize JS chunk: checkBundleBudget(measureDist(root)).overBudget === true with a jsGzip breach and the .map excluded", () => {
-    // 420 KB of incompressible JS ⇒ gzip wire size ≈ 420 KB, well over the
-    // 400 KB JS-gzip cap (the cap value itself lives only in perfBudget.ts; we
+    // 450 KB of incompressible JS ⇒ gzip wire size ≈ 450 KB, well over the
+    // 432 KB JS-gzip cap (the cap value itself lives only in perfBudget.ts; we
     // never restate it here). Its .map sibling must be dropped before measuring.
-    const root = writeFixtureDist(420 * 1000);
+    const root = writeFixtureDist(450 * 1000);
     writeFileSync(
       join(root, "assets", "index-deadbeef.js.map"),
       "{}".repeat(200_000),

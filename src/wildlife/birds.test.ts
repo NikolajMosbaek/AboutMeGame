@@ -14,12 +14,14 @@ import {
   stepFlock,
   type FlockState,
 } from "./birds.ts";
+import { SPRINT_FLUSH_RADIUS, SPRINT_FLUSH_SPEED } from "./birds.ts";
+import { COMIC_TIMING, PLAIN_TIMING } from "./reactions.ts";
 import { buildTerrain } from "../world/terrain.ts";
 
 const FRAME = { scene: new THREE.Scene(), camera: new THREE.PerspectiveCamera(), dt: 1 / 60, elapsed: 0 };
 
-function player(x: number, z: number) {
-  return { state: { position: new THREE.Vector3(x, 0, z) } };
+function player(x: number, z: number, speed = 0) {
+  return { state: { position: new THREE.Vector3(x, 0, z), speed } };
 }
 
 describe("stepFlock (birds scatter/regroup state machine)", () => {
@@ -54,14 +56,14 @@ describe("stepFlock (birds scatter/regroup state machine)", () => {
   });
 
   it("regroup restarts scatter if the player closes in again", () => {
-    let s: FlockState = { mode: "regroup", timer: 0.5 };
+    let s: FlockState = { mode: "regroup", timer: 0.5, refractory: 0 };
     s = stepFlock(s, 1 / 60, ALERT_RADIUS - 1);
     expect(s.mode).toBe("scatter");
     expect(s.timer).toBe(0);
   });
 
   it("regroup completes into orbit after REGROUP_DURATION with the player clear", () => {
-    let s: FlockState = { mode: "regroup", timer: 0 };
+    let s: FlockState = { mode: "regroup", timer: 0, refractory: 0 };
     s = stepFlock(s, REGROUP_DURATION + 0.01, ALERT_RADIUS + 50);
     expect(s.mode).toBe("orbit");
   });
@@ -80,11 +82,87 @@ describe("scatterFactor", () => {
 });
 
 describe("birdPose (determinism)", () => {
+  it("sprint-past inside the flush radius holds a comic freeze beat, THEN flushes (J1 #219)", () => {
+    // Sprinting at 20 u — outside the walk alert (18) but inside the flush
+    // radius (26) — startles the flock through the grammar's freeze beat.
+    let s = stepFlock(initialFlockState(), 0.1, 20, SPRINT_FLUSH_SPEED + 1, COMIC_TIMING);
+    expect(s.mode).toBe("freeze");
+    // The beat is COMMITTED — it plays out even if the sprint stops.
+    for (let t = 0; t < COMIC_TIMING.freezeSeconds - 0.1; t += 0.1) {
+      s = stepFlock(s, 0.1, 20, 0, COMIC_TIMING);
+      expect(s.mode).toBe("freeze");
+    }
+    s = stepFlock(s, 0.2, 20, 0, COMIC_TIMING);
+    expect(s.mode).toBe("flush");
+  });
+
+  it("walking at the same distance does NOT flush — speed is the trigger", () => {
+    const s = stepFlock(initialFlockState(), 0.1, 20, 3, COMIC_TIMING);
+    expect(s.mode).toBe("orbit");
+  });
+
+  it("sprinting beyond the flush radius does nothing", () => {
+    const s = stepFlock(initialFlockState(), 0.1, SPRINT_FLUSH_RADIUS + 1, 8, COMIC_TIMING);
+    expect(s.mode).toBe("orbit");
+  });
+
+  it("walking inside the alert radius still scatters immediately (unchanged contract)", () => {
+    const s = stepFlock(initialFlockState(), 0.1, ALERT_RADIUS - 1, 3, COMIC_TIMING);
+    expect(s.mode).toBe("scatter");
+  });
+
+  it("reduced motion (PLAIN_TIMING) skips the freeze beat — straight to flush", () => {
+    const s = stepFlock(initialFlockState(), 0.1, 20, 8, PLAIN_TIMING);
+    expect(s.mode).toBe("flush");
+  });
+
+  it("the flush arms the grammar's refractory — lapping the flock is one gag per cooldown", () => {
+    // Complete a full flush cycle, then keep sprinting in the annulus: no
+    // re-flush until the cooldown has drained.
+    let s = stepFlock(initialFlockState(), 0.1, 20, 8, COMIC_TIMING);
+    expect(s.mode).toBe("freeze");
+    let elapsed = 0.1;
+    while (s.mode !== "orbit" && elapsed < 20) {
+      s = stepFlock(s, 0.1, 20, 8, COMIC_TIMING);
+      elapsed += 0.1;
+    }
+    expect(s.mode).toBe("orbit");
+    // Still inside the refractory (cooldown 8 s > the ~5.5 s cycle): no flush.
+    s = stepFlock(s, 0.1, 20, 8, COMIC_TIMING);
+    expect(s.mode).toBe("orbit");
+    // Drain the remaining refractory, then the NEXT sprint-past fires again.
+    while (s.refractory > 0) s = stepFlock(s, 0.1, 40, 0, COMIC_TIMING);
+    s = stepFlock(s, 0.1, 20, 8, COMIC_TIMING);
+    expect(s.mode).toBe("freeze");
+  });
+
+  it("flush settles into regroup like a scatter once the player is clear", () => {
+    let s: FlockState = { mode: "flush", timer: 0, refractory: 0 };
+    for (let t = 0; t < SCATTER_MIN_DURATION + 0.2; t += 0.1) {
+      s = stepFlock(s, 0.1, 40, 0, COMIC_TIMING);
+    }
+    expect(s.mode).toBe("regroup");
+  });
+
   it("is a pure function: identical inputs produce identical output", () => {
     const center = { x: 10, y: 5, z: -10 };
     const a = birdPose(center, "scatter", 1.2, 42, 3);
     const b = birdPose(center, "scatter", 1.2, 42, 3);
     expect(a).toEqual(b);
+  });
+
+  it("holds the pose during the freeze beat: factor 0 and wings dead-still", () => {
+    expect(scatterFactor("freeze", 0.2)).toBe(0);
+    const pose = birdPose({ x: 0, y: 20, z: 0 }, "freeze", 0.2, 5, 0);
+    expect(pose.flap).toBe(0); // wings held — the "…!" beat
+  });
+
+  it("flush overshoots past a plain scatter's full spread, then settles", () => {
+    // Mid-flush the overshoot envelope exceeds 1 (a plain scatter caps at 1).
+    const climbed = scatterFactor("flush", 0.25);
+    expect(climbed).toBeGreaterThan(1);
+    // By the end of the react window it has settled back to ~1.
+    expect(scatterFactor("flush", COMIC_TIMING.reactSeconds)).toBeCloseTo(1, 1);
   });
 
   it("puffs radius outward as scatter's factor grows", () => {
@@ -147,6 +225,37 @@ describe("BirdsSystem", () => {
     for (let i = 0; i < 30; i++) sys.update(FRAME);
     const state = sys.describe() as { flocks: string[] };
     expect(state.flocks[0]).toBe("scatter");
+  });
+
+  it("justFlushed() reports a flush edge exactly once — the audio seam (J1 #219)", () => {
+    const scene = new THREE.Scene();
+    // Sprinting 20 u from flock 0's waypoint: outside walk-alert, inside flush.
+    const wp = FLOCK_WAYPOINTS[0];
+    const sys = new BirdsSystem(scene, buildTerrain(), player(wp.x - 20, wp.z, 8), {
+      paused: false,
+    });
+    let edges = 0;
+    for (let i = 0; i < 90; i++) {
+      sys.update(FRAME);
+      if (sys.justFlushed()) edges++;
+    }
+    expect(edges).toBe(1); // one flush, one edge — held flush never re-reports
+    sys.dispose();
+  });
+
+  it("honours reduced motion: no freeze beat, flush starts on the first frame", () => {
+    const scene = new THREE.Scene();
+    const wp = FLOCK_WAYPOINTS[0];
+    const sys = new BirdsSystem(
+      scene,
+      buildTerrain(),
+      player(wp.x - 20, wp.z, 8),
+      { paused: false },
+      { getSnapshot: () => ({ reducedMotion: true }) },
+    );
+    sys.update(FRAME);
+    expect(sys.justFlushed()).toBe(true); // no held beat before the edge
+    sys.dispose();
   });
 
   it("startle() sends every flock into a fresh scatter at once (the treasure finale)", () => {
