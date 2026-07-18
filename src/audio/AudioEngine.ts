@@ -627,6 +627,18 @@ export class AudioEngine {
    */
   setRainLevel(level01: number): void {
     if (this.disposed) return;
+    // While muted the context is suspended and its clock is FROZEN — any
+    // ramps scheduled now would pile up at one instant and replay as a
+    // phantom swell on unmute (review finding). The bed simply doesn't run
+    // muted; the next unmuted frame rebuilds it from the live envelope.
+    if (this.muted) {
+      if (this.rainSource) {
+        this.rainSource.stop();
+        this.stopRainBed();
+        this.lastRainLevel = 0;
+      }
+      return;
+    }
     const level = Math.min(1, Math.max(0, level01));
     if (Math.abs(level - this.lastRainLevel) < 0.01 && !(level === 0 && this.rainSource)) return;
     this.lastRainLevel = level;

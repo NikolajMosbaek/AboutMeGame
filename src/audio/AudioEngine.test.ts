@@ -413,6 +413,21 @@ describe("rain bed + thunder (W1 #228)", () => {
     engine.dispose();
   });
 
+  it("the bed never runs muted: a live bed tears down, nothing builds, and unmute rebuilds fresh", () => {
+    const { ctx, bufferSources } = fakeContext();
+    const engine = new AudioEngine(() => ctx);
+    engine.setRainLevel(0.8); // live bed
+    engine.setMuted(true);
+    engine.setRainLevel(0.8); // frozen clock: torn down, not ramped
+    expect((bufferSources[0] as { stop: ReturnType<typeof vi.fn> }).stop).toHaveBeenCalled();
+    engine.setRainLevel(0.8); // still muted: nothing new
+    expect(bufferSources.length).toBe(1);
+    engine.setMuted(false);
+    engine.setRainLevel(0.8); // unmuted: a fresh chain at the live clock
+    expect(bufferSources.length).toBe(2);
+    engine.dispose();
+  });
+
   it("dispose stops a live rain bed", () => {
     const { ctx, bufferSources } = fakeContext();
     const engine = new AudioEngine(() => ctx);
