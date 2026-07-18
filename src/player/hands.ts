@@ -125,6 +125,15 @@ export interface DigSource {
 export interface ReducedMotionSource {
   getSnapshot(): { reducedMotion: boolean };
 }
+/** Hold all motion while true — the shared session pause flag satisfies it. */
+export interface PauseSource {
+  readonly paused: boolean;
+}
+
+/** A thirst rise LARGER than this isn't a drink — it's the respawn refill
+ *  (survival resets meters to 75 on death), which must not cup a phantom
+ *  hand (review finding). A real gulp is +30. */
+const DRINK_RISE_MAX = 35;
 
 export class HandsSystem implements System {
   readonly id = "hands";
@@ -148,6 +157,7 @@ export class HandsSystem implements System {
     private readonly survival: DrinkSource,
     private readonly forage: EatSource,
     private readonly quest: DigSource,
+    private readonly session?: PauseSource,
     private readonly reducedMotion?: ReducedMotionSource,
   ) {
     this.armGeo = buildArmGeometry();
@@ -160,8 +170,10 @@ export class HandsSystem implements System {
     this.group.add(arm, this.fruitMesh);
     this.group.name = "fp-hands";
     this.group.visible = false;
-    // Always in front of the player, never culled away mid-raise.
-    this.group.frustumCulled = false;
+    // Always in front of the player, never culled away mid-raise. Groups are
+    // never frustum-tested — the flag must live on the child MESHES.
+    arm.frustumCulled = false;
+    this.fruitMesh.frustumCulled = false;
     scene.add(this.group);
 
     this.lastThirst = this.survival.getSnapshot().thirst;
@@ -169,9 +181,14 @@ export class HandsSystem implements System {
   }
 
   update(ctx: FrameContext): void {
-    // Edges (mount baselines captured, the AudioSystem posture).
+    if (this.session?.paused) return; // hold mid-pose, like every other system
+
+    // Edges (mount baselines captured, the AudioSystem posture). A rise
+    // bigger than a gulp is the respawn refill, not a drink.
     const thirst = this.survival.getSnapshot().thirst;
-    if (thirst > this.lastThirst) this.start("drink");
+    if (thirst > this.lastThirst && thirst - this.lastThirst <= DRINK_RISE_MAX) {
+      this.start("drink");
+    }
     this.lastThirst = thirst;
     const eaten = this.forage.getSnapshot().eaten;
     if (eaten > this.lastEaten) this.start("eat");

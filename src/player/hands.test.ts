@@ -102,6 +102,31 @@ describe("HandsSystem", () => {
     sys.dispose();
   });
 
+  it("holds mid-pose while the session is paused and ignores the respawn thirst refill", () => {
+    const scene = new THREE.Scene();
+    const survival = { thirst: 2 };
+    const session = { paused: false };
+    const sys = new HandsSystem(
+      scene,
+      { getSnapshot: () => ({ thirst: survival.thirst }) },
+      { getSnapshot: () => ({ eaten: 0 }) },
+      { getSnapshot: () => ({ digProgress: null }) },
+      session,
+    );
+    sys.update(FRAME());
+    survival.thirst = 75; // the respawn refill — NOT a drink
+    sys.update(FRAME());
+    expect(sys.describe().action).toBe("idle");
+
+    survival.thirst = 95; // a real gulp (+20)
+    sys.update(FRAME());
+    expect(sys.describe().action).toBe("drink");
+    session.paused = true;
+    for (let t = 0; t < 3; t += 0.05) sys.update(FRAME());
+    expect(sys.describe().action).toBe("drink"); // frozen, not expired
+    sys.dispose();
+  });
+
   it("disposes cleanly, detaching from the scene", () => {
     const { scene, sys } = rig();
     sys.dispose();

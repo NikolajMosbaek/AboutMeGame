@@ -256,7 +256,7 @@ export function buildGame(
   engine.addSystem(treasureBurst);
 
   // First-person hands (E1 #233) — the body in the frame: drink/eat/dig.
-  engine.addSystem(new HandsSystem(engine.scene, survivalStore, forageStore, questStore, settings));
+  engine.addSystem(new HandsSystem(engine.scene, survivalStore, forageStore, questStore, session, settings));
 
   // Leaf burst on a bird flush (J1 #221) — the gag's visual half; the squawk
   // cascade is wired through the AudioSystem below.
