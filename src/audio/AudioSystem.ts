@@ -304,7 +304,10 @@ export class AudioSystem implements System {
         this.pantTimer = PANT_INTERVAL;
       }
     } else {
-      this.pantTimer = 0;
+      // Re-arm at a FULL interval: a zero timer would double-fire with the
+      // sprint rising-edge breath when re-engaging while exhausted (review
+      // finding — two stacked one-shots read as a doubled breath).
+      this.pantTimer = PANT_INTERVAL;
     }
 
     // Survival edges: drink (thirst rises), a sharp health drop, death.
