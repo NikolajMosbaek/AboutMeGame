@@ -134,6 +134,11 @@ describe("resolveQuality", () => {
     expect(QUALITY_TIERS.low.groundingShadows).toBe(true);
     expect(QUALITY_TIERS.medium.groundingShadows).toBe(false);
     expect(QUALITY_TIERS.high.groundingShadows).toBe(false);
+    // Rain streaks (W1 #227): a +1-draw-call Points layer, off on low where
+    // dimming + audio deliver the weather within the low-tier floor.
+    expect(QUALITY_TIERS.low.rainDetail).toBe("none");
+    expect(QUALITY_TIERS.medium.rainDetail).toBe("full");
+    expect(QUALITY_TIERS.high.rainDetail).toBe("full");
     // Terrain textures (albedo + normal-map splat) are off entirely only at
     // the bottom tier; anisotropy scales monotonically too.
     expect(QUALITY_TIERS.low.terrainDetail).toBe("none");

@@ -156,6 +156,10 @@ export interface QualityConfig {
    *  swap-in is gated). A bake-at-mount knob, so it "applies on reload" like
    *  `floraDetail`. */
   objectDetail: "none" | "full";
+  /** Rain streak layer (W1 #227): "full" constructs the camera-following
+   *  Points cloud (+1 draw call); "none" (low) skips it entirely — dimming
+   *  and audio still deliver weather within the low-tier floor. */
+  rainDetail: "none" | "full";
 }
 
 /**
@@ -190,6 +194,7 @@ export const QUALITY_TIERS: Record<DeviceTier, QualityConfig> = {
     floraDetail: "none",
     ambientParticles: "none",
     objectDetail: "none",
+    rainDetail: "none",
   },
   medium: {
     tier: "medium",
@@ -210,6 +215,7 @@ export const QUALITY_TIERS: Record<DeviceTier, QualityConfig> = {
     floraDetail: "full",
     ambientParticles: "full",
     objectDetail: "full",
+    rainDetail: "full",
   },
   high: {
     tier: "high",
@@ -230,6 +236,7 @@ export const QUALITY_TIERS: Record<DeviceTier, QualityConfig> = {
     floraDetail: "full",
     ambientParticles: "full",
     objectDetail: "full",
+    rainDetail: "full",
   },
 };
 

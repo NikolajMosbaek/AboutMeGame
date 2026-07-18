@@ -119,7 +119,10 @@ describe("buildWorld → ShadowFrustumSystem registration (visual-overhaul slice
     // W1 (#226): WeatherSystem sits directly after the day cycle — its dim
     // must multiply the fresh per-frame sun write.
     expect(ids[dayCycleIdx + 1]).toBe("weather");
-    expect(shadowFrustumIdx).toBe(dayCycleIdx + 2);
+    // Rain (W1 #227) slots between weather and the shadow frustum on tiers
+    // that run it; the frustum only needs to trail the day cycle's sun write.
+    expect(shadowFrustumIdx).toBeGreaterThan(dayCycleIdx + 1);
+    expect(shadowFrustumIdx).toBeLessThanOrEqual(dayCycleIdx + 3);
 
     world.dispose();
     engine.dispose();

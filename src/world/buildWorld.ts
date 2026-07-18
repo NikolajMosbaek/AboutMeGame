@@ -15,6 +15,7 @@ import { StarfieldSystem } from "./starfield.ts";
 import { CloudSystem } from "./clouds.ts";
 import { WindSystem, type WindUniforms } from "./windSystem.ts";
 import { WeatherSystem } from "./weatherSystem.ts";
+import { RainSystem } from "./rainLayer.ts";
 import type { WeatherSnapshot } from "./weather.ts";
 import { AmbientMotesSystem } from "../fx/AmbientMotesSystem.ts";
 import type { FloraUpgradeHandle } from "./floraUpgrade.ts";
@@ -264,6 +265,11 @@ export function buildWorld(
   // injected weatherDim read.
   const weatherSystem = new WeatherSystem(sky, dayCycleSystem, cloudSystem, windSystem);
   engine.addSystem(weatherSystem);
+  // Rain streaks (W1 #227) — medium/high only (`quality.rainDetail`), reading
+  // the snapshot the weather system just refreshed this frame.
+  if (quality.rainDetail === "full") {
+    engine.addSystem(new RainSystem(scene, weatherSystem, reducedMotion));
+  }
 
   // The player-following, texel-snapped shadow frustum (visual-overhaul slice
   // 2) — visual-only, registered here alongside the sky/water systems, NOT the
