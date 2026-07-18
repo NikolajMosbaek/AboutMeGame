@@ -315,6 +315,12 @@ export class SnakesSystem implements System {
     return false;
   }
 
+  /** Where the snakes coil — fixed placements, exposed so the jaguar's
+   *  snake double-take (J1 #221) can read them without coupling modules. */
+  positions(): ReadonlyArray<{ x: number; z: number }> {
+    return this.placements;
+  }
+
   describe(): Record<string, unknown> {
     return { snakes: this.states.map((s) => s.mode) };
   }

@@ -23,6 +23,7 @@ import { SPAWN } from "./world/worldConfig.ts";
 import { AudioSystem } from "./audio/AudioSystem.ts";
 import { installAudioResume } from "./audio/resumeNet.ts";
 import { DiscoveryBurstSystem } from "./fx/DiscoveryBurstSystem.ts";
+import { LeafBurstSystem } from "./fx/LeafBurstSystem.ts";
 import { TreasureBurstSystem } from "./fx/TreasureBurstSystem.ts";
 import { buildWildlife } from "./wildlife/buildWildlife.ts";
 
@@ -251,6 +252,10 @@ export function buildGame(
   );
   engine.addSystem(treasureBurst);
 
+  // Leaf burst on a bird flush (J1 #221) — the gag's visual half; the squawk
+  // cascade is wired through the AudioSystem below.
+  engine.addSystem(new LeafBurstSystem(engine.scene, wildlife.birds, settings));
+
   // Audio (#51 SFX, #52 ambient bed). Only when a context factory is available
   // (skipped headless). The AudioSystem is a System, so engine.dispose() tears
   // down the AudioEngine (stop oscillators, close the context) on unmount.
@@ -269,6 +274,9 @@ export function buildGame(
         questStore,
         wildlife.snakes,
         wildlife.jaguar,
+        wildlife.birds,
+        wildlife.fish,
+        wildlife.monkeys,
       ),
     );
     // Mobile-Safari survival net (S4): a PERSISTENT resume on every gesture and

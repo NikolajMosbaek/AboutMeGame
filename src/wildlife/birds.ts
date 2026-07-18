@@ -312,6 +312,8 @@ export class BirdsSystem implements System {
 
   /** Set when any flock enters `flush`; drained by {@link justFlushed}. */
   private flushedEdge = false;
+  /** Flush positions pending a leaf-burst FX; drained by consumeFlushBurst. */
+  private readonly flushBursts: Array<{ x: number; y: number; z: number }> = [];
 
   constructor(
     scene: THREE.Scene,
@@ -356,7 +358,10 @@ export class BirdsSystem implements System {
       const dist = Math.hypot(p.x - flock.center.x, p.z - flock.center.z);
       const prev = flock.state.mode;
       flock.state = stepFlock(flock.state, ctx.dt, dist, speed, timing);
-      if (flock.state.mode === "flush" && prev !== "flush") this.flushedEdge = true;
+      if (flock.state.mode === "flush" && prev !== "flush") {
+        this.flushedEdge = true;
+        if (this.flushBursts.length < 4) this.flushBursts.push({ ...flock.center });
+      }
 
       for (let b = 0; b < BIRDS_PER_FLOCK; b++, i++) {
         const pose = birdPose(flock.center, flock.state.mode, flock.state.timer, this.elapsed, b);
@@ -383,6 +388,12 @@ export class BirdsSystem implements System {
     const edge = this.flushedEdge;
     this.flushedEdge = false;
     return edge;
+  }
+
+  /** One pending flush position for the leaf-burst FX, or null — its own
+   *  queue, so the FX and audio consumers never fight over a single edge. */
+  consumeFlushBurst(): { x: number; y: number; z: number } | null {
+    return this.flushBursts.shift() ?? null;
   }
 
   /** Startle every flock into a fresh scatter at once — the treasure finale's

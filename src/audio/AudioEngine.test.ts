@@ -126,6 +126,11 @@ describe("AudioEngine", () => {
     ["snakeAlert", 5],
     ["fanfare", 4],
     ["completion", 7],
+    ["squawkCascade", 5],
+    ["monkeyChitter", 6],
+    ["monkeyRaspberry", 3],
+    ["jaguarYelp", 1],
+    ["splashScatter", 4],
     ["deathSting", 3],
     ["birdChirp", 1],
     ["owlHoot", 2],
@@ -158,6 +163,11 @@ describe("AudioEngine", () => {
     engine.breathe();
     engine.footstep(false);
     engine.completion();
+    engine.squawkCascade();
+    engine.monkeyChitter();
+    engine.monkeyRaspberry();
+    engine.jaguarYelp();
+    engine.splashScatter();
     expect(oscillators.length).toBe(0);
   });
 

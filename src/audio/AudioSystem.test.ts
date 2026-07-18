@@ -26,6 +26,11 @@ function fakeEngine() {
     stopMusic: vi.fn(),
     setAmbientPhase: vi.fn(),
     setRiverProximity: vi.fn(),
+    squawkCascade: vi.fn(),
+    monkeyChitter: vi.fn(),
+    monkeyRaspberry: vi.fn(),
+    jaguarYelp: vi.fn(),
+    splashScatter: vi.fn(),
     setMuted: vi.fn(),
     resume: vi.fn(),
     recoverIfInterrupted: vi.fn(),
@@ -80,7 +85,7 @@ function snakeSource(alert: boolean) {
   return { anyAlert: () => alert };
 }
 function jaguarSource(stalking: boolean) {
-  return { isStalking: () => stalking };
+  return { isStalking: () => stalking, justStartled: () => false };
 }
 
 // A fully-neutral rig — nothing rises, nothing moves — for tests that only
@@ -383,7 +388,7 @@ describe("AudioSystem", () => {
 
   it("growls once on the jaguar's stalk rising edge, and again for a fresh stalk", () => {
     let stalking = false;
-    const jaguar = { isStalking: () => stalking };
+    const jaguar = { isStalking: () => stalking, justStartled: () => false };
     const { engine, sys } = makeSystem({ jaguar });
 
     sys.update(CTX());
@@ -419,6 +424,53 @@ describe("AudioSystem", () => {
     alert = true;
     sys.update(CTX());
     expect(engine.snakeAlert).toHaveBeenCalledTimes(2);
+  });
+
+  it("plays each comedy one-shot exactly once per drained edge (J1 #221)", () => {
+    let startled = true;
+    let flushed = true;
+    let scattered = true;
+    let stole = true;
+    let taunted = true;
+    const engine = fakeEngine();
+    const store = createDiscoveryStore(3);
+    const args = neutralArgs();
+    const sys = new AudioSystem(
+      engine,
+      store,
+      args.explorer,
+      args.muted,
+      args.dayPhase,
+      args.waterDepthAt,
+      args.survival,
+      args.forage,
+      args.quest,
+      args.snakes,
+      { isStalking: () => false, justStartled: () => { const e = startled; startled = false; return e; } },
+      { justFlushed: () => { const e = flushed; flushed = false; return e; } },
+      { justScattered: () => { const e = scattered; scattered = false; return e; } },
+      {
+        justStole: () => { const e = stole; stole = false; return e; },
+        justTaunted: () => { const e = taunted; taunted = false; return e; },
+      },
+    );
+
+    sys.update(CTX());
+    sys.update(CTX()); // edges drained — nothing may re-fire
+    expect(engine.jaguarYelp).toHaveBeenCalledTimes(1);
+    expect(engine.squawkCascade).toHaveBeenCalledTimes(1);
+    expect(engine.splashScatter).toHaveBeenCalledTimes(1);
+    expect(engine.monkeyChitter).toHaveBeenCalledTimes(1);
+    expect(engine.monkeyRaspberry).toHaveBeenCalledTimes(1);
+    sys.dispose();
+  });
+
+  it("stays silent on the comedy seams when the reactive sources are absent", () => {
+    const { engine, sys } = makeSystem();
+    sys.update(CTX());
+    expect(engine.jaguarYelp).not.toHaveBeenCalled();
+    expect(engine.squawkCascade).not.toHaveBeenCalled();
+    sys.dispose();
   });
 
   it("disposes the engine and unsubscribes from the store", () => {

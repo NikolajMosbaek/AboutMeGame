@@ -35,7 +35,11 @@ distance from snakes, follow the clues, and dig up the idol.
    soundscape. Realism within a procedural, no-external-assets budget means *coherent
    sensory detail*, not photorealism: lit surfaces + cross-billboard foliage (the
    established art direction — flat sprites fight the day-cycle sun), animated water,
-   wildlife that reacts to you.
+   wildlife that reacts to you. *Amended 2026-07-18 (J1, #218, approved):* realism
+   bends for **reaction timing only** — animals may react with exaggerated, snappy
+   comic timing (freeze-beats, overshoot, double-takes) but never break species
+   behavior: no talking, no cartoon sound effects; comedy stings are synthesized
+   animal sounds. The timing lives in one table (`wildlife/reactions.ts`).
 2. **Survival pressure that teaches, not punishes.** Meters drain slowly enough to
    explore, fast enough that you plan around water and food. Death is a setback
    (respawn at camp, meters reset), never lost quest progress.

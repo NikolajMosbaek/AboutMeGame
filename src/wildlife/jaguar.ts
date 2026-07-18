@@ -99,7 +99,17 @@ export function isNightPhase(phase: number): boolean {
   return nightWeight(phase) > 0.5;
 }
 
-export type JaguarMode = "prowl" | "stalk" | "charge" | "retreat";
+export type JaguarMode = "prowl" | "stalk" | "charge" | "retreat" | "startled";
+
+/** The snake double-take (J1 #221): a stalk that carries the cat within this
+ *  of any snake breaks into a freeze-beat, an ignominious bolt, and a LONG
+ *  cooldown — the apex predator's one humiliation. A committed charge is
+ *  never interrupted: comedy must not rescue the player mid-pounce. */
+export const SNAKE_SCARE_RADIUS = 5;
+export const STARTLE_FREEZE = 0.5;
+export const STARTLE_BOLT_SECONDS = 2.5;
+export const STARTLED_COOLDOWN = 45;
+const BOLT_SPEED_MULT = 1.4;
 
 export interface JaguarState {
   mode: JaguarMode;
@@ -136,6 +146,10 @@ export interface JaguarEnv {
   waterDepthAt: WaterDepthAt;
   /** The camp clearing's centre (the base-camp anchor). */
   camp: { x: number; z: number };
+  /** Where the snakes coil (J1 #221) — optional so pre-J1 rigs are unchanged. */
+  snakes?: ReadonlyArray<{ x: number; z: number }>;
+  /** The freeze-beat length; reduced motion passes 0. */
+  startleFreeze?: number;
 }
 
 export interface JaguarStepResult {
@@ -143,6 +157,26 @@ export interface JaguarStepResult {
   /** True the instant this step lands the strike — the caller feeds it into
    *  `hurt(STRIKE_DAMAGE)`, once per hit-and-run cycle. */
   struck: boolean;
+  /** True exactly on the transition INTO `startled` — the yelp's audio edge. */
+  startled: boolean;
+}
+
+function nearestSnakeDist(
+  x: number,
+  z: number,
+  snakes: ReadonlyArray<{ x: number; z: number }> | undefined,
+): { dist: number; snake: { x: number; z: number } | null } {
+  if (!snakes || snakes.length === 0) return { dist: Infinity, snake: null };
+  let best = Infinity;
+  let bestSnake = snakes[0];
+  for (const sn of snakes) {
+    const d = Math.hypot(x - sn.x, z - sn.z);
+    if (d < best) {
+      best = d;
+      bestSnake = sn;
+    }
+  }
+  return { dist: best, snake: bestSnake };
 }
 
 /** Ground the jaguar refuses to step on: deep water, or the camp's wider
@@ -209,6 +243,7 @@ export function stepJaguar(state: JaguarState, dt: number, env: JaguarEnv): Jagu
   const safe = playerSafe(env);
   const stalkRange = STALK_RANGE * (env.isNight ? NIGHT_BOLDNESS : 1);
   let struck = false;
+  let startled = false;
 
   switch (s.mode) {
     case "prowl": {
@@ -225,6 +260,15 @@ export function stepJaguar(state: JaguarState, dt: number, env: JaguarEnv): Jagu
     }
 
     case "stalk": {
+      // The double-take: a snake underfoot outranks everything else in a
+      // stalk (never a charge — that pounce is committed).
+      const scare = nearestSnakeDist(s.x, s.z, env.snakes);
+      if (scare.dist < SNAKE_SCARE_RADIUS) {
+        s.mode = "startled";
+        s.stalkSeconds = 0; // reused as the startle clock
+        startled = true;
+        break;
+      }
       if (safe || dist > BREAK_OFF_DIST) {
         s.mode = "prowl";
         break;
@@ -263,6 +307,41 @@ export function stepJaguar(state: JaguarState, dt: number, env: JaguarEnv): Jagu
       break;
     }
 
+    case "startled": {
+      const freeze = env.startleFreeze ?? STARTLE_FREEZE;
+      s.stalkSeconds += dt;
+      if (s.stalkSeconds <= freeze) {
+        // The held "…!" beat: dead still, eyes locked on the snake.
+        const scare = nearestSnakeDist(s.x, s.z, env.snakes);
+        if (scare.snake) {
+          s.heading = Math.atan2(-(scare.snake.z - s.z), scare.snake.x - s.x);
+        }
+        break;
+      }
+      if (s.stalkSeconds >= freeze + STARTLE_BOLT_SECONDS) {
+        s.mode = "prowl";
+        s.waypoint = nearestWaypoint(s.x, s.z);
+        s.cooldown = STARTLED_COOLDOWN; // no hunting for a good while — shame
+        break;
+      }
+      // The bolt: directly away from the snake, faster than its own charge.
+      // A bolt into forbidden ground (river, camp ring) falls back to
+      // away-from-the-player; if that's blocked too, the startle resolves
+      // early — a rooted 2.5 s statue is a hang, not a gag (review finding).
+      const scare = nearestSnakeDist(s.x, s.z, env.snakes);
+      const from = scare.snake ?? env.player;
+      const away = { x: 2 * s.x - from.x, z: 2 * s.z - from.z };
+      if (!stepToward(s, away.x, away.z, CHARGE_SPEED * BOLT_SPEED_MULT, dt, env)) {
+        const alt = { x: 2 * s.x - env.player.x, z: 2 * s.z - env.player.z };
+        if (!stepToward(s, alt.x, alt.z, CHARGE_SPEED * BOLT_SPEED_MULT, dt, env)) {
+          s.mode = "prowl";
+          s.waypoint = nearestWaypoint(s.x, s.z);
+          s.cooldown = STARTLED_COOLDOWN;
+        }
+      }
+      break;
+    }
+
     case "retreat": {
       const home = TERRITORY[nearestWaypoint(s.x, s.z)];
       const homeDist = Math.hypot(s.x - home.x, s.z - home.z);
@@ -276,7 +355,7 @@ export function stepJaguar(state: JaguarState, dt: number, env: JaguarEnv): Jagu
     }
   }
 
-  return { state: s, struck };
+  return { state: s, struck, startled };
 }
 
 // --- Geometry / system --------------------------------------------------------
@@ -426,6 +505,8 @@ export class JaguarSystem implements System {
   private readonly bodyMat: THREE.MeshStandardMaterial;
   private readonly eyesMat: THREE.MeshStandardMaterial;
   private state: JaguarState = initialJaguarState();
+  /** Set on the transition into `startled`; drained by {@link justStartled}. */
+  private startledEdge = false;
 
   constructor(
     scene: THREE.Scene,
@@ -437,6 +518,10 @@ export class JaguarSystem implements System {
     private readonly hurt: HurtFn,
     /** The camp clearing's centre; defaults to the base-camp anchor. */
     private readonly camp: { x: number; z: number } = campAnchor(),
+    /** Live snake placements for the double-take (J1 #221); optional. */
+    private readonly snakePositions?: () => ReadonlyArray<{ x: number; z: number }>,
+    /** Reduced motion collapses the startle's freeze-beat to zero. */
+    private readonly reducedMotion?: { getSnapshot(): { reducedMotion: boolean } },
   ) {
     this.group.name = "wildlife-jaguar";
     this.bodyGeo = buildJaguarBodyGeometry();
@@ -466,17 +551,28 @@ export class JaguarSystem implements System {
 
     const night = isNightPhase(this.dayCycle.getPhase());
     const p = this.player.state.position;
-    const { state, struck } = stepJaguar(this.state, ctx.dt, {
+    const { state, struck, startled } = stepJaguar(this.state, ctx.dt, {
       player: { x: p.x, z: p.z },
       isNight: night,
       waterDepthAt: this.waterDepthAt,
       camp: this.camp,
+      snakes: this.snakePositions?.(),
+      startleFreeze: this.reducedMotion?.getSnapshot().reducedMotion ? 0 : undefined,
     });
     this.state = state;
     if (struck) this.hurt(STRIKE_DAMAGE);
+    if (startled) this.startledEdge = true;
 
     this.eyesMat.emissiveIntensity = night ? EYE_NIGHT_EMISSIVE : EYE_DAY_EMISSIVE;
     this.place();
+  }
+
+  /** True once per snake double-take — drained on read (the yelp's audio
+   *  edge, same polled posture as `snakes.anyAlert()`). */
+  justStartled(): boolean {
+    const e = this.startledEdge;
+    this.startledEdge = false;
+    return e;
   }
 
   private place(): void {

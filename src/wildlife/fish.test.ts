@@ -159,6 +159,24 @@ describe("stepFish (patrol/flee state machine)", () => {
     expect(s.mode).toBe("patrol");
   });
 
+  it("a straggler exiting a plain flee is refractory too — no duplicate pool one-shots", () => {
+    const pool = { x: 0, z: 0 };
+    // Mid-flee when a splash lands nearby; let the flee run out with the
+    // player still churning water in the pool.
+    let s: ReturnType<typeof initialFishState> = {
+      ...initialFishState(pool, 0),
+      x: -3,
+      z: 0,
+      mode: "flee",
+      timer: FLEE_DURATION - 0.05,
+    };
+    s = stepFish(s, 0.1, pool, { x: 7, z: 0 }, true, COMIC_TIMING);
+    expect(s.mode).toBe("patrol");
+    expect(s.refractory).toBeGreaterThan(0);
+    s = stepFish(s, 0.1, pool, { x: 7, z: 0 }, true, COMIC_TIMING);
+    expect(s.mode).toBe("patrol"); // no instant re-freeze, no duplicate cue
+  });
+
   it("reduced motion (PLAIN_TIMING) skips the freeze beat — straight to dart", () => {
     const pool = { x: 0, z: 0 };
     const s = stepFish({ ...initialFishState(pool, 0), x: -3, z: 0 }, 0.1, pool, { x: 7, z: 0 }, true, PLAIN_TIMING);
