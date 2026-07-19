@@ -56,7 +56,7 @@ wins — only `"auto"` follows detection (`resolveQuality`'s contract).
 | `maxPixelRatio` | **1** | 1.5 | 2 | Fill rate is the dominant mobile cost; capping DPR at 1 is the single biggest lever for the target phone. |
 | `shadows` | **off** | on | on | The shadow map is the costliest single feature; off on low. |
 | `shadowMapSize` | 1024 | 1024 | 2048 | Smaller map ⇒ cheaper shadow pass on medium. |
-| `propDensity` | **0.2** | 0.55 | 1.0 | Multiplier on the vegetation budgets (680 canopy trees / 72 palms / 2200 understory / 160 rocks, `src/world/props.ts` — jungle-density epic 2026-07-19) — fewer instances ⇒ fewer triangles. Low's absolute load is held at (slightly below) the pre-epic floor — measured 152,918 tris vs the pre-epic 156,837 — pinned by `quality.test.ts`; low also keeps the original crown scales and no tall ferns (`fullFoliage=false`), so its FILL cost is unchanged too. |
+| `propDensity` | **0.26** | 0.55 | 1.0 | Multiplier on the vegetation budgets (680 canopy trees / 72 palms / 2200 understory / 160 rocks, `src/world/props.ts` — jungle-density epic 2026-07-19) — fewer instances ⇒ fewer triangles. Low's absolute load is held AT the pre-epic floor from both sides (no growth, no thinning — review finding R1): 177 trees / 19 palms ≈ the original 180/24, measured 156,559 tris vs the pre-epic 156,837, pinned by `quality.test.ts`; low also keeps the original crown scales and no tall ferns (`fullFoliage=false`), so its FILL cost is unchanged too. |
 | `fog` | **off** | on | on | Cheap, but low drops it so the shorter draw distance reads cleanly. |
 | `waterDisplacement` | **off** | on | on | Vertex displacement + grid subdivision on the full-screen water plane; off on low to protect mobile fill rate. Applies on reload. |
 | `bloom` | **off** | on | on | Threshold post-processing pass that makes the emissive site accents (and later fireflies) glow; fill-rate spend, not draw/triangle; off on low to protect mobile fill rate. **Shipped** behind the renderer seam — pmndrs `postprocessing`'s mipmap-blur `BloomEffect`, merged with SMAA/vignette/tone-mapping into ONE `EffectPass` in `src/engine/createCompositor.ts` (visual-overhaul slice 1, replacing the earlier three-examples `UnrealBloomPass` chain); applies on reload. |
@@ -672,9 +672,16 @@ despite ~1.5× the trees and 2.4× the understory:
 
 | Tier | Vantage | Avg draw calls/frame | Avg triangles/frame | % of 500k budget |
 |---|---|---|---|---|
-| low | spawn (camp vista) | 31 | 152,918 | 30.6% — BELOW the pre-epic 156,837 floor |
+| low | spawn (camp vista) | 31 | 156,559 | 31.3% — within noise of the pre-epic 156,837 floor (propDensity 0.26 ≈ original absolute counts, original silhouettes via `fullFoliage=false`) |
 | high | spawn (camp vista, max) | 121 | 485,582 | 97.1% |
 | high | jungle interior | ~105 | ~418,000 (measured at canopy 700; ≈410k at 680) | ~82% |
+
+Spawn on high is the measured MAX vantage and sits at 97.1% — treat it as
+ZERO planning headroom: any future feature visible from spawn pays with a
+cut or a cull, re-measured with `scripts/measure-frame-cost.mjs`. Draw calls
+(121 measured, ~135-140 theoretical worst with all chunk cells populated)
+are now the thinnest budget after triangles — re-measure on the next
+draw-adding slice.
 
 The low-tier figure (28 draws / 156,837 triangles) matches the prior
 (mislabelled) sample almost exactly, which cross-validates the new

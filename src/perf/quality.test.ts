@@ -16,14 +16,20 @@ describe("resolveQuality", () => {
 
   // The jungle-density epic (2026-07-19) raised the per-category counts;
   // the low tier's floor is "never slower than today", so its ABSOLUTE
-  // effective load must stay at the pre-epic numbers (180 trees / 24 palms,
-  // small allowance on the tiny understory crosses and cheap rock solids).
-  it("low tier's absolute vegetation load never grows past the original floor", () => {
+  // effective load must stay ≈ the pre-epic numbers (180 trees / 24 palms /
+  // 360 understory / 48 rocks) — bounded from BOTH sides for the expensive
+  // layers: a densify epic must not leave the phone tier sparser either
+  // (review finding R1). Understory gets an allowance (tiny 4-tri crosses;
+  // with fullFoliage=false they keep the original knee-high scales).
+  it("low tier's absolute vegetation load stays at the original floor — no growth, no thinning", () => {
     const low = resolveQuality("low", "high");
     expect(low.propDensity * CANOPY_TREE_COUNT).toBeLessThanOrEqual(185);
+    expect(low.propDensity * CANOPY_TREE_COUNT).toBeGreaterThanOrEqual(165);
     expect(low.propDensity * PALM_COUNT).toBeLessThanOrEqual(25);
-    expect(low.propDensity * UNDERSTORY_COUNT).toBeLessThanOrEqual(450);
+    expect(low.propDensity * PALM_COUNT).toBeGreaterThanOrEqual(17);
+    expect(low.propDensity * UNDERSTORY_COUNT).toBeLessThanOrEqual(600);
     expect(low.propDensity * ROCK_COUNT).toBeLessThanOrEqual(62);
+    expect(low.propDensity * ROCK_COUNT).toBeGreaterThanOrEqual(38);
   });
 
   // The acceptance bar: low must comfortably fit a mid-range phone — no shadows,

@@ -180,10 +180,13 @@ export const QUALITY_TIERS: Record<DeviceTier, QualityConfig> = {
     shadows: false,
     groundingShadows: true,
     shadowMapSize: 1024,
-    // 0.2 of the jungle-density counts == the ORIGINAL low-tier absolute
-    // load (0.4 of the pre-epic counts: 180 trees / 24 palms) — the low
-    // tier's "never slower than today" floor, pinned by quality.test.ts.
-    propDensity: 0.2,
+    // 0.26 of the jungle-density counts (680/72/2200/160) ≈ the ORIGINAL
+    // low-tier absolute load: 177 trees (was 180), 19 palms (was 24), 572
+    // understory crosses (was 360 — tiny 4-tri quads), 42 rocks (was 48).
+    // With `fullFoliage=false` the silhouettes/scales are the originals too,
+    // so fill cost ≈ pre-epic — the "never slower than today" floor, pinned
+    // by quality.test.ts and measured in docs/perf-budget.md.
+    propDensity: 0.26,
     fog: false,
     waterDisplacement: false,
     bloom: false,

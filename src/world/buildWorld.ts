@@ -5,6 +5,7 @@ import { buildSky, type Sky } from "./sky.ts";
 import { buildBoundaries, type Boundaries } from "./boundaries.ts";
 import { buildLandmarks, type Landmarks } from "./landmarks.ts";
 import { buildProps } from "./props.ts";
+import { applyCanopyShade } from "./canopyShade.ts";
 import { FloraCullSystem } from "./floraCullSystem.ts";
 import { buildGroundingShadows } from "./groundingShadows.ts";
 import { WaterSystem } from "./waterSystem.ts";
@@ -136,6 +137,11 @@ export function buildWorld(
   // jungle look; low keeps the original silhouettes at the original cost.
   const props = buildProps(terrain, quality.propDensity, quality.floraDetail === "full");
   scene.add(props.group);
+
+  // Bake the under-canopy ground shade into the terrain's vertex colours
+  // (every tier — the splat patch multiplies vColor into its blended albedo,
+  // and low's terrain look IS its vertex colours). Zero per-frame cost.
+  applyCanopyShade(terrain.mesh.geometry, props.canopyCrowns);
 
   // Blob grounding shadows (G5 #160) — ONLY on tiers without a real shadow
   // pass (`quality.groundingShadows`, i.e. low), where trees/rocks/sites

@@ -8,10 +8,14 @@ import type { GroundPoint } from "./groundingShadows.ts";
 export interface Props {
   group: THREE.Group;
   /** One grounding point per SOLID placed instance (canopy trees, palms,
-   *  rocks — not the 900 tiny understory plants), for the low tier's blob
+   *  rocks — not the tiny understory plants), for the low tier's blob
    *  grounding shadows (G5 #160). Positions/scales mirror the instance
    *  matrices exactly — collected at placement, never recomputed. */
   groundPoints: GroundPoint[];
+  /** One crown disc per placed canopy tree (crown radius scaled to the
+   *  instance) — `canopyShade.ts` bakes the under-canopy ground darkening
+   *  from these. Palms deliberately excluded: the shore stays open. */
+  canopyCrowns: Array<{ x: number; z: number; r: number }>;
   dispose(): void;
 }
 
@@ -119,6 +123,7 @@ export function buildProps(terrain: Terrain, density = 1, fullFoliage = true): P
   const group = new THREE.Group();
   group.name = "props";
   const groundPoints: GroundPoint[] = [];
+  const canopyCrowns: Array<{ x: number; z: number; r: number }> = [];
   const rng = makeNoise2D(WORLD.seed ^ 0x9e3779b9);
 
   const d = Math.max(0, Math.min(1, density));
@@ -254,6 +259,7 @@ export function buildProps(terrain: Terrain, density = 1, fullFoliage = true): P
     canopyCross.setMatrixAt(canopyPlaced, m);
     canopyCross.setColorAt(canopyPlaced, tint.setHex(0xffffff).offsetHSL(0, 0, lightness));
     groundPoints.push({ x, y, z, radius: CANOPY_GROUND_RADIUS * s });
+    canopyCrowns.push({ x, z, r: (CANOPY_CROSS_WIDTH / 2) * s });
     canopyPlaced++;
   };
 
@@ -449,6 +455,7 @@ export function buildProps(terrain: Terrain, density = 1, fullFoliage = true): P
   return {
     group,
     groundPoints,
+    canopyCrowns,
     dispose() {
       for (const im of [canopyTrunks, canopyCross, palmTrunks, palmFronds, understory, rocks]) im.dispose();
       for (const geo of [canopyTrunkGeo, canopyCrossGeo, palmTrunkGeo, palmFrondGeo, understoryGeo, rockGeo]) {
