@@ -16,7 +16,7 @@ describe("resolveControlScheme", () => {
     expect(scheme.channel).toBe("keyboard");
 
     const labels = scheme.entries.map((e) => e.label);
-    for (const key of ["W A S D", "Mouse", "Shift", "Space", "E", "Esc"]) {
+    for (const key of ["W A S D", "Mouse", "Shift", "Space", "E", "J", "Esc"]) {
       expect(labels).toContain(key);
     }
 
@@ -27,6 +27,7 @@ describe("resolveControlScheme", () => {
     expect(byLabel("Mouse")).toBe("Look (click to grab)");
     expect(byLabel("Shift")).toBe("Sprint");
     expect(byLabel("E")).toBe("Use / examine");
+    expect(byLabel("J")).toBe("Journal");
     expect(byLabel("Esc")).toBe("Menu");
     // Swimming (#184): Space is a real binding again, and the one line of
     // water lore rides with it — the lagoon swims, the river grips.
