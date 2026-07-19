@@ -101,6 +101,46 @@ describe("swapCategory", () => {
     expect(newMeshes.reduce((sum, m) => sum + m.count, 0)).toBe(10);
   });
 
+  it("chunkGrid splits a spread category into frustum-cullable spatial chunks, preserving every transform", () => {
+    // Jungle-density epic: island-spanning single InstancedMeshes can never
+    // be frustum-culled (their bounding sphere always intersects), so every
+    // triangle was paid from every camera. Chunked meshes cull for real.
+    const group = new THREE.Group();
+    const geometry = new THREE.BoxGeometry(1, 1, 1);
+    const material = new THREE.MeshStandardMaterial();
+    const old = new THREE.InstancedMesh(geometry, material, 40);
+    old.name = "understory";
+    const m = new THREE.Matrix4();
+    for (let i = 0; i < 40; i++) {
+      // Spread across the whole island so all four grid quadrants populate.
+      const angle = (i / 40) * Math.PI * 2;
+      m.makeTranslation(Math.cos(angle) * 150, 0, Math.sin(angle) * 150);
+      old.setMatrixAt(i, m);
+    }
+    old.count = 40;
+    group.add(old);
+
+    const swapped = swapCategory(group, [old], old, [fakeVariant(1.2), fakeVariant(1.2)], {
+      namePrefix: "understory-model",
+      castShadow: false,
+      chunkGrid: 3,
+    });
+
+    const meshes = group.children.filter((c): c is THREE.InstancedMesh => c instanceof THREE.InstancedMesh);
+    expect(meshes.length).toBeGreaterThan(2); // more than one chunk per variant
+    expect(meshes.reduce((sum, mm) => sum + mm.count, 0)).toBe(40); // nothing lost
+    for (const mesh of meshes) {
+      expect(mesh.frustumCulled).toBe(true);
+      expect(mesh.boundingSphere).not.toBeNull();
+      // Chunk-LOCAL bounds — far smaller than the island, so culling bites.
+      expect(mesh.boundingSphere!.radius).toBeLessThan(220);
+    }
+    expect(swapped.meshes.length).toBe(meshes.length);
+
+    swapped.dispose();
+    expect(group.children.filter((c) => c instanceof THREE.InstancedMesh).length).toBe(0);
+  });
+
   it("attaches a wind patch only when requested", () => {
     const group = new THREE.Group();
     const old = fakeProceduralMesh("understory", 4);
@@ -175,6 +215,20 @@ describe("upgradeFlora", () => {
     expect(group.getObjectByName("understory")).toBeUndefined();
     expect(group.getObjectByName("rocks")).toBeUndefined();
     expect(group.getObjectByName("grass")).toBeDefined();
+  });
+
+  it("exposes the understory chunk meshes for distance culling once the swap lands", async () => {
+    const group = buildFakeProps();
+    const windUniforms: WindUniforms = { uTime: { value: 0 } };
+    const handle = upgradeFlora(group, terrain, 1, windUniforms, fakeLoad);
+    expect(handle.understoryChunks()).toEqual([]); // nothing until the swap lands
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+    const chunks = handle.understoryChunks();
+    expect(chunks.length).toBeGreaterThan(0);
+    for (const mesh of chunks) expect(mesh.name.startsWith("understory-model")).toBe(true);
+    handle.dispose();
+    expect(handle.understoryChunks()).toEqual([]);
   });
 
   it("keeps the INTENDED castShadow convention: canopy/palm cast (deliberate dappled-light upgrade), understory doesn't, rock still does (code-review finding 2)", async () => {
