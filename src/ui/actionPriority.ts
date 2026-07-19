@@ -3,8 +3,11 @@
 // on-screen action button) both call this pure resolver instead of each
 // re-deriving the order, so the two surfaces can never disagree about which
 // action a press would trigger. Order, highest first: the treasure dig (the
-// game's climax) > the locked dig (right place, pages missing — informational,
-// never pressable) > a clue site in range > foraging > drinking > nothing.
+// game's climax) > a clue site in range (read its page) > the locked dig (right
+// place, pages missing — informational, never pressable) > foraging > drinking
+// > nothing. Read outranks the locked dig so the ancient fig — which is both a
+// clue site and the dig patch — tells you to READ its page rather than showing
+// a "pages still missing" lock over the very page you're standing on.
 import type { FruitKind } from "../forage/forageStore.ts";
 
 export type ActionKind = "dig-progress" | "dig" | "dig-locked" | "read" | "forage" | "drink";
@@ -46,6 +49,12 @@ export function resolveActionPriority(input: ActionPriorityInput): ActionPriorit
     return { kind: "dig-progress", icon: "⛏", label: `Digging… ${pct}%` };
   }
   if (input.digOwnsKey) return { kind: "dig", icon: "⛏", label: "Dig" };
+  // A readable site in range wins over the dig-locked hint. At the ancient fig
+  // (a clue site AND the dig patch) with its page unread, the player must be
+  // told to READ it — not shown a lock over that page. Once read, the site is
+  // discovered so `siteInRange` flips false and dig-locked resumes if earlier
+  // clues are still missing.
+  if (input.siteInRange) return { kind: "read", icon: "📖", label: "Read" };
   if (input.missingPages > 0) {
     const pages = input.missingPages === 1 ? "1 page" : `${input.missingPages} pages`;
     return {
@@ -55,7 +64,6 @@ export function resolveActionPriority(input: ActionPriorityInput): ActionPriorit
       disabled: true,
     };
   }
-  if (input.siteInRange) return { kind: "read", icon: "📖", label: "Read" };
   if (input.forageFruit) return { kind: "forage", icon: "🍌", label: "Eat", fruit: input.forageFruit };
   if (input.canDrink) return { kind: "drink", icon: "💧", label: "Drink" };
   return null;
