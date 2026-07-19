@@ -1,6 +1,12 @@
 import * as THREE from "three";
 import { describe, expect, it, vi } from "vitest";
-import { buildBoundaries, WATER_ROUGHNESS_BASE, WATER_ROUGHNESS_DETAIL, type WaterTextureLoader } from "./boundaries.ts";
+import {
+  buildBoundaries,
+  WATER_ENV_INTENSITY_DETAIL,
+  WATER_ROUGHNESS_BASE,
+  WATER_ROUGHNESS_DETAIL,
+  type WaterTextureLoader,
+} from "./boundaries.ts";
 import { FLOW_TEXTURE_EXTENT } from "./riverFlowTexture.ts";
 
 // Visual-overhaul slice 4 (ripple normal-map detail): the async
@@ -63,8 +69,18 @@ describe("buildBoundaries — detail on: async ripple-texture attach (upgrade in
     const mat = waterMesh(b.group).material as THREE.MeshStandardMaterial;
     // Roughness is set eagerly (a plain scalar, no recompile needed)...
     expect(mat.roughness).toBe(WATER_ROUGHNESS_DETAIL);
+    // ...as is the dimmed env reflection (jungle-water fix)...
+    expect(mat.envMapIntensity).toBe(WATER_ENV_INTENSITY_DETAIL);
     // ...but the shader patch itself hasn't upgraded yet.
     expect((mat.customProgramCacheKey as () => string)()).toBe("water-foam-disp-v1");
+    b.dispose();
+  });
+
+  it("the LOW tier (no detail) keeps the full-strength sky reflection — byte-identical water", () => {
+    const { load } = stubLoader();
+    const b = buildBoundaries(stubHeightAt, true, false, 4, load);
+    const mat = waterMesh(b.group).material as THREE.MeshStandardMaterial;
+    expect(mat.envMapIntensity).toBe(1.0);
     b.dispose();
   });
 

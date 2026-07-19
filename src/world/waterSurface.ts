@@ -418,13 +418,14 @@ export function rippleGlsl(): string {
 // `max` (either a grazing angle OR real depth pushes toward the deep tone —
 // the ramp never reads LIGHTER than either cue alone would suggest).
 
-/** Exponential absorption rate, world-units^-1. Tuned against the river bed
- *  (`RIVER.depth` 2.6) and lagoon (`LAGOON.depth` 3.2, `worldConfig.ts`): at
- *  `FOAM_DEPTH_END` (1.5, where the shoreline foam has fully faded) this
- *  already reads ~45% absorbed, continuing to ~65-70% at the true channel/
- *  basin floor — visible depth variation without crushing to a flat block of
- *  colour. Art-tunable. */
-export const DEPTH_ABSORPTION_RATE = 0.4;
+/** Exponential absorption rate, world-units^-1. Raised for the jungle-water
+ *  fix (2026-07-19, 0.4 → 0.62): against the river bed (`RIVER.depth` 2.6) and
+ *  lagoon (`LAGOON.depth` 3.2, `worldConfig.ts`), `depthAbsorption(2.6)` now
+ *  reads ~80% (was ~65%), so the deep channel resolves strongly toward the
+ *  dark jungle-river tone while the sub-`FOAM_DEPTH_END` (1.5) shallows still
+ *  keep the tropical teal — a darker RIVER without a murky LAGOON edge.
+ *  Art-tunable. */
+export const DEPTH_ABSORPTION_RATE = 0.62;
 
 /**
  * Depth-based absorption fraction in [0,1]: `1 - exp(-depth * rate)`, clamping
@@ -469,10 +470,17 @@ export function depthAbsorptionGlsl(): string {
 // real depth instead of only view angle) gets its own, more saturated
 // tropical pair — closer to what the sandy shallows / dark channel should
 // read as now that depth genuinely varies the colour across the water sheet.
-/** Detail-tier shallow tone: a saturated tropical turquoise. sRGB 0..1. */
-export const WATER_SHALLOW_DETAIL = [0x2f / 255, 0xb8 / 255, 0xad / 255] as const;
-/** Detail-tier deep tone: a dark blue-green. sRGB 0..1. */
-export const WATER_DEEP_DETAIL = [0x0d / 255, 0x2f / 255, 0x38 / 255] as const;
+// Deepened for the jungle-water fix (2026-07-19): once the sky glare is dimmed
+// (boundaries.ts `WATER_ENV_INTENSITY_DETAIL`) the diffuse tone actually shows,
+// so it moved from a pale postcard turquoise toward a deeper tropical teal
+// (shallow) and a near-black jungle-river green (deep). The shore lagoon stays
+// tropical (it is shallow, so it rides near the shallow tone); the ~2.6 m river
+// channel reads dark because the raised {@link DEPTH_ABSORPTION_RATE} pushes
+// it toward the deep tone.
+/** Detail-tier shallow tone: a deep tropical teal. sRGB 0..1. */
+export const WATER_SHALLOW_DETAIL = [0x1c / 255, 0x8f / 255, 0x86 / 255] as const;
+/** Detail-tier deep tone: a near-black jungle-river green. sRGB 0..1. */
+export const WATER_DEEP_DETAIL = [0x07 / 255, 0x24 / 255, 0x24 / 255] as const;
 
 // --- Foam breakup (visual-overhaul slice 4) --------------------------------
 /** How far (world-units of depth) the detail tier's ripple-derived noise can
