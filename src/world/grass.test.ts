@@ -46,15 +46,22 @@ describe("grassPlacements", () => {
     }
   });
 
-  it("never places a tuft within the camp clearing or a site's clearance radius", () => {
+  it("grass grows to the clearing edges (7 u camp / 4 u POIs) and biases toward the spawn bowl", () => {
+    // Jungle-feel round 2: grass creeps into the cleared ring (the camp floor
+    // shouldn't read as a mowed lawn) and ~half the island-wide budget is
+    // spent where the player actually looks first.
     const placements = grassPlacements(terrain, 1);
     for (const p of placements) {
       const dCamp = Math.hypot(p.x - SPAWN.x, p.z - SPAWN.z);
-      expect(dCamp).toBeGreaterThanOrEqual(WORLD.campClearRadius + 2 - 1e-6);
+      expect(dCamp).toBeGreaterThanOrEqual(WORLD.campClearRadius - 7 - 1e-6);
       for (const a of POI_ANCHORS) {
-        expect(Math.hypot(p.x - a.x, p.z - a.z)).toBeGreaterThanOrEqual(6 - 1e-6);
+        expect(Math.hypot(p.x - a.x, p.z - a.z)).toBeGreaterThanOrEqual(4 - 1e-6);
       }
     }
+    const nearSpawn = placements.filter(
+      (p) => Math.hypot(p.x - SPAWN.x, p.z - SPAWN.z) < 60,
+    );
+    expect(nearSpawn.length / placements.length).toBeGreaterThan(0.15);
   });
 
   it("places every tuft within the world boundary, on open ground", () => {

@@ -110,7 +110,7 @@ describe("buildSky() shipped NOON defaults (T3, bit-exact)", () => {
     // The future day cycle (slice 3) drives these by mutating .value in place;
     // this slice must hand back today's NOON gradient byte-for-byte.
     expect(sky.dome.uniforms.topColor.value.getHex()).toBe(0x3a78c2);
-    expect(sky.dome.uniforms.bottomColor.value.getHex()).toBe(0xcfe4f2);
+    expect(sky.dome.uniforms.bottomColor.value.getHex()).toBe(0xc6dcc2);
     expect(sky.dome.uniforms.offset.value).toBe(20);
     expect(sky.dome.uniforms.exponent.value).toBe(0.7);
   });
@@ -134,14 +134,14 @@ describe("buildSky() shipped NOON defaults (T3, bit-exact)", () => {
     const sky = buildSky(new THREE.Scene(), { shadows: true, shadowMapSize: 2048, fog: true });
 
     expect(sky.fog).toBeInstanceOf(THREE.FogExp2);
-    expect(sky.fog!.color.getHex()).toBe(0xcfe4f2);
+    expect(sky.fog!.color.getHex()).toBe(0xc6dcc2);
     expect(sky.fog!.density).toBe(0.0022);
   });
 
   it("horizon is the construction-time NOON haze snapshot", () => {
     const sky = buildSky(new THREE.Scene());
 
-    expect(sky.horizon.getHex()).toBe(0xcfe4f2);
+    expect(sky.horizon.getHex()).toBe(0xc6dcc2);
   });
 
   it("with quality.fog=true, fog density starts at FOG_DENSITY_BASE (the shipped 0.0022)", () => {

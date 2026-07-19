@@ -262,13 +262,22 @@ const RECOLOR_BY_MATERIAL_NAME = {
 };
 
 /** `colorMode: "material"` — bake each primitive's flat (recoloured)
- *  `baseColorFactor` into COLOR_0 (the flora job's original recipe,
- *  unchanged). */
+ *  `baseColorFactor` into COLOR_0.
+ *
+ *  COLOR-SPACE (jungle-feel review finding, 2026-07-19): three treats
+ *  `COLOR_0` as LINEAR, and the RECOLOR map's tuples are sRGB bytes (the
+ *  props.ts hex tokens) — baking them raw rendered every flora model ONE
+ *  GAMMA TOO BRIGHT (`#4a7d3f` jungle green displayed as ≈`#93ba88` mint;
+ *  the "pastel orchard" in every screenshot). The texture-mode bake below
+ *  already runs its samples through `srgbToLinear` for exactly this reason;
+ *  the recolor path now does the same. glTF's own `baseColorFactor` is
+ *  linear per spec, so the no-recolor fallback stays unconverted. */
 function bakeVertexColorFromMaterial(doc) {
   for (const mesh of doc.getRoot().listMeshes()) {
     for (const prim of mesh.listPrimitives()) {
       const material = prim.getMaterial();
-      const recolor = material && RECOLOR_BY_MATERIAL_NAME[material.getName()];
+      const recolorSrgb = material && RECOLOR_BY_MATERIAL_NAME[material.getName()];
+      const recolor = recolorSrgb ? recolorSrgb.map(srgbToLinear) : null;
       const [r, g, b] = recolor ?? (material ? material.getBaseColorFactor() : [1, 1, 1, 1]);
       const positions = prim.getAttribute("POSITION");
       const count = positions.getCount();

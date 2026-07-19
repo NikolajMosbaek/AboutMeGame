@@ -13,7 +13,7 @@ import type * as THREE from "three";
 
 /** Maximum darkening under full crown coverage (green channel; red drops a
  *  touch further, blue in between — see the bias vector below). */
-export const SHADE_MAX = 0.18;
+export const SHADE_MAX = 0.24; // jungle-feel round 2: darker floor under the (now taller) canopy
 
 /** Per-channel shade bias × coverage: red loses the most, green the least —
  *  jungle shade is green-tinged. Green's factor equals {@link SHADE_MAX}. */

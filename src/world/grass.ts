@@ -30,7 +30,7 @@ const GRASS_WIND_STRENGTH = 0.1;
 const GRASS_DARK = new THREE.Color(0x2f5d2a);
 const GRASS_LIGHT = new THREE.Color(0x6ea052);
 
-const POI_CLEARANCE = 6;
+const POI_CLEARANCE = 4; // jungle-feel round 2: grass right up to the sites
 
 export interface Grass {
   group: THREE.Group;
@@ -86,8 +86,12 @@ export function grassPlacements(terrain: Terrain, density = 1): GrassPlacement[]
     for (const a of POI_ANCHORS) {
       if (Math.hypot(x - a.x, z - a.z) < POI_CLEARANCE) return false;
     }
-    return Math.hypot(x - SPAWN.x, z - SPAWN.z) >= WORLD.campClearRadius + 2;
+    return Math.hypot(x - SPAWN.x, z - SPAWN.z) >= WORLD.campClearRadius - 7;
   };
+  // Spawn-bowl bias (jungle-feel round 2): 3,000 tufts over the whole island
+  // is one per ~28 m² — invisible. Rather than add triangles, concentrate
+  // roughly half the SAME budget where the player actually looks first.
+  const nearSpawn = (x: number, z: number) => Math.hypot(x - SPAWN.x, z - SPAWN.z) < 60;
 
   const out: GrassPlacement[] = [];
   for (let i = 0; out.length < budget && i < GRASS_COUNT * 12; i++) {
@@ -99,6 +103,7 @@ export function grassPlacements(terrain: Terrain, density = 1): GrassPlacement[]
     if (distToRiver(x, z) < RIVER.bankHalfWidth + 1) continue;
     if (!clearOfSites(x, z)) continue;
     if (!isOpenGround(terrain, x, z)) continue;
+    if (!nearSpawn(x, z) && rng.value(i, 11) > 0.35) continue; // bias the bowl
     const scale = 0.7 + rng.value(i, 7) * 0.7;
     const rotation = rng.value(i, 3) * Math.PI * 2;
     out.push({ x, y, z, scale, rotation });

@@ -140,12 +140,23 @@ export function buildProps(terrain: Terrain, density = 1, fullFoliage = true): P
     (rng.value(i * 12.9898 + ch * 78.233, i * 39.425 + ch * 27.16) * 2 - 1) * half;
 
   const withinWorld = (x: number, z: number) => Math.hypot(x, z) <= WORLD.boundaryRadius - 4;
-  const clearOfSites = (x: number, z: number) => {
+  // Per-category clearances (jungle-feel round 2): the shared 18 u camp /
+  // 10 u POI ring left a ~1,000 m² bare LAWN at spawn — the first thing every
+  // player sees. Trees keep the camp's sky opening; brush and grass crowd
+  // right up to the clearing's edge.
+  const clearOfSites = (x: number, z: number, poiClear = POI_CLEARANCE, campClear = 4) => {
     for (const a of POI_ANCHORS) {
-      if (Math.hypot(x - a.x, z - a.z) < POI_CLEARANCE) return false;
+      if (Math.hypot(x - a.x, z - a.z) < poiClear) return false;
     }
-    return Math.hypot(x - SPAWN.x, z - SPAWN.z) >= WORLD.campClearRadius + 4;
+    return Math.hypot(x - SPAWN.x, z - SPAWN.z) >= WORLD.campClearRadius + campClear;
   };
+  /** Understory hugs the clearings: 7 u off POIs, 9 u off the camp centre
+   *  (inside the 14 u cleared ring — brush at the edge of camp is the look). */
+  const clearForUnderstory = (x: number, z: number) =>
+    clearOfSites(x, z, 7, 9 - WORLD.campClearRadius);
+  /** Rocks split the difference (12 u camp ring). */
+  const clearForRocks = (x: number, z: number) =>
+    clearOfSites(x, z, POI_CLEARANCE, 12 - WORLD.campClearRadius);
   const gentleSlope = (x: number, z: number, y: number, maxSlope = 3) => {
     const e = 1.5;
     const slope =
@@ -273,11 +284,19 @@ export function buildProps(terrain: Terrain, density = 1, fullFoliage = true): P
     if (inRiverChannel(x, z)) continue;
     if (!clearOfSites(x, z)) continue;
     if (!gentleSlope(x, z, y)) continue;
-    // Bigger crowns than the original 0.7–1.3 band (fullFoliage only): canopy
-    // closure scales with count × crown AREA, so the size bump buys ~40% more
-    // coverage without a single extra triangle. Low keeps the original band —
-    // crown quads are alpha-cutout fill, the metric that binds on mobile.
-    const s = fullFoliage ? 0.85 + rng.value(i, 7) * 0.7 : 0.7 + rng.value(i, 7) * 0.6;
+    // Taller than the original 0.7–1.3 band (fullFoliage only, jungle-feel
+    // round 2): the GLB canopies are 9.8 u at scale 1, so 1.05–1.75 stands
+    // 10.3–17.2 u — jungle height, not orchard height — and ~8% come up as
+    // EMERGENT giants (19.6–23.5 u) breaking the canopy line. Uniform scale:
+    // zero triangle delta; closure grows with crown area for free. Low keeps
+    // the original band — crown quads are alpha-cutout fill, the metric that
+    // binds on mobile.
+    const emergent = fullFoliage && rng.value(i, 13) < 0.08;
+    const s = emergent
+      ? 2.0 + rng.value(i, 7) * 0.4
+      : fullFoliage
+        ? 1.05 + rng.value(i, 7) * 0.7
+        : 0.7 + rng.value(i, 7) * 0.6;
     const rot = rng.value(i, 3) * Math.PI * 2;
     placeCanopy(x, z, y, s, rot, (rng.value(i, 9) - 0.5) * 0.12);
   }
@@ -392,7 +411,7 @@ export function buildProps(terrain: Terrain, density = 1, fullFoliage = true): P
     const y = terrain.heightAt(x, z);
     if (y < 0.8) continue;
     if (inRiverChannel(x, z)) continue;
-    if (!clearOfSites(x, z)) continue;
+    if (!clearForUnderstory(x, z)) continue;
     if (!gentleSlope(x, z, y, 5)) continue;
     placeUnderstory(x, y, z, ch);
   }
@@ -404,7 +423,7 @@ export function buildProps(terrain: Terrain, density = 1, fullFoliage = true): P
     if (dr < RIVER.bankHalfWidth + 1 || dr > RIVER.bankHalfWidth + 6) continue;
     const y = terrain.heightAt(pt.x, pt.z);
     if (y < 0.7) continue;
-    if (!clearOfSites(pt.x, pt.z)) continue;
+    if (!clearForUnderstory(pt.x, pt.z)) continue;
     placeUnderstory(pt.x, y, pt.z, ch);
   }
   understory.count = understoryPlaced;
@@ -433,7 +452,7 @@ export function buildProps(terrain: Terrain, density = 1, fullFoliage = true): P
     const y = terrain.heightAt(x, z);
     if (y < 0.8) continue;
     if (inRiverChannel(x, z)) continue;
-    if (!clearOfSites(x, z)) continue;
+    if (!clearForRocks(x, z)) continue;
     placeRock(x, y, z, ch);
   }
   for (let i = 0; rocksPlaced < rockBudget && i < ROCK_COUNT * 20; i++) {
@@ -444,7 +463,7 @@ export function buildProps(terrain: Terrain, density = 1, fullFoliage = true): P
     const y = terrain.heightAt(x, z);
     if (y < 14) continue;
     if (inRiverChannel(x, z)) continue;
-    if (!clearOfSites(x, z)) continue;
+    if (!clearForRocks(x, z)) continue;
     placeRock(x, y, z, ch);
   }
   rocks.count = rocksPlaced;

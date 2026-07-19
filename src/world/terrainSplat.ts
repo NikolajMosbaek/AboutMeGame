@@ -50,7 +50,7 @@ export function slopeFromNormalY(normalY: number): number {
 // blending in toward 12-16, rock (highland, above the treeline) from 16-20 up.
 const SAND_MAX = 0.7;
 const SAND_BLEND = 3;
-const LITTER_MID = 12;
+const LITTER_MID = 9; // jungle-feel round 2: leaf litter reaches the valley floor
 const LITTER_BLEND = 4;
 const ROCK_HEIGHT_START = 16;
 const ROCK_HEIGHT_END = 20;
@@ -66,7 +66,7 @@ const SLOPE_HIGH = 0.65;
 // height-band read the same way `colorForHeight`'s ±8% lightness mottle does
 // for the old vertex colour) — bounded so it can only ever swap weight that
 // both channels actually hold (never manufactures or destroys total weight).
-const MOTTLE_STRENGTH = 0.5;
+const MOTTLE_STRENGTH = 0.6; // jungle-feel round 2: patchier floor
 
 /**
  * Compute the 4-channel splat blend for one vertex. Pure: same inputs, same

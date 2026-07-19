@@ -270,13 +270,13 @@ describe("noon keyframe reproduces sky.ts bit-exact (incl. fogColor #cfe4f2)", (
   });
 
   it("domeBottom == sky.ts SKY_BOTTOM #cfe4f2", () => {
-    expect(noon.domeBottom).toEqual(hex(0xcfe4f2));
+    expect(noon.domeBottom).toEqual(hex(0xc6dcc2));
   });
 
   it("fogColor == sky.ts horizon (= SKY_BOTTOM) #cfe4f2 — closes the fog gap", () => {
     // sky.ts sets fog = horizon = SKY_BOTTOM; pinning fog here makes the slice-2
     // fog refactor a provable no-op at noon.
-    expect(noon.fogColor).toEqual(hex(0xcfe4f2));
+    expect(noon.fogColor).toEqual(hex(0xc6dcc2));
   });
 
   it("sunColor == sky.ts DirectionalLight colour #fff1d6", () => {

@@ -14,8 +14,13 @@
 //
 // The NOON keyframe is anchored bit-exact to today's shipped look in `sky.ts`:
 //   domeTop  = SKY_TOP    = #3a78c2
-//   domeBottom = SKY_BOTTOM = #cfe4f2   (sky.ts sets fog = horizon = SKY_BOTTOM)
-//   fogColor = #cfe4f2                  (so the fog refactor is a no-op at noon)
+//   domeBottom = SKY_BOTTOM = #c6dcc2   (sky.ts sets fog = horizon = SKY_BOTTOM)
+//   fogColor = #c6dcc2                  (so the fog refactor is a no-op at noon)
+// Jungle-feel round 2 (2026-07-19): the noon/evening horizon+fog moved from
+// bright neutral (#cfe4f2 / #b9c3d6 — "Scandinavian overcast") to humid,
+// green-tinted haze — the fog, the water's fresnel reflection AND the baked
+// environment light all read from these same values, so one hue shift turns
+// the white-out into jungle air. Dawn/golden keep their warm drama.
 //   sunColor = #fff1d6, sunIntensity = 1.6
 //   sun direction (0.6, 1, 0.4) → elevation/azimuth below.
 // `sky.ts` is the ORIGIN of those literals; they are re-derived here (not shared)
@@ -126,8 +131,8 @@ export const KEYFRAMES: readonly Keyframe[] = [
     sunElevation: NOON_ELEVATION,
     sunAzimuth: NOON_AZIMUTH,
     domeTop: srgb(0x3a78c2),
-    domeBottom: srgb(0xcfe4f2),
-    fogColor: srgb(0xcfe4f2),
+    domeBottom: srgb(0xc6dcc2),
+    fogColor: srgb(0xc6dcc2),
   },
   // GOLDEN DUSK — low warm sun on the far side, amber horizon. (t = GOLDEN_T = 0.5)
   {
@@ -149,8 +154,8 @@ export const KEYFRAMES: readonly Keyframe[] = [
     sunElevation: 0.2,
     sunAzimuth: 1.5 * Math.PI - 0.5,
     domeTop: srgb(0x59688a),
-    domeBottom: srgb(0xb9c3d6),
-    fogColor: srgb(0xb9c3d6),
+    domeBottom: srgb(0xadbfad),
+    fogColor: srgb(0xadbfad),
   },
   // CLOSING DAWN — a repeat of t=0 EXCEPT azimuth = DAWN_AZIMUTH + 2π, so the sun
   // sweep is monotone across the whole loop and the seam is seamless. (t = 1)
