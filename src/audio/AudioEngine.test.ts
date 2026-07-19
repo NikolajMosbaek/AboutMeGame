@@ -448,3 +448,43 @@ describe("nightAmount", () => {
     expect(nightAmount(-0.25)).toBeCloseTo(nightAmount(0.75), 5);
   });
 });
+
+describe("waterfall roar (living-water epic)", () => {
+  it("builds the lowpassed roar chain lazily, ramps with distance level, tears down at 0", () => {
+    const { ctx, gains, bufferSources } = fakeContext();
+    const engine = new AudioEngine(() => ctx);
+    engine.setWaterfallLevel(0); // out of range: nothing built
+    expect(bufferSources.length).toBe(0);
+
+    engine.setWaterfallLevel(0.7);
+    expect(bufferSources.length).toBe(1);
+    expect((bufferSources[0] as { loop: boolean }).loop).toBe(true);
+    const roarGain = gains.at(-1)!;
+    const ramps = (roarGain.gain.linearRampToValueAtTime as ReturnType<typeof vi.fn>).mock.calls;
+    expect(ramps.at(-1)?.[0]).toBeGreaterThan(0.01);
+
+    engine.setWaterfallLevel(0.7); // redundant: no extra chain
+    expect(bufferSources.length).toBe(1);
+
+    engine.setWaterfallLevel(0);
+    expect((bufferSources[0] as { stop: ReturnType<typeof vi.fn> }).stop).toHaveBeenCalled();
+    engine.setWaterfallLevel(0.4); // walking back into range builds fresh
+    expect(bufferSources.length).toBe(2);
+    engine.dispose();
+  });
+
+  it("never runs muted — tears down live, builds nothing, rebuilds fresh on unmute", () => {
+    const { ctx, bufferSources } = fakeContext();
+    const engine = new AudioEngine(() => ctx);
+    engine.setWaterfallLevel(0.9);
+    engine.setMuted(true);
+    engine.setWaterfallLevel(0.9);
+    expect((bufferSources[0] as { stop: ReturnType<typeof vi.fn> }).stop).toHaveBeenCalled();
+    engine.setWaterfallLevel(0.9);
+    expect(bufferSources.length).toBe(1);
+    engine.setMuted(false);
+    engine.setWaterfallLevel(0.9);
+    expect(bufferSources.length).toBe(2);
+    engine.dispose();
+  });
+});

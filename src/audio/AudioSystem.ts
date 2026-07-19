@@ -105,6 +105,12 @@ export interface HeistSource {
   justStole(): boolean;
   justTaunted(): boolean;
 }
+/** The waterfall roar level (living-water epic) — a closure over the
+ *  player's distance to the falls (`roarLevelAt`) satisfies it. */
+export interface WaterfallAudioSource {
+  level01(): number;
+}
+
 /** The live weather (W1 #228) — `World.weather` satisfies it. */
 export interface WeatherAudioSource {
   snapshot(): { rain01: number };
@@ -208,6 +214,7 @@ export class AudioSystem implements System {
     private readonly fishScatter?: ScatterSource,
     private readonly monkeyHeist?: HeistSource,
     private readonly weatherSource?: WeatherAudioSource,
+    private readonly waterfallSource?: WaterfallAudioSource,
   ) {
     // Apply the persisted mute before anything plays.
     this.engine.setMuted(this.muted.getSnapshot().muted);
@@ -362,6 +369,9 @@ export class AudioSystem implements System {
       this.engine.setRainLevel(this.weatherSource.snapshot().rain01);
       if (this.weatherSource.justThundered()) this.engine.thunder();
     }
+    // The waterfall roar rides the player's distance to the falls — the
+    // engine's own epsilon skip makes the per-frame call idempotent.
+    if (this.waterfallSource) this.engine.setWaterfallLevel(this.waterfallSource.level01());
   }
 
   dispose(): void {

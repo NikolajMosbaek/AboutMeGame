@@ -5,6 +5,7 @@ import { buildSky, type Sky } from "./sky.ts";
 import { buildBoundaries, type Boundaries } from "./boundaries.ts";
 import { buildLandmarks, type Landmarks } from "./landmarks.ts";
 import { buildProps } from "./props.ts";
+import { buildWaterfall, WaterfallSystem } from "./waterfall.ts";
 import { applyCanopyShade } from "./canopyShade.ts";
 import { FloraCullSystem } from "./floraCullSystem.ts";
 import { buildGroundingShadows } from "./groundingShadows.ts";
@@ -203,6 +204,11 @@ export function buildWorld(
   const aquatic = buildAquatic(terrain);
   scene.add(aquatic.group);
 
+  // The waterfall at the river's gorge head (living-water epic) — every tier
+  // (≤ 6 draws, ~200 tris, frustum-culled as a group on the far north side).
+  const waterfall = buildWaterfall();
+  scene.add(waterfall.group);
+
   // Constructed here (not inline in the `addSystem` call below) so `World.dayCycle`
   // can close over the live instance — the single production importer of
   // `./dayCycle` (the chain that wires the pure palette into the bundle) stays
@@ -239,6 +245,7 @@ export function buildWorld(
       props.dispose();
       groundingShadows?.dispose();
       aquatic.dispose();
+      waterfall.dispose();
     },
   };
 
@@ -327,6 +334,10 @@ export function buildWorld(
   if (quality.ambientParticles === "full") {
     engine.addSystem(new AmbientMotesSystem(scene, terrain.heightAt, reducedMotion));
   }
+
+  // The falling water animates on every tier (a texture-offset scroll, no
+  // shader patch); reduced motion holds it still, like the water swell.
+  engine.addSystem(new WaterfallSystem(waterfall, undefined, reducedMotion));
 
   return world;
 }
