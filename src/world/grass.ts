@@ -18,7 +18,9 @@ import type { WindUniforms } from "./windSystem.ts";
 // canopy/palm/understory material gets (medium/high only) via the caller-
 // owned `windUniforms` handle.
 
-export const GRASS_COUNT = 2200;
+// Jungle-density epic (2026-07-19): thicker floor cover. Medium/high only
+// (floraDetail "full"), so the low tier never pays for a single blade.
+export const GRASS_COUNT = 3800;
 
 const BLADE_WIDTH = 0.5;
 const BLADE_TIP_WIDTH = 0.12;

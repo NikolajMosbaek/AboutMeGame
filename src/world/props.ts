@@ -20,10 +20,24 @@ export interface Props {
 // together, so the low tier stays inside the mobile triangle budget while the
 // jungle still reads as dense on high. Six `InstancedMesh` draw calls total —
 // well under the ≤150 draw-call / frame budget — regardless of instance count.
-export const CANOPY_TREE_COUNT = 450;
-export const PALM_COUNT = 60;
-export const UNDERSTORY_COUNT = 900;
-export const ROCK_COUNT = 120;
+//
+// Jungle-density epic (2026-07-19, user finding "it feels like an island with
+// some trees on"): full-density counts roughly doubled and valley crowns
+// enlarged so the canopy actually closes, with ~a third of the understory as
+// eye-height tall ferns that break sightlines. The LOW tier's absolute load
+// is held at the pre-epic floor by the matching `propDensity` drop in
+// `src/perf/quality.ts` (0.4 → 0.2) — pinned by quality.test.ts.
+export const CANOPY_TREE_COUNT = 900;
+export const PALM_COUNT = 120;
+export const UNDERSTORY_COUNT = 2200;
+export const ROCK_COUNT = 300;
+
+/** Share of understory placements that come up as eye-height tall ferns, and
+ *  their scale band (vs the regular 0.7–1.3 shrubs). Enclosure — the "I'm IN
+ *  a jungle" read — comes from foliage at eye level, not knee level. */
+export const TALL_FERN_SHARE = 0.32;
+const TALL_FERN_SCALE_MIN = 1.9;
+const TALL_FERN_SCALE_SPAN = 0.9;
 
 const POI_CLEARANCE = 10; // keep vegetation from crowding the expedition sites
 
@@ -230,7 +244,10 @@ export function buildProps(terrain: Terrain, density = 1): Props {
     if (inRiverChannel(x, z)) continue;
     if (!clearOfSites(x, z)) continue;
     if (!gentleSlope(x, z, y)) continue;
-    const s = 0.7 + rng.value(i, 7) * 0.6;
+    // Bigger crowns than the original 0.7–1.3 band: canopy closure scales
+    // with count × crown AREA, so the size bump buys ~40% more coverage
+    // without a single extra triangle.
+    const s = 0.85 + rng.value(i, 7) * 0.7;
     const rot = rng.value(i, 3) * Math.PI * 2;
     placeCanopy(x, z, y, s, rot, (rng.value(i, 9) - 0.5) * 0.12);
   }
@@ -313,7 +330,13 @@ export function buildProps(terrain: Terrain, density = 1): Props {
   // "never inside the channel" rule anywhere else. ----
   let understoryPlaced = 0;
   const placeUnderstory = (x: number, y: number, z: number, seedIdx: number) => {
-    const s = 0.7 + rng.value(seedIdx, 7) * 0.6;
+    // A deterministic share of placements comes up TALL — eye-height ferns
+    // that break sightlines (the enclosure that makes it read as jungle).
+    // Slightly darker: deep-shade foliage, and it visually recedes.
+    const tall = rng.value(seedIdx, 11) < TALL_FERN_SHARE;
+    const s = tall
+      ? TALL_FERN_SCALE_MIN + rng.value(seedIdx, 7) * TALL_FERN_SCALE_SPAN
+      : 0.7 + rng.value(seedIdx, 7) * 0.6;
     const rot = rng.value(seedIdx, 3) * Math.PI * 2;
     q.setFromAxisAngle(UP, rot);
     pos.set(x, y, z);
@@ -322,7 +345,7 @@ export function buildProps(terrain: Terrain, density = 1): Props {
     understory.setMatrixAt(understoryPlaced, m);
     understory.setColorAt(
       understoryPlaced,
-      tint.setHex(0xffffff).offsetHSL(0, 0, (rng.value(seedIdx, 9) - 0.5) * 0.15),
+      tint.setHex(0xffffff).offsetHSL(0, 0, (rng.value(seedIdx, 9) - 0.5) * 0.15 - (tall ? 0.05 : 0)),
     );
     understoryPlaced++;
   };

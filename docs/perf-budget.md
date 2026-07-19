@@ -56,7 +56,7 @@ wins — only `"auto"` follows detection (`resolveQuality`'s contract).
 | `maxPixelRatio` | **1** | 1.5 | 2 | Fill rate is the dominant mobile cost; capping DPR at 1 is the single biggest lever for the target phone. |
 | `shadows` | **off** | on | on | The shadow map is the costliest single feature; off on low. |
 | `shadowMapSize` | 1024 | 1024 | 2048 | Smaller map ⇒ cheaper shadow pass on medium. |
-| `propDensity` | **0.4** | 0.7 | 1.0 | Multiplier on the vegetation budgets (450 canopy trees / 60 palms / 900 understory / 120 rocks, `src/world/props.ts`) — fewer instances ⇒ fewer triangles. |
+| `propDensity` | **0.2** | 0.55 | 1.0 | Multiplier on the vegetation budgets (900 canopy trees / 120 palms / 2200 understory / 300 rocks, `src/world/props.ts` — jungle-density epic 2026-07-19) — fewer instances ⇒ fewer triangles. Low's absolute load is held at the pre-epic floor (0.2 × new counts == 0.4 × old counts for trees/palms), pinned by `quality.test.ts`. |
 | `fog` | **off** | on | on | Cheap, but low drops it so the shorter draw distance reads cleanly. |
 | `waterDisplacement` | **off** | on | on | Vertex displacement + grid subdivision on the full-screen water plane; off on low to protect mobile fill rate. Applies on reload. |
 | `bloom` | **off** | on | on | Threshold post-processing pass that makes the emissive site accents (and later fireflies) glow; fill-rate spend, not draw/triangle; off on low to protect mobile fill rate. **Shipped** behind the renderer seam — pmndrs `postprocessing`'s mipmap-blur `BloomEffect`, merged with SMAA/vignette/tone-mapping into ONE `EffectPass` in `src/engine/createCompositor.ts` (visual-overhaul slice 1, replacing the earlier three-examples `UnrealBloomPass` chain); applies on reload. |

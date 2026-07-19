@@ -180,7 +180,10 @@ export const QUALITY_TIERS: Record<DeviceTier, QualityConfig> = {
     shadows: false,
     groundingShadows: true,
     shadowMapSize: 1024,
-    propDensity: 0.4,
+    // 0.2 of the jungle-density counts == the ORIGINAL low-tier absolute
+    // load (0.4 of the pre-epic counts: 180 trees / 24 palms) — the low
+    // tier's "never slower than today" floor, pinned by quality.test.ts.
+    propDensity: 0.2,
     fog: false,
     waterDisplacement: false,
     bloom: false,
@@ -202,7 +205,9 @@ export const QUALITY_TIERS: Record<DeviceTier, QualityConfig> = {
     shadows: true,
     groundingShadows: false,
     shadowMapSize: 1024,
-    propDensity: 0.7,
+    // 0.55 of the jungle-density counts ≈ 1.6× the pre-epic medium load —
+    // a real density step for integrated GPUs without the full-jungle cost.
+    propDensity: 0.55,
     fog: true,
     waterDisplacement: true,
     bloom: true,

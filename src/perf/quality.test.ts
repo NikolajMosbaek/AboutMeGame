@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { resolveQuality, QUALITY_TIERS, type QualityConfig } from "./quality.ts";
+import { CANOPY_TREE_COUNT, PALM_COUNT, ROCK_COUNT, UNDERSTORY_COUNT } from "../world/props.ts";
 
 describe("resolveQuality", () => {
   it("maps a forced setting straight to that tier, ignoring the device", () => {
@@ -11,6 +12,18 @@ describe("resolveQuality", () => {
     expect(resolveQuality("auto", "medium").tier).toBe("medium");
     expect(resolveQuality("auto", "low").tier).toBe("low");
     expect(resolveQuality("auto", "high").tier).toBe("high");
+  });
+
+  // The jungle-density epic (2026-07-19) raised the per-category counts;
+  // the low tier's floor is "never slower than today", so its ABSOLUTE
+  // effective load must stay at the pre-epic numbers (180 trees / 24 palms,
+  // small allowance on the tiny understory crosses and cheap rock solids).
+  it("low tier's absolute vegetation load never grows past the original floor", () => {
+    const low = resolveQuality("low", "high");
+    expect(low.propDensity * CANOPY_TREE_COUNT).toBeLessThanOrEqual(185);
+    expect(low.propDensity * PALM_COUNT).toBeLessThanOrEqual(25);
+    expect(low.propDensity * UNDERSTORY_COUNT).toBeLessThanOrEqual(450);
+    expect(low.propDensity * ROCK_COUNT).toBeLessThanOrEqual(62);
   });
 
   // The acceptance bar: low must comfortably fit a mid-range phone — no shadows,
