@@ -16,11 +16,12 @@ describe("Hud", () => {
     expect(screen.queryByText("m/s")).toBeNull();
   });
 
-  it("shows SPRINT while sprinting", () => {
+  it("keeps the compass heading visible while sprinting, alongside a SPRINT tag", () => {
     const hud = createHudStore();
     hud.set({ sprinting: true, heading: 0 });
     render(<Hud hud={hud} discovery={createDiscoveryStore(13)} onOpenMenu={() => {}} onOpenJournal={() => {}} />);
     expect(screen.getByText("SPRINT")).toBeInTheDocument();
+    expect(screen.getByText("N")).toBeInTheDocument(); // heading is NOT replaced by SPRINT
   });
 
   it("renders the single discovery-progress badge from the discovery store", () => {

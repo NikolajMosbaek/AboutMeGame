@@ -852,6 +852,14 @@ body {
 .hud-mode--sprint {
   color: var(--color-fly);
 }
+/* SPRINT tag rides beside the compass letter so the heading stays visible
+   while sprinting (the compass is the only wayfinding cue). */
+.hud-mode__badge {
+  margin-left: 0.35rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
 
 .hud-top-right {
   position: fixed;
