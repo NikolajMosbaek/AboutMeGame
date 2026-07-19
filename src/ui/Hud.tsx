@@ -13,7 +13,9 @@ export interface HudProps {
 
 /**
  * In-game HUD (#42) + discovery progress (#45). A thin, non-intrusive overlay:
- *  • top-left telemetry — mode (DRIVE/FLY), speed, and altitude (fly only),
+ *  • top-left the cardinal compass point (or SPRINT while sprinting) — the sole
+ *    diegetic wayfinding cue now that GPS markers and the vehicle-era speed
+ *    readout are gone,
  *  • top-right the single "Pages N / total" progress badge (moved here from
  *    RevealPanel so there's exactly one) plus a menu button,
  *  • a small controls reminder along the bottom.
@@ -32,10 +34,6 @@ export function Hud({ hud, discovery, onOpenMenu, onOpenJournal }: HudProps) {
       <div className="hud-telemetry" role="status" aria-label="explorer status">
         <span className={`hud-mode${h.sprinting ? " hud-mode--sprint" : ""}`}>
           {h.sprinting ? "SPRINT" : h.compass}
-        </span>
-        <span className="hud-stat">
-          <span className="hud-stat__value">{h.speed}</span>
-          <span className="hud-stat__unit">m/s</span>
         </span>
       </div>
 

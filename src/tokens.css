@@ -641,13 +641,6 @@ body {
    wins on coarse pointers (where the keyboard line would be a lie). */
 .hint-touch { display: none; }
 
-.hud-stat__value {
-  font-variant-numeric: tabular-nums;
-  display: inline-block;
-  min-width: 1.4ch;
-  text-align: right;
-}
-
 /* ----- Discovery UI (#38) ----- */
 .discovery-progress {
   position: fixed;
@@ -850,18 +843,6 @@ body {
 }
 .hud-mode--sprint {
   color: var(--color-fly);
-}
-
-.hud-stat {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 0.2rem;
-  font: 700 1rem ui-monospace, "SF Mono", Menlo, monospace;
-}
-.hud-stat__unit {
-  font-size: 0.7rem;
-  font-weight: 600;
-  opacity: 0.65;
 }
 
 .hud-top-right {

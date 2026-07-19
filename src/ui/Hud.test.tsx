@@ -7,20 +7,20 @@ import { createHudStore } from "./hudStore.ts";
 import { createDiscoveryStore } from "../discovery/discoveryStore.ts";
 
 describe("Hud", () => {
-  it("shows the compass point and speed while walking", () => {
+  it("shows the cardinal compass point while walking", () => {
     const hud = createHudStore();
-    hud.set({ speed: 4, sprinting: false, heading: 90 });
+    hud.set({ sprinting: false, heading: 90 });
     render(<Hud hud={hud} discovery={createDiscoveryStore(13)} onOpenMenu={() => {}} onOpenJournal={() => {}} />);
     expect(screen.getByText("E")).toBeInTheDocument();
-    expect(screen.getByText("4")).toBeInTheDocument();
+    // The retired vehicle-era "m/s" readout must be gone.
+    expect(screen.queryByText("m/s")).toBeNull();
   });
 
   it("shows SPRINT while sprinting", () => {
     const hud = createHudStore();
-    hud.set({ speed: 7, sprinting: true, heading: 0 });
+    hud.set({ sprinting: true, heading: 0 });
     render(<Hud hud={hud} discovery={createDiscoveryStore(13)} onOpenMenu={() => {}} onOpenJournal={() => {}} />);
     expect(screen.getByText("SPRINT")).toBeInTheDocument();
-    expect(screen.getByText("7")).toBeInTheDocument();
   });
 
   it("renders the single discovery-progress badge from the discovery store", () => {
