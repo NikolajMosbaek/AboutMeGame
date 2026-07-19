@@ -112,4 +112,46 @@ describe("FirstPersonCameraSystem while swimming (#184)", () => {
     const spread = Math.max(...rel) - Math.min(...rel);
     expect(spread).toBeLessThan(1e-6);
   });
+
+  it("widens the FOV while sprinting and eases it back on release", () => {
+    const engine = fakeEngine();
+    const input = fakeInput();
+    const explorer = new ExplorerSystem(input.snap, flat(0), open(), noWater(), { x: 0, z: 0 });
+    const cam = new FirstPersonCameraSystem(engine, explorer);
+    const base = engine.camera.fov;
+
+    input.state.moveZ = 1;
+    input.state.sprint = true;
+    for (let i = 0; i < 120; i++) {
+      explorer.update(ctx);
+      cam.update(ctx);
+    }
+    expect(explorer.state.sprinting).toBe(true);
+    expect(engine.camera.fov).toBeGreaterThan(base + 4); // widened toward +6
+
+    input.state.sprint = false;
+    input.state.moveZ = 0;
+    for (let i = 0; i < 240; i++) {
+      explorer.update(ctx);
+      cam.update(ctx);
+    }
+    expect(engine.camera.fov).toBeCloseTo(base, 1); // eased back to rest
+  });
+
+  it("does not touch the FOV under reduced motion, even sprinting", () => {
+    const engine = fakeEngine();
+    const input = fakeInput();
+    const explorer = new ExplorerSystem(input.snap, flat(0), open(), noWater(), { x: 0, z: 0 });
+    const cam = new FirstPersonCameraSystem(engine, explorer, motion(true));
+    const base = engine.camera.fov;
+
+    input.state.moveZ = 1;
+    input.state.sprint = true;
+    for (let i = 0; i < 120; i++) {
+      explorer.update(ctx);
+      cam.update(ctx);
+    }
+    expect(explorer.state.sprinting).toBe(true);
+    expect(engine.camera.fov).toBe(base); // FOV shift is vestibular — suppressed
+  });
 });
