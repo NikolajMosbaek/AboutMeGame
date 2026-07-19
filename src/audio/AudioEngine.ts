@@ -134,6 +134,13 @@ function bedLevelFor(night: number): number {
 const RAIN_MAX_GAIN = 0.14;
 const RAIN_RAMP = 1.5;
 const RAIN_FILTER_FREQ = 2400;
+/** The waterfall roar (living-water epic): a deeper noise bed than rain —
+ *  lowpassed rumble, gain driven by the player's distance to the falls
+ *  (`waterfall.ts` `roarLevelAt`). Same lazy-build/teardown/muted contract
+ *  as the rain bed. */
+const WATERFALL_MAX_GAIN = 0.2;
+const WATERFALL_RAMP = 0.6;
+const WATERFALL_FILTER_FREQ = 520;
 /** One second of looped white noise — generated at runtime, zero asset bytes. */
 const NOISE_SECONDS = 1;
 
@@ -688,6 +695,79 @@ export class AudioEngine {
     this.rainGain = null;
   }
 
+  private waterfallSource: AudioBufferSourceNodeLike | null = null;
+  private waterfallGain: GainNodeLike | null = null;
+  private lastWaterfallLevel = 0;
+
+  /**
+   * Drive the waterfall roar from the player's distance to the falls
+   * (living-water epic). Contract mirrors {@link setRainLevel} exactly:
+   * idempotent per frame (epsilon-skips redundant ramps), lazy noise chain on
+   * the first positive level, torn down at 0, and NEVER runs muted — a muted
+   * context's clock is frozen, so ramps scheduled now would replay as a
+   * phantom swell on unmute (the rain bed's review finding).
+   */
+  setWaterfallLevel(level01: number): void {
+    if (this.disposed) return;
+    if (this.muted) {
+      if (this.waterfallSource) {
+        this.waterfallSource.stop();
+        this.stopWaterfallBed();
+        this.lastWaterfallLevel = 0;
+      }
+      return;
+    }
+    const level = Math.min(1, Math.max(0, level01));
+    if (Math.abs(level - this.lastWaterfallLevel) < 0.01 && !(level === 0 && this.waterfallSource)) {
+      return;
+    }
+    this.lastWaterfallLevel = level;
+    const t = this.ctx.currentTime;
+
+    if (level > 0 && !this.waterfallSource) {
+      const buffer = this.ctx.createBuffer(1, this.ctx.sampleRate * NOISE_SECONDS, this.ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      // Deterministic LCG noise (distinct seed from the rain bed so the two
+      // beds never phase-align audibly).
+      let seed = 24681357;
+      for (let i = 0; i < data.length; i++) {
+        seed = (seed * 1664525 + 1013904223) >>> 0;
+        data[i] = (seed / 0xffffffff) * 2 - 1;
+      }
+      const source = this.ctx.createBufferSource();
+      source.buffer = buffer;
+      source.loop = true;
+      const filter = this.ctx.createBiquadFilter();
+      filter.type = "lowpass";
+      filter.frequency.value = WATERFALL_FILTER_FREQ;
+      filter.Q.value = 0.7;
+      const gain = this.ctx.createGain();
+      gain.gain.value = 0.0001;
+      source.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.master);
+      source.start(t);
+      this.waterfallSource = source;
+      this.waterfallGain = gain;
+    }
+    if (this.waterfallGain) {
+      this.waterfallGain.gain.setValueAtTime(this.waterfallGain.gain.value, t);
+      this.waterfallGain.gain.linearRampToValueAtTime(
+        Math.max(0.0001, level * WATERFALL_MAX_GAIN),
+        t + WATERFALL_RAMP,
+      );
+    }
+    if (level === 0 && this.waterfallSource) {
+      this.waterfallSource.stop(t + WATERFALL_RAMP + 0.1);
+      this.stopWaterfallBed();
+    }
+  }
+
+  private stopWaterfallBed(): void {
+    this.waterfallSource = null;
+    this.waterfallGain = null;
+  }
+
   /** Distant thunder (W1 #228): a noise burst through a low lowpass with a
    *  slow ~2 s decay, plus one 45 Hz sine sub — a rumble, never a crack. */
   thunder(): void {
@@ -738,6 +818,10 @@ export class AudioEngine {
     if (this.rainSource) {
       this.rainSource.stop();
       this.stopRainBed();
+    }
+    if (this.waterfallSource) {
+      this.waterfallSource.stop();
+      this.stopWaterfallBed();
     }
     this.master.disconnect();
     void this.ctx.close().catch(() => {});

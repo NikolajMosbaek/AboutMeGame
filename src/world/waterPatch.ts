@@ -1,4 +1,6 @@
 import type * as THREE from "three";
+import { RIVER } from "./worldConfig.ts";
+import { RIVER_ARC_LENGTH } from "./waterZones.ts";
 import {
   FOAM_BREAKUP_STRENGTH,
   RIPPLE_HEADING_1_COS,
@@ -9,6 +11,13 @@ import {
   RIPPLE_SPEED_2,
   RIPPLE_TILE_1,
   RIPPLE_TILE_2,
+  STREAM_STREAK_FADE_END,
+  STREAM_STREAK_FADE_START,
+  STREAM_STREAK_SCROLL,
+  STREAM_STREAK_STRENGTH,
+  STREAM_STREAK_TILE_ALONG,
+  STREAM_STREAK_TILE_CROSS,
+  streamLaneGlsl,
   depthAbsorptionGlsl,
   glslFloat,
   rippleGlsl,
@@ -220,6 +229,21 @@ export function makeWaterPatch(options: WaterPatchOptions): WaterPatch {
         `const float RIPPLE_SPEED_2 = ${glslFloat(RIPPLE_SPEED_2)};\n` +
         `const float RIPPLE_NORMAL_STRENGTH = ${glslFloat(RIPPLE_NORMAL_STRENGTH)};\n` +
         `const float FOAM_BREAKUP_STRENGTH = ${glslFloat(FOAM_BREAKUP_STRENGTH)};\n` +
+        // Stream flow (living-water epic): the baked flow field + the streak-
+        // lane constants, all single-sourced from waterSurface.ts. The scroll
+        // rate is wrap-safe by construction (integer cycles per WRAP_PERIOD).
+        "uniform sampler2D uRiverFlow;\n" +
+        "uniform float uFlowExtent;\n" +
+        // Premultiplied spans: the R/G channels arrive normalized (arc by the
+        // course length, cross by the bank half-width) — these scale them
+        // straight into dash-field / lane-row units.
+        `const float STREAM_ARC_FIELDS = ${glslFloat(RIVER_ARC_LENGTH * STREAM_STREAK_TILE_ALONG)};\n` +
+        `const float STREAM_CROSS_ROWS = ${glslFloat(RIVER.bankHalfWidth * STREAM_STREAK_TILE_CROSS)};\n` +
+        `const float STREAM_STREAK_SCROLL = ${glslFloat(STREAM_STREAK_SCROLL)};\n` +
+        `const float STREAM_STREAK_STRENGTH = ${glslFloat(STREAM_STREAK_STRENGTH)};\n` +
+        `const float STREAM_STREAK_FADE_START = ${glslFloat(STREAM_STREAK_FADE_START)};\n` +
+        `const float STREAM_STREAK_FADE_END = ${glslFloat(STREAM_STREAK_FADE_END)};\n` +
+        streamLaneGlsl() +
         rippleGlsl() +
         depthAbsorptionGlsl()
       : "");
@@ -306,6 +330,33 @@ export function makeWaterPatch(options: WaterPatchOptions): WaterPatch {
       "\t\twaterCol = mix( waterCol, uFoamColor, clamp( foam, 0.0, 1.0 ) );\n" +
       "#endif\n"
     : "";
+
+  // Stream flow (living-water epic, detail tier only): sample the baked flow
+  // field — CONTINUOUS river coordinates (R = normalized arc length along
+  // the course, G = normalized signed cross offset), never a direction — and
+  // draw ANALYTIC foam lanes drifting downstream: hash-gated dash rows from
+  // `streamLane` (waterSurface.ts). Two prior cuts died in review: a texture
+  // noise sample (invisible: unreachable window + fleck features + mip
+  // erosion) and a per-fragment direction dot (concentric phase-ring
+  // artifacts at bends — see riverFlowTexture.ts's module doc). Arc length
+  // is continuous across bends by construction, so the dash field follows
+  // the river around corners with no gate needed. A camera-distance fade
+  // replaces the mip chain an analytic pattern lacks. `wantDetail` implies
+  // `hasFoam`, so `uFoamColor` is always in scope here.
+  const flowBlock = wantDetail
+    ? "#ifdef HAS_DETAIL\n" +
+      "\t\tvec2 flowUV = vWorldXZ / ( 2.0 * uFlowExtent ) + 0.5;\n" +
+      "\t\tvec4 flowTex = texture2D( uRiverFlow, flowUV );\n" +
+      "\t\tfloat flowStr = flowTex.b;\n" +
+      "\t\tfloat laneFade = 1.0 - smoothstep( STREAM_STREAK_FADE_START, STREAM_STREAK_FADE_END, length( vViewPosition ) );\n" +
+      "\t\tif ( flowStr > 0.01 && laneFade > 0.0 ) {\n" +
+      "\t\t\tfloat along = flowTex.r * STREAM_ARC_FIELDS - uTime * STREAM_STREAK_SCROLL;\n" +
+      "\t\t\tfloat across = ( flowTex.g * 2.0 - 1.0 ) * STREAM_CROSS_ROWS;\n" +
+      "\t\t\tfloat lane = streamLane( along, across ) * flowStr * laneFade * STREAM_STREAK_STRENGTH;\n" +
+      "\t\t\twaterCol = mix( waterCol, uFoamColor, clamp( lane, 0.0, 1.0 ) );\n" +
+      "\t\t}\n" +
+      "#endif\n"
+    : "";
   const fragBody =
     "\t{\n" +
     detailNormalBody +
@@ -314,6 +365,7 @@ export function makeWaterPatch(options: WaterPatchOptions): WaterPatch {
     depthDeclBody +
     rampBody +
     foamBlock +
+    flowBlock +
     "\t\tdiffuseColor.rgb = waterCol;\n" +
     "\t}\n";
 
@@ -361,8 +413,13 @@ export function makeWaterPatch(options: WaterPatchOptions): WaterPatch {
   // differently-configured mesh. The `-detail` axis is appended last so the
   // four slice-2/3 keys this was already pinned to (regression-locked in
   // `waterPatch.test.ts`) are BYTE-IDENTICAL when `detail` is omitted/false.
+  // The detail axis is `-v2` since the stream-flow injection changed its
+  // program text (living-water epic); the three non-detail keys stay
+  // byte-identical to their regression-locked slice-2/3 values.
   const customProgramCacheKey = () =>
-    `water-${hasFoam ? "foam" : "nofoam"}${displacement ? "-disp" : ""}${wantDetail ? "-detail" : ""}-v1`;
+    wantDetail
+      ? `water-${hasFoam ? "foam" : "nofoam"}${displacement ? "-disp" : ""}-detail-v2`
+      : `water-${hasFoam ? "foam" : "nofoam"}${displacement ? "-disp" : ""}-v1`;
 
   return { onBeforeCompile, customProgramCacheKey };
 }

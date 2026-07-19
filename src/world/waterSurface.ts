@@ -480,3 +480,74 @@ export const WATER_DEEP_DETAIL = [0x0d / 255, 0x2f / 255, 0x38 / 255] as const;
  *  of a clean line — applied to BOTH `FOAM_DEPTH_START`/`FOAM_DEPTH_END`
  *  identically (a pure edge-shift, not a width change). Art-tunable. */
 export const FOAM_BREAKUP_STRENGTH = 0.4;
+
+// --- Stream flow (living-water epic, 2026-07-19) ---------------------------
+// The river's current is real gameplay (`waterZones.ts` pushes a swimming
+// player); these make it VISIBLE: elongated foam lanes that drift downstream
+// inside the channel, driven by the baked flow field (`riverFlowTexture.ts`)
+// and drawn only on the detail tier (medium/high). The lane noise reuses the
+// ripple normal texture's red channel — no extra fetch target.
+
+/** Lane-field tiling ALONG the flow (fields per world unit) — one dash field
+ *  spans 20 u downstream: lanes, not speckle. The lanes are ANALYTIC (a
+ *  per-lane hash + fract dash pulse in GLSL), never a texture sample — the
+ *  first cut sampled the ripple normal map's red channel and the review
+ *  proved it invisible three ways at once (channel max 0.804 under a 0.85
+ *  window, ~0.5 u noise features at these tilings, and mipmapping averaging
+ *  the survivors away past ~5 u). Analytic dashes have no mip chain and a
+ *  guaranteed-reachable amplitude. */
+export const STREAM_STREAK_TILE_ALONG = 0.05;
+/** Lane rows ACROSS the flow (rows per world unit) — ~3.3 u wide lanes, so
+ *  the ~10 u bed carries about three. */
+export const STREAM_STREAK_TILE_CROSS = 0.3;
+/** Dash fields the lane scroll advances per uTime wrap — an INTEGER so the
+ *  scroll closes exactly over {@link WRAP_PERIOD} (the same wrap-clock
+ *  discipline as {@link RIPPLE_SPEED_1}): at the wrap, the along-coordinate
+ *  jumps by exactly this many whole fields, invisible under `fract`.
+ *  6 cycles ≈ 1.9 u/s of apparent downstream drift at the ALONG tiling. */
+export const STREAM_STREAK_WRAP_CYCLES = 6;
+export const STREAM_STREAK_SCROLL = STREAM_STREAK_WRAP_CYCLES / WRAP_PERIOD;
+/** Share of lane rows that carry a dash train (hash-gated per row). */
+export const STREAM_STREAK_DENSITY = 0.45;
+/** Peak lane opacity (mixed toward the foam colour), scaled by flow strength. */
+export const STREAM_STREAK_STRENGTH = 0.32;
+/** Camera-distance fade (world units): full lanes to START, gone by END —
+ *  an analytic pattern has no mip chain, so IT must do its own anti-alias
+ *  fade before the dashes shrink under a pixel. */
+export const STREAM_STREAK_FADE_START = 70;
+export const STREAM_STREAK_FADE_END = 130;
+
+/** The analytic lane field, transcribed to GLSL by `waterPatch.ts` and unit-
+ *  tested here as plain math: lanes are hash-gated rows across the flow; each
+ *  carries a soft dash pulse drifting downstream. Pure (same inputs → same
+ *  lane), so the CPU and GPU forms can never disagree. */
+export function streamLane(along: number, cross: number): number {
+  const row = Math.floor(cross);
+  const rowFrac = cross - row;
+  const h = fract(Math.sin(row * 127.1) * 43758.5453);
+  if (h > STREAM_STREAK_DENSITY) return 0;
+  const w = fract(along + h * 7.31);
+  const pulse = smoothstep(0.0, 0.14, w) * (1 - smoothstep(0.3, 0.52, w));
+  const laneMask = smoothstep(0.2, 0.42, rowFrac) * (1 - smoothstep(0.58, 0.8, rowFrac));
+  return pulse * laneMask;
+}
+
+function fract(v: number): number {
+  return v - Math.floor(v);
+}
+
+/** GLSL transcription of {@link streamLane} — same constants, same shape. */
+export function streamLaneGlsl(): string {
+  return (
+    "float streamLane( float along, float cross ) {\n" +
+    "\tfloat row = floor( cross );\n" +
+    "\tfloat rowFrac = cross - row;\n" +
+    "\tfloat h = fract( sin( row * 127.1 ) * 43758.5453 );\n" +
+    `\tif ( h > ${glslFloat(STREAM_STREAK_DENSITY)} ) return 0.0;\n` +
+    "\tfloat w = fract( along + h * 7.31 );\n" +
+    "\tfloat pulse = smoothstep( 0.0, 0.14, w ) * ( 1.0 - smoothstep( 0.3, 0.52, w ) );\n" +
+    "\tfloat laneMask = smoothstep( 0.2, 0.42, rowFrac ) * ( 1.0 - smoothstep( 0.58, 0.8, rowFrac ) );\n" +
+    "\treturn pulse * laneMask;\n" +
+    "}\n"
+  );
+}

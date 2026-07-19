@@ -14,6 +14,11 @@ import {
   createGroundHeightTexture,
   type GroundHeightTexture,
 } from "./groundHeightTexture.ts";
+import {
+  FLOW_TEXTURE_EXTENT,
+  buildRiverFlowTexture,
+  type RiverFlowTexture,
+} from "./riverFlowTexture.ts";
 import { loadTexture } from "../engine/assets.ts";
 
 /**
@@ -229,6 +234,9 @@ export function buildBoundaries(
   // Populated by `attachWaterDetail` the moment it attaches — same
   // explicit-texture-dispose convention `terrain.ts`/`props.ts` follow.
   const attachedTextures: THREE.Texture[] = [];
+  // The baked river-flow field (living-water epic) — a synchronous 128² bake,
+  // built only for the detail tier that samples it.
+  const riverFlow: RiverFlowTexture | null = wantDetail ? buildRiverFlowTexture() : null;
   const texturesReady = wantDetail
     ? attachWaterDetail(
         waterMat,
@@ -239,6 +247,7 @@ export function buildBoundaries(
         loadWaterTexture,
         () => disposed,
         attachedTextures,
+        riverFlow!,
       )
     : Promise.resolve();
 
@@ -253,6 +262,7 @@ export function buildBoundaries(
       waterGeo.dispose();
       waterMat.dispose();
       groundTex?.dispose();
+      riverFlow?.dispose();
       for (const tex of attachedTextures) tex.dispose();
     },
   };
@@ -281,6 +291,7 @@ function attachWaterDetail(
   loadWaterTexture: WaterTextureLoader,
   isDisposed: () => boolean,
   outAttachedTextures: THREE.Texture[],
+  riverFlow: RiverFlowTexture,
 ): Promise<void> {
   return loadWaterTexture(RIPPLE_NORMAL_PATH)
     .then((tex) => {
@@ -303,6 +314,10 @@ function attachWaterDetail(
         uWaterNormal: { value: tex },
         uWaterShallowDetail: { value: new THREE.Vector3(...WATER_SHALLOW_DETAIL_LINEAR) },
         uWaterDeepDetail: { value: new THREE.Vector3(...WATER_DEEP_DETAIL_LINEAR) },
+        // The baked river-flow field (living-water epic): the stream reads
+        // as a stream — drifting streak lanes inside the channel.
+        uRiverFlow: { value: riverFlow.texture },
+        uFlowExtent: { value: FLOW_TEXTURE_EXTENT },
       };
       const patch = makeWaterPatch({ hasFoam, uniforms, displacement, detail: true });
       mat.onBeforeCompile = patch.onBeforeCompile;

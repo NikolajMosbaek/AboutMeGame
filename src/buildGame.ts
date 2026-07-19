@@ -1,4 +1,5 @@
 import type { Engine } from "./engine/Engine.ts";
+import { roarLevelAt } from "./world/waterfall.ts";
 import { buildWorld, type World } from "./world/buildWorld.ts";
 import { buildPlayer, type Player } from "./player/buildPlayer.ts";
 import { buildDiscovery, type Discovery } from "./discovery/buildDiscovery.ts";
@@ -284,6 +285,11 @@ export function buildGame(
         wildlife.fish,
         wildlife.monkeys,
         world.weather,
+        {
+          // The waterfall roar rides the player's distance to the falls.
+          level01: () =>
+            roarLevelAt(player.explorer.state.position.x, player.explorer.state.position.z),
+        },
       ),
     );
     // Mobile-Safari survival net (S4): a PERSISTENT resume on every gesture and
