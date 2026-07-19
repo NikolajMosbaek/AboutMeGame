@@ -29,8 +29,8 @@ export function TextView({ onBack }: TextViewProps) {
       <p className="text-view__lede">
         This expedition needs WebGL/3D, which your browser or device can't run right now.
         The Lost Idol is a first-person jungle survival game: explore an uncharted island,
-        drink and forage to stay alive, follow five pages to the ancient fig tree, and dig
-        up the Emerald Idol.
+        drink and forage to stay alive, follow the six torn pages to the ancient fig tree,
+        and dig up the Emerald Idol.
       </p>
       <button type="button" className="cta text-view__back" onClick={onBack}>
         ← Back to start

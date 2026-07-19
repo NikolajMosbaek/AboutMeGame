@@ -65,9 +65,9 @@ export function Onboarding({ persistence, onOpenChange, channel }: OnboardingPro
           Read the pages, survive the jungle
         </h2>
         <p className="onboarding__lede">
-          Five pages lead from your camp to the Emerald Idol. Follow them, drink at the
-          river and forage fruit to stay alive, keep clear of snakes, and dig once you've
-          found them all. Here are the controls:
+          A torn page waits at your camp, and five more lead to the Emerald Idol — six in
+          all. Follow them, drink at the river and forage fruit to stay alive, keep clear of
+          snakes, and dig once you've found them all. Here are the controls:
         </p>
         <dl className="onboarding__controls">
           {scheme.entries.map((entry) => (
