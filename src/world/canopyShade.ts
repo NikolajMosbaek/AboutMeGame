@@ -115,3 +115,90 @@ export function applyCanopyShade(
   }
   col.needsUpdate = true;
 }
+
+// --- Open-floor deepening (2026-07-19, darker-water PR #241 follow-up) --------
+// `applyCanopyShade` above saves the ground UNDER the crowns. But the OPEN
+// low-band valley floor — the river corridor and clearings with zero crown
+// coverage — gets no shade term, so its bright jungle-floor vertex colour
+// (`terrain.ts` `colorForHeight`'s `y < 12` band, `0x3f6b33`) renders
+// full-bright and the renderer's AgX tone-mapping desaturates it toward a pale
+// grey-white sheet. This is the exact complement of canopy shade: deepen the
+// OPEN low-band floor toward a richer, lusher jungle green, keyed to
+// `(1 − canopyCoverage)` so it fades to precisely zero where `applyCanopyShade`
+// is already working — by construction it can NEVER further muddy already-
+// shaded ground. Same build-time, multiply-on-(already-linear)-vertex-colour
+// idiom, every tier, zero per-frame cost, zero draw calls.
+
+/** Deepening at full openness in the core of the low band (green channel). */
+export const OPEN_FLOOR_MAX = 0.28;
+
+/** Per-channel deepening × openness × band-weight: red and blue drop more than
+ *  green so the open floor reads as a richer, lusher jungle green rather than
+ *  merely darker (green's factor equals {@link OPEN_FLOOR_MAX}). */
+const OPEN_FLOOR_RGB = [0.4, 0.28, 0.44] as const;
+
+/** Low elevation band the wash lives in, mirroring `terrain.ts`
+ *  `colorForHeight`: above the `y < 0.7` waterline-mud band, up to the `y = 12`
+ *  jungle-floor / deep-jungle boundary. Highland rock and waterline mud stay
+ *  untouched. */
+const BAND_LOW = 0.7;
+const BAND_HIGH = 12;
+/** Ramp width above the waterline mud — a gentle blend off the wet-sand band. */
+const EDGE_LOW = 1.5;
+/** Ramp width into the deep-jungle band. Short by design: most of the open
+ *  valley floor sits at y ≈ 8–12 (a landBase-plus-relief plateau — the exact
+ *  elevation of the pale wash), so the effect must stay near full strength
+ *  right up to the boundary. The deepened floor lands close to the (already
+ *  darker) deep-jungle colour, so the join at y = 12 reads continuous anyway. */
+const EDGE_HIGH = 0.8;
+
+function smoothstep01(t: number): number {
+  const c = t < 0 ? 0 : t > 1 ? 1 : t;
+  return c * c * (3 - 2 * c);
+}
+
+/**
+ * Membership weight (0..1) of world-height `y` in the low valley-floor band:
+ * 0 on the waterline-mud band and the highland band, ramping smoothly in above
+ * the waterline and (briefly) out toward the deep-jungle boundary. Pure — the
+ * open-floor deepening scales by it so the effect is confined to the jungle
+ * floor.
+ */
+export function lowBandWeight(y: number): number {
+  if (y <= BAND_LOW || y >= BAND_HIGH) return 0;
+  const up = smoothstep01((y - BAND_LOW) / EDGE_LOW);
+  const down = smoothstep01((BAND_HIGH - y) / EDGE_HIGH);
+  return Math.min(up, down);
+}
+
+/**
+ * Deepen the OPEN low-band ground toward a lusher jungle green. For each
+ * vertex the deepening is `openness × lowBandWeight`, where
+ * `openness = 1 − canopyCoverage` (same `coverageGrid` as `applyCanopyShade`).
+ * Fully-shaded ground (coverage → 1) is left alone; the pale open floor gets
+ * the full green-biased deepening. Build-time, in place, one pass — apply
+ * AFTER `applyCanopyShade` (order is immaterial: both are per-channel multiplies
+ * on the linear vertex colours).
+ */
+export function applyOpenFloorShade(
+  geometry: THREE.BufferGeometry,
+  crowns: readonly CanopyCrown[],
+): void {
+  const grid = coverageGrid(crowns);
+  const pos = geometry.attributes.position as THREE.BufferAttribute;
+  const col = geometry.attributes.color as THREE.BufferAttribute;
+  for (let i = 0; i < pos.count; i++) {
+    const band = lowBandWeight(pos.getY(i));
+    if (band <= 0) continue;
+    const open = 1 - grid.get(pos.getX(i), pos.getZ(i));
+    const k = open * band;
+    if (k <= 0) continue;
+    col.setXYZ(
+      i,
+      col.getX(i) * (1 - OPEN_FLOOR_RGB[0] * k),
+      col.getY(i) * (1 - OPEN_FLOOR_RGB[1] * k),
+      col.getZ(i) * (1 - OPEN_FLOOR_RGB[2] * k),
+    );
+  }
+  col.needsUpdate = true;
+}

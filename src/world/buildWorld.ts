@@ -6,7 +6,7 @@ import { buildBoundaries, type Boundaries } from "./boundaries.ts";
 import { buildLandmarks, type Landmarks } from "./landmarks.ts";
 import { buildProps } from "./props.ts";
 import { buildWaterfall, WaterfallSystem } from "./waterfall.ts";
-import { applyCanopyShade } from "./canopyShade.ts";
+import { applyCanopyShade, applyOpenFloorShade } from "./canopyShade.ts";
 import { FloraCullSystem } from "./floraCullSystem.ts";
 import { buildGroundingShadows } from "./groundingShadows.ts";
 import { WaterSystem } from "./waterSystem.ts";
@@ -143,6 +143,12 @@ export function buildWorld(
   // (every tier — the splat patch multiplies vColor into its blended albedo,
   // and low's terrain look IS its vertex colours). Zero per-frame cost.
   applyCanopyShade(terrain.mesh.geometry, props.canopyCrowns);
+  // ...and its complement: deepen the OPEN low-band valley floor (river
+  // corridor, clearings) toward a lusher jungle green, keyed to
+  // (1 − canopyCoverage) so it fades to zero exactly where the shade above is
+  // already working — kills the pale AgX-desaturated wash without muddying the
+  // ground the canopy already darkened. Same zero-per-frame vertex-colour bake.
+  applyOpenFloorShade(terrain.mesh.geometry, props.canopyCrowns);
 
   // Blob grounding shadows (G5 #160) — ONLY on tiers without a real shadow
   // pass (`quality.groundingShadows`, i.e. low), where trees/rocks/sites
