@@ -205,7 +205,8 @@ export function buildWorld(
   scene.add(aquatic.group);
 
   // The waterfall at the river's gorge head (living-water epic) — every tier
-  // (≤ 6 draws, ~200 tris, frustum-culled as a group on the far north side).
+  // (≤ 6 draws, ~200 tris, each mesh frustum-culled on its own local bounds,
+  // all colocated on the far north side).
   const waterfall = buildWaterfall();
   scene.add(waterfall.group);
 
