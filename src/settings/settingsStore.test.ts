@@ -83,6 +83,30 @@ describe("settingsStore", () => {
     expect(createSettingsStore(fresh).getSnapshot().reducedMotion).toBe(true);
   });
 
+  it("seeds reducedMotion from the OS prefers-reduced-motion when nothing is saved", () => {
+    vi.stubGlobal("matchMedia", (q: string) => ({
+      matches: q.includes("reduce"),
+      media: q,
+      addEventListener() {},
+      removeEventListener() {},
+      addListener() {},
+      removeListener() {},
+      onchange: null,
+      dispatchEvent: () => false,
+    }));
+    try {
+      // No saved choice → the default follows the OS preference (reduce → true),
+      // both with and without a storage backend.
+      expect(createSettingsStore(mem()).getSnapshot().reducedMotion).toBe(true);
+      expect(createSettingsStore(undefined).getSnapshot().reducedMotion).toBe(true);
+      // An explicit saved choice still wins over the OS preference.
+      const saved = mem({ "aboutmegame.settings.v1": JSON.stringify({ reducedMotion: false }) });
+      expect(createSettingsStore(saved).getSnapshot().reducedMotion).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("degrades gracefully when storage is absent", () => {
     const store = createSettingsStore(undefined);
     expect(store.getSnapshot()).toEqual(DEFAULTS);
