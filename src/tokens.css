@@ -441,6 +441,32 @@ body {
 }
 :root[data-reduced-motion="true"] .underwater-overlay::before { animation: none; }
 
+/* ----- Damage feedback ----- */
+/* A red edge-vignette that flashes on a health drop, peak opacity set per hit
+   via --damage-peak. Opacity-only (no transform), so it stays reduced-motion
+   safe and is deliberately NOT suppressed by the reduced-motion gates — the
+   component already halves the peak in that mode, keeping the hit legible. Sits
+   above the world/underwater wash but below the HUD text and every modal. */
+.damage-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 14;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(158, 12, 12, 0) 42%,
+    rgba(158, 12, 12, 0.55) 78%,
+    rgba(138, 8, 8, 0.92) 100%
+  );
+  opacity: 0;
+  animation: damage-flash 480ms ease-out forwards;
+}
+@keyframes damage-flash {
+  0% { opacity: 0; }
+  10% { opacity: var(--damage-peak, 0.6); }
+  100% { opacity: 0; }
+}
+
 /* Low-meter attention flash — non-essential motion, so both reduced-motion
    gates suppress it (the colour + width still carry the state). */
 .meter--low .meter__fill {
