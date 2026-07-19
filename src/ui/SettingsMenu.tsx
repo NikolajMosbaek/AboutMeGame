@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { SettingsStore, Quality } from "../settings/settingsStore.ts";
+import { useFocusTrap } from "./useFocusTrap.ts";
 
 export interface SettingsMenuProps {
   settings: SettingsStore;
@@ -30,6 +31,8 @@ const QUALITIES: ReadonlyArray<{ value: Quality; label: string }> = [
  */
 export function SettingsMenu({ settings, onClose, onExit, onResetProgress }: SettingsMenuProps) {
   const s = useSyncExternalStore(settings.subscribe, settings.getSnapshot);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialogRef);
   const resumeRef = useRef<HTMLButtonElement>(null);
   // "Reset progress" wipes every found clue and journal page — irreversible, and
   // it sits one row under the primary Resume button, so a stray click would
@@ -59,7 +62,7 @@ export function SettingsMenu({ settings, onClose, onExit, onResetProgress }: Set
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="menu" role="dialog" aria-modal="true" aria-labelledby="menu-title">
+      <div ref={dialogRef} className="menu" role="dialog" aria-modal="true" aria-labelledby="menu-title">
         <h2 id="menu-title" className="menu__title">
           Paused
         </h2>

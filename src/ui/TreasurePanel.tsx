@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSyncExternalStore } from "react";
+import { useFocusTrap } from "./useFocusTrap.ts";
 import type { QuestStore } from "../quest/questStore.ts";
 import { useShare, type ShareCapabilities } from "./useShare.ts";
 import { realShareCapabilities, realShareUrl } from "./shareCapabilities.ts";
@@ -45,6 +46,8 @@ export function TreasurePanel({
   const [announcement, setAnnouncement] = useState("");
   const firstRef = useRef<HTMLButtonElement>(null);
   const baselineRef = useRef<boolean | null>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialogRef);
   const { share } = useShare(shareCapabilities, shareUrl);
 
   // Reload guard: if the very first snapshot already says treasureFound, that
@@ -83,7 +86,7 @@ export function TreasurePanel({
   };
 
   return (
-    <div className="treasure-panel" role="dialog" aria-modal="true" aria-labelledby="treasure-title">
+    <div ref={dialogRef} className="treasure-panel" role="dialog" aria-modal="true" aria-labelledby="treasure-title">
       <div className="treasure-panel__card">
         <p className="treasure-panel__eyebrow">Between the roots, exactly where the eyes led —</p>
         <h2 id="treasure-title">The Emerald Idol is yours.</h2>

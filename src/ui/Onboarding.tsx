@@ -8,6 +8,7 @@ import {
   resolveControlScheme,
   type ControlChannel,
 } from "./controlScheme.ts";
+import { useFocusTrap } from "./useFocusTrap.ts";
 
 export interface OnboardingProps {
   /** Persistence seam — injected so tests/previews substitute their own. */
@@ -40,6 +41,8 @@ export function Onboarding({ persistence, onOpenChange, channel }: OnboardingPro
   const scheme = resolveControlScheme(channelRef.current);
   const [open, setOpen] = useState(() => !persistRef.current.seen());
   const dismissRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialogRef);
 
   // Move focus onto the dismiss button so keyboard/AT users land in the dialog.
   useEffect(() => {
@@ -60,7 +63,7 @@ export function Onboarding({ persistence, onOpenChange, channel }: OnboardingPro
 
   return (
     <div className="onboarding-backdrop">
-      <div className="onboarding" role="dialog" aria-modal="true" aria-labelledby="onboarding-title">
+      <div ref={dialogRef} className="onboarding" role="dialog" aria-modal="true" aria-labelledby="onboarding-title">
         <h2 id="onboarding-title" className="onboarding__title">
           Read the pages, survive the jungle
         </h2>
