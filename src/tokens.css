@@ -467,8 +467,16 @@ body {
   100% { opacity: 0; }
 }
 
-/* Low-meter attention flash — non-essential motion, so both reduced-motion
-   gates suppress it (the colour + width still carry the state). */
+/* Persistent (non-motion) low-meter cue: an amber warning ring on the track,
+   always on when low, so a critical meter stays legible even with the flash
+   suppressed. This fixes the reduced-motion gap — the per-meter fill colour is
+   constant, so on its own it did NOT distinguish a low meter from a full one. */
+.meter--low .meter__track {
+  border-color: #ffcf5a;
+  box-shadow: 0 0 0 1px #e8a13a, 0 0 6px rgba(232, 161, 58, 0.65);
+}
+/* Attention flash on top for users who allow motion; both reduced-motion gates
+   suppress only the flash, leaving the ring above as the low cue. */
 .meter--low .meter__fill {
   animation: meter-flash 1s ease-in-out infinite;
 }
