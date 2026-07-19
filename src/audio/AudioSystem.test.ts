@@ -48,12 +48,14 @@ function explorerSource(state: {
   speed?: number;
   sprinting?: boolean;
   wading?: boolean;
+  mode?: "walk" | "swim";
 }) {
   const s = {
     position: { x: state.x ?? 0, z: state.z ?? 0 },
     speed: state.speed ?? 0,
     sprinting: state.sprinting ?? false,
     wading: state.wading ?? false,
+    mode: state.mode ?? "walk",
   };
   return { state: s };
 }
@@ -229,6 +231,14 @@ describe("AudioSystem", () => {
     const explorer = explorerSource({ speed: 0 });
     const { engine, sys } = makeSystem({ explorer });
     for (let i = 0; i < 50; i++) sys.update(CTX(0.1));
+    expect(engine.footstep).not.toHaveBeenCalled();
+  });
+
+  it("plays no footsteps while swimming, even at cruise speed", () => {
+    // Swim speed clears the footstep floor, but strokes are not footsteps.
+    const explorer = explorerSource({ speed: 2.6, mode: "swim" });
+    const { engine, sys } = makeSystem({ explorer });
+    for (let i = 0; i < 20; i++) sys.update(CTX(0.1)); // 2s of swimming
     expect(engine.footstep).not.toHaveBeenCalled();
   });
 
