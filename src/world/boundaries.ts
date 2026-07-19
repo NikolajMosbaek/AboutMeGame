@@ -58,7 +58,18 @@ export const WATER_ROUGHNESS_BASE = 0.25;
  *  glitter path at noon without white-out, and long soft reflections at dusk —
  *  tuned by eye against real screenshots (see the slice's run-log entry). Only
  *  ever applied when `detail` is on; the low tier keeps {@link WATER_ROUGHNESS_BASE}. */
-export const WATER_ROUGHNESS_DETAIL = 0.12;
+export const WATER_ROUGHNESS_DETAIL = 0.28; // jungle-water fix: less mirror-like than 0.12, so grazing angles don't glare to a white sheet — a jungle river isn't a mirror
+/** Detail-tier environment-reflection strength (jungle-water fix, 2026-07-19).
+ *  The glossy detail water reflected the FULL sky-dome IBL (`envMapIntensity`
+ *  defaults to 1.0), which at grazing angles washed the river toward the sky's
+ *  tone. Dimming the water's OWN env reflection to 0.35 (a per-material
+ *  scalar, so terrain/flora IBL is untouched), alongside the higher
+ *  {@link WATER_ROUGHNESS_DETAIL} and the deepened detail palette
+ *  (`waterSurface.ts`) + raised absorption, lets the dark jungle-river tone
+ *  read while the shallow lagoon stays tropical. The low tier keeps the full
+ *  1.0 (its rougher water already blurs the sky, and low ships byte-identical
+ *  water). */
+export const WATER_ENV_INTENSITY_DETAIL = 0.35;
 
 export interface Boundaries {
   group: THREE.Group;
@@ -161,6 +172,9 @@ export function buildBoundaries(
     // a barely-perceptible glossiness step once loaded.
     roughness: wantDetail ? WATER_ROUGHNESS_DETAIL : WATER_ROUGHNESS_BASE,
     metalness: 0.1,
+    // Dim the sky-dome reflection on the detail tier ONLY (see the constant):
+    // the glare, not the diffuse tone, was what read as a white river sheet.
+    envMapIntensity: wantDetail ? WATER_ENV_INTENSITY_DETAIL : 1.0,
     // Swimming (#184) puts the camera under the plane: without the back
     // faces the surface would vanish overhead. Cost: the water's fragments
     // shade from below too — one 64×64 plane, a few extra ms of fill only
