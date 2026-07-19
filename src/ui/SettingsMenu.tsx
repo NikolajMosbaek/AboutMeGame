@@ -100,19 +100,6 @@ export function SettingsMenu({ settings, onClose, onExit, onResetProgress }: Set
           </button>
         </label>
 
-        <label className="menu__row">
-          <span>Show discovered markers</span>
-          <button
-            type="button"
-            className="menu__toggle"
-            role="switch"
-            aria-checked={s.showDiscoveredMarkers}
-            onClick={() => settings.set({ showDiscoveredMarkers: !s.showDiscoveredMarkers })}
-          >
-            {s.showDiscoveredMarkers ? "On" : "Off"}
-          </button>
-        </label>
-
         <div className="menu__actions">
           <button ref={resumeRef} type="button" className="cta menu__resume" onClick={onClose}>
             Resume

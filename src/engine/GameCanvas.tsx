@@ -13,7 +13,6 @@ import { useReducedMotion } from "../settings/reducedMotion.ts";
 import { StatsOverlay } from "../perf/StatsOverlay.tsx";
 import { RevealPanel } from "../ui/RevealPanel.tsx";
 import { Hud } from "../ui/Hud.tsx";
-import { NavMarkers } from "../ui/NavMarkers.tsx";
 import { Onboarding } from "../ui/Onboarding.tsx";
 import { SettingsMenu } from "../ui/SettingsMenu.tsx";
 import { JournalPanel } from "../ui/JournalPanel.tsx";
@@ -30,7 +29,6 @@ import type { QuestStore } from "../quest/questStore.ts";
 import type { DiscoveryStore } from "../discovery/discoveryStore.ts";
 import type { JournalPoi } from "../content/discoverablePois.ts";
 import type { HudStore } from "../ui/hudStore.ts";
-import type { NavStore } from "../ui/navStore.ts";
 import type { SettingsStore } from "../settings/settingsStore.ts";
 import type { GameSession } from "../gameSession.ts";
 
@@ -46,7 +44,7 @@ export interface GameHandle {
     pois: { id: string; order: number; title: string }[];
     /** Position-free projection of the landmarks for the journal UI (M3): content
      *  + colour with no THREE leaking into React. Additive to `pois`, which keeps
-     *  the THREE `position` NavSystem reads. */
+     *  the THREE `position` the engine's systems read. */
     journalPois: JournalPoi[];
     /** Drain the queued interact edge before opening a reveal from the journal,
      *  so the next `DiscoverySystem.update` can't consume a stale Enter/e press
@@ -54,7 +52,6 @@ export interface GameHandle {
     consumeInteract(): boolean;
   };
   hud: HudStore;
-  nav: NavStore;
   settings: SettingsStore;
   session: GameSession;
   /** Survival meters + the death→respawn action (pivot slice D). Optional so a
@@ -117,7 +114,7 @@ export interface GameCanvasProps {
  * No engine state leaks into module scope, so React StrictMode's double-mount
  * (and any test) gets a clean engine each time.
  *
- * It also hosts the Epic 5 shell overlays (HUD, nav hints, onboarding, pause
+ * It also hosts the Epic 5 shell overlays (HUD, onboarding, pause
  * menu) over the canvas, and owns the menu's open/close state — the one place
  * that toggles `session.setPaused("menu", …)` and applies the Escape-to-open
  * rule (open the menu only when no reveal panel is up, so Escape isn't
@@ -495,7 +492,6 @@ export function GameCanvas({
             </>
           )}
           <DiscoveryAnnouncer store={game.discovery.store} />
-          <NavMarkers nav={game.nav} />
           <RevealPanel store={game.discovery.store} pois={game.discovery.pois} quest={game.quest?.store} />
           {game.quest && (
             <TreasurePanel

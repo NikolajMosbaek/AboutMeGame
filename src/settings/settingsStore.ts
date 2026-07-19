@@ -13,8 +13,6 @@ export interface Settings {
   muted: boolean;
   quality: Quality;
   reducedMotion: boolean;
-  /** Project nav markers for already-discovered landmarks (default OFF). */
-  showDiscoveredMarkers: boolean;
 }
 
 export interface SettingsStore {
@@ -28,7 +26,6 @@ const DEFAULTS: Settings = {
   muted: false,
   quality: "auto",
   reducedMotion: false,
-  showDiscoveredMarkers: false,
 };
 const QUALITIES: readonly Quality[] = ["auto", "low", "high"];
 
@@ -69,10 +66,6 @@ function load(storage: Storage | undefined): Settings {
       quality: isQuality(parsed.quality) ? parsed.quality : DEFAULTS.quality,
       reducedMotion:
         typeof parsed.reducedMotion === "boolean" ? parsed.reducedMotion : DEFAULTS.reducedMotion,
-      showDiscoveredMarkers:
-        typeof parsed.showDiscoveredMarkers === "boolean"
-          ? parsed.showDiscoveredMarkers
-          : DEFAULTS.showDiscoveredMarkers,
     };
   } catch {
     return { ...DEFAULTS };

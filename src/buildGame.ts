@@ -6,8 +6,6 @@ import { buildDiscovery, type Discovery } from "./discovery/buildDiscovery.ts";
 import { createSession, type GameSession } from "./gameSession.ts";
 import { createHudStore, type HudStore } from "./ui/hudStore.ts";
 import { HudSystem } from "./ui/HudSystem.ts";
-import { createNavStore, type NavStore } from "./ui/navStore.ts";
-import { NavSystem } from "./ui/NavSystem.ts";
 import { createSettingsStore, type SettingsStore } from "./settings/settingsStore.ts";
 import { QUALITY_TIERS, type QualityConfig } from "./perf/quality.ts";
 import { AudioEngine, type AudioContextFactory } from "./audio/AudioEngine.ts";
@@ -43,8 +41,6 @@ export interface Game {
   dayCycle: World["dayCycle"];
   /** Throttled explorer telemetry for the HUD (#42). */
   hud: HudStore;
-  /** Projected nav hints to undiscovered landmarks (#44). */
-  nav: NavStore;
   /** Persisted player settings (#41), read/written by the pause menu. */
   settings: SettingsStore;
   /** Survival meters + death/respawn (pivot slice D). */
@@ -214,19 +210,6 @@ export function buildGame(
   const hud = createHudStore();
   engine.addSystem(new HudSystem(player.explorer, hud));
 
-  // Nav hints — registered after the camera so it reads the updated view matrix.
-  const nav = createNavStore();
-  engine.addSystem(
-    new NavSystem(
-      engine,
-      player.explorer,
-      discovery.pois,
-      nav,
-      discovery.store,
-      () => settings.getSnapshot().showDiscoveredMarkers,
-    ),
-  );
-
   // Visual juice (#53): a particle pop at a landmark the instant it's revealed.
   // It listens to the same discovery-store event the chime does, and is gated by
   // reduced motion inside the system. Registered after discovery so the store is
@@ -308,7 +291,6 @@ export function buildGame(
     session,
     dayCycle: world.dayCycle,
     hud,
-    nav,
     settings,
     survival: {
       store: survivalStore,

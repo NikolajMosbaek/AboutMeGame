@@ -53,16 +53,4 @@ describe("SettingsMenu", () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
-  it("shows a 'Show discovered markers' switch reflecting settings (default off) and toggles it", () => {
-    const settings = store();
-    render(
-      <SettingsMenu settings={settings} onClose={() => {}} onExit={() => {}} onResetProgress={() => {}} />,
-    );
-    const markers = screen.getByRole("switch", { name: /show discovered markers/i });
-    expect(markers).toHaveAttribute("aria-checked", "false"); // default off
-    fireEvent.click(markers);
-    expect(settings.getSnapshot().showDiscoveredMarkers).toBe(true);
-    expect(markers).toHaveAttribute("aria-checked", "true");
-  });
-
 });

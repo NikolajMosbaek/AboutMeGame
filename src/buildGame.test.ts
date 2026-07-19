@@ -182,7 +182,7 @@ describe("buildGame discovery.journalPois seam", () => {
       expect("position" in entry).toBe(false);
     }
 
-    // The position-bearing array still carries the THREE.Vector3 NavSystem reads.
+    // The position-bearing array still carries the THREE.Vector3 the engine's systems read.
     for (const poi of pois) {
       expect(poi.position).toBeInstanceOf(THREE.Vector3);
     }
