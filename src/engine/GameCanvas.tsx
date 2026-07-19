@@ -15,6 +15,7 @@ import { RevealPanel } from "../ui/RevealPanel.tsx";
 import { Hud } from "../ui/Hud.tsx";
 import { DangerIndicator } from "../ui/DangerIndicator.tsx";
 import type { DangerStore } from "../wildlife/dangerWarning.ts";
+import { LookPrompt } from "../ui/LookPrompt.tsx";
 import { Onboarding } from "../ui/Onboarding.tsx";
 import { SettingsMenu } from "../ui/SettingsMenu.tsx";
 import { JournalPanel } from "../ui/JournalPanel.tsx";
@@ -477,6 +478,7 @@ export function GameCanvas({
       {game && (
         <>
           {game.danger && <DangerIndicator danger={game.danger} />}
+          {game.input && <LookPrompt session={game.session} touchActive={game.input.touchActive} />}
           <Hud
             hud={game.hud}
             discovery={game.discovery.store}
