@@ -335,6 +335,14 @@ export function GameCanvas({
     game?.session.setPaused("journal", journalOpen);
   }, [game, journalOpen]);
 
+  // First-run onboarding pauses the sim under its own reason, like the menu and
+  // journal. Without this the world ran behind the tutorial overlay: hunger and
+  // thirst drained, wildlife stayed live, and the expedition clock inflated
+  // while a new player read the controls. Cleared the instant it is dismissed.
+  useEffect(() => {
+    game?.session.setPaused("onboarding", onboardingOpen);
+  }, [game, onboardingOpen]);
+
   // The reveal handoff (flaw three): when a journal entry opens a reveal,
   // DiscoverySystem only establishes the "reveal" pause reason on its NEXT tick,
   // one frame after the React `openPoi` commit. If we cleared `journalOpen` at

@@ -337,3 +337,33 @@ describe("GameCanvas — J opener + Escape precedence (T11)", () => {
     expect(journalPanelProps.length).toBeGreaterThan(afterClose);
   });
 });
+
+describe("GameCanvas — first-run onboarding pauses the sim", () => {
+  beforeEach(() => {
+    vi.stubGlobal("ResizeObserver", StubResizeObserver);
+    // Do NOT mark onboarding seen: the first-run overlay must open on mount.
+    localStorage.clear();
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+    localStorage.clear();
+  });
+
+  it("holds the sim under the 'onboarding' reason while the tutorial is up, and releases it on dismiss", () => {
+    const { handle, session } = makeHandle();
+    render(<GameCanvas build={() => handle} showStats={false} />);
+
+    // The tutorial overlay is up, so decay, wildlife and the play-clock hold.
+    const dismiss = screen.getByRole("button", { name: /got it/i });
+    expect(session.isPaused("onboarding")).toBe(true);
+    expect(session.paused).toBe(true);
+
+    // Dismissing it resumes the sim (no other reason holds it in this harness).
+    act(() => {
+      fireEvent.click(dismiss);
+    });
+    expect(session.isPaused("onboarding")).toBe(false);
+    expect(session.paused).toBe(false);
+  });
+});
