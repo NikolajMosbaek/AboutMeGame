@@ -150,13 +150,17 @@ export function buildProps(terrain: Terrain, density = 1, fullFoliage = true): P
     }
     return Math.hypot(x - SPAWN.x, z - SPAWN.z) >= WORLD.campClearRadius + campClear;
   };
+  // Absolute camp rings (world units from SPAWN) — named so a future
+  // campClearRadius retune can't silently shift them (review nit).
+  const UNDERSTORY_CAMP_RING = 9;
+  const ROCK_CAMP_RING = 12;
   /** Understory hugs the clearings: 7 u off POIs, 9 u off the camp centre
    *  (inside the 14 u cleared ring — brush at the edge of camp is the look). */
   const clearForUnderstory = (x: number, z: number) =>
-    clearOfSites(x, z, 7, 9 - WORLD.campClearRadius);
+    clearOfSites(x, z, 7, UNDERSTORY_CAMP_RING - WORLD.campClearRadius);
   /** Rocks split the difference (12 u camp ring). */
   const clearForRocks = (x: number, z: number) =>
-    clearOfSites(x, z, POI_CLEARANCE, 12 - WORLD.campClearRadius);
+    clearOfSites(x, z, POI_CLEARANCE, ROCK_CAMP_RING - WORLD.campClearRadius);
   const gentleSlope = (x: number, z: number, y: number, maxSlope = 3) => {
     const e = 1.5;
     const slope =

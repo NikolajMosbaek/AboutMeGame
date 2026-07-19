@@ -31,6 +31,9 @@ const GRASS_DARK = new THREE.Color(0x2f5d2a);
 const GRASS_LIGHT = new THREE.Color(0x6ea052);
 
 const POI_CLEARANCE = 4; // jungle-feel round 2: grass right up to the sites
+/** Absolute grass ring around the camp centre (world units) — grass creeps
+ *  INTO the 14 u cleared disc; the tent/fire props end by ~6 u. */
+const GRASS_CAMP_RING = 7;
 
 export interface Grass {
   group: THREE.Group;
@@ -86,7 +89,7 @@ export function grassPlacements(terrain: Terrain, density = 1): GrassPlacement[]
     for (const a of POI_ANCHORS) {
       if (Math.hypot(x - a.x, z - a.z) < POI_CLEARANCE) return false;
     }
-    return Math.hypot(x - SPAWN.x, z - SPAWN.z) >= WORLD.campClearRadius - 7;
+    return Math.hypot(x - SPAWN.x, z - SPAWN.z) >= GRASS_CAMP_RING;
   };
   // Spawn-bowl bias (jungle-feel round 2): 3,000 tufts over the whole island
   // is one per ~28 m² — invisible. Rather than add triangles, concentrate
