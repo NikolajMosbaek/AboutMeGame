@@ -43,6 +43,8 @@ export function buildPlayer(
     canSprint,
     // Where deep water swims (the lagoon) vs grips (the river current, #184).
     createSwimZones(),
+    // Solid props (trunks, boulders) to slide out of instead of clipping through.
+    world.collisionField,
   );
   engine.addSystem(explorer);
 
