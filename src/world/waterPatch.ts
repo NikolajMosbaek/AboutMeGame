@@ -9,6 +9,12 @@ import {
   RIPPLE_SPEED_2,
   RIPPLE_TILE_1,
   RIPPLE_TILE_2,
+  STREAM_STREAK_HI,
+  STREAM_STREAK_LO,
+  STREAM_STREAK_SCROLL,
+  STREAM_STREAK_STRENGTH,
+  STREAM_STREAK_TILE_ALONG,
+  STREAM_STREAK_TILE_CROSS,
   depthAbsorptionGlsl,
   glslFloat,
   rippleGlsl,
@@ -220,6 +226,17 @@ export function makeWaterPatch(options: WaterPatchOptions): WaterPatch {
         `const float RIPPLE_SPEED_2 = ${glslFloat(RIPPLE_SPEED_2)};\n` +
         `const float RIPPLE_NORMAL_STRENGTH = ${glslFloat(RIPPLE_NORMAL_STRENGTH)};\n` +
         `const float FOAM_BREAKUP_STRENGTH = ${glslFloat(FOAM_BREAKUP_STRENGTH)};\n` +
+        // Stream flow (living-water epic): the baked flow field + the streak-
+        // lane constants, all single-sourced from waterSurface.ts. The scroll
+        // rate is wrap-safe by construction (integer cycles per WRAP_PERIOD).
+        "uniform sampler2D uRiverFlow;\n" +
+        "uniform float uFlowExtent;\n" +
+        `const float STREAM_STREAK_TILE_ALONG = ${glslFloat(STREAM_STREAK_TILE_ALONG)};\n` +
+        `const float STREAM_STREAK_TILE_CROSS = ${glslFloat(STREAM_STREAK_TILE_CROSS)};\n` +
+        `const float STREAM_STREAK_SCROLL = ${glslFloat(STREAM_STREAK_SCROLL)};\n` +
+        `const float STREAM_STREAK_LO = ${glslFloat(STREAM_STREAK_LO)};\n` +
+        `const float STREAM_STREAK_HI = ${glslFloat(STREAM_STREAK_HI)};\n` +
+        `const float STREAM_STREAK_STRENGTH = ${glslFloat(STREAM_STREAK_STRENGTH)};\n` +
         rippleGlsl() +
         depthAbsorptionGlsl()
       : "");
@@ -306,6 +323,33 @@ export function makeWaterPatch(options: WaterPatchOptions): WaterPatch {
       "\t\twaterCol = mix( waterCol, uFoamColor, clamp( foam, 0.0, 1.0 ) );\n" +
       "#endif\n"
     : "";
+
+  // Stream flow (living-water epic, detail tier only): sample the baked flow
+  // field, then draw elongated foam LANES drifting downstream — long UV axis
+  // along the per-fragment flow direction, tight across it, scrolled at the
+  // wrap-safe rate. The lane noise reuses the ripple normal texture's red
+  // channel (no new fetch target; one extra texture2D on an existing sampler).
+  // RG hold direction PRE-SCALED by strength (the bake), so filtering across
+  // the bank edge fades the vector smoothly instead of snapping direction;
+  // the explicit strength channel gates the lane term to the channel proper.
+  // `wantDetail` implies `hasFoam`, so `uFoamColor` is always in scope here.
+  const flowBlock = wantDetail
+    ? "#ifdef HAS_DETAIL\n" +
+      "\t\tvec2 flowUV = vWorldXZ / ( 2.0 * uFlowExtent ) + 0.5;\n" +
+      "\t\tvec4 flowTex = texture2D( uRiverFlow, flowUV );\n" +
+      "\t\tvec2 flowDir = flowTex.rg * 2.0 - 1.0;\n" +
+      "\t\tfloat flowStr = flowTex.b;\n" +
+      "\t\tif ( flowStr > 0.01 ) {\n" +
+      "\t\t\tvec2 fd = normalize( flowDir + vec2( 1e-5, 0.0 ) );\n" +
+      "\t\t\tvec2 streakUV = vec2(\n" +
+      "\t\t\t\tdot( vWorldXZ, fd ) * STREAM_STREAK_TILE_ALONG - uTime * STREAM_STREAK_SCROLL,\n" +
+      "\t\t\t\tdot( vWorldXZ, vec2( -fd.y, fd.x ) ) * STREAM_STREAK_TILE_CROSS );\n" +
+      "\t\t\tfloat streak = texture2D( uWaterNormal, streakUV ).x;\n" +
+      "\t\t\tfloat lane = smoothstep( STREAM_STREAK_LO, STREAM_STREAK_HI, streak ) * flowStr * STREAM_STREAK_STRENGTH;\n" +
+      "\t\t\twaterCol = mix( waterCol, uFoamColor, clamp( lane, 0.0, 1.0 ) );\n" +
+      "\t\t}\n" +
+      "#endif\n"
+    : "";
   const fragBody =
     "\t{\n" +
     detailNormalBody +
@@ -314,6 +358,7 @@ export function makeWaterPatch(options: WaterPatchOptions): WaterPatch {
     depthDeclBody +
     rampBody +
     foamBlock +
+    flowBlock +
     "\t\tdiffuseColor.rgb = waterCol;\n" +
     "\t}\n";
 
@@ -361,8 +406,13 @@ export function makeWaterPatch(options: WaterPatchOptions): WaterPatch {
   // differently-configured mesh. The `-detail` axis is appended last so the
   // four slice-2/3 keys this was already pinned to (regression-locked in
   // `waterPatch.test.ts`) are BYTE-IDENTICAL when `detail` is omitted/false.
+  // The detail axis is `-v2` since the stream-flow injection changed its
+  // program text (living-water epic); the three non-detail keys stay
+  // byte-identical to their regression-locked slice-2/3 values.
   const customProgramCacheKey = () =>
-    `water-${hasFoam ? "foam" : "nofoam"}${displacement ? "-disp" : ""}${wantDetail ? "-detail" : ""}-v1`;
+    wantDetail
+      ? `water-${hasFoam ? "foam" : "nofoam"}${displacement ? "-disp" : ""}-detail-v2`
+      : `water-${hasFoam ? "foam" : "nofoam"}${displacement ? "-disp" : ""}-v1`;
 
   return { onBeforeCompile, customProgramCacheKey };
 }

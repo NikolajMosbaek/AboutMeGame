@@ -480,3 +480,28 @@ export const WATER_DEEP_DETAIL = [0x0d / 255, 0x2f / 255, 0x38 / 255] as const;
  *  of a clean line — applied to BOTH `FOAM_DEPTH_START`/`FOAM_DEPTH_END`
  *  identically (a pure edge-shift, not a width change). Art-tunable. */
 export const FOAM_BREAKUP_STRENGTH = 0.4;
+
+// --- Stream flow (living-water epic, 2026-07-19) ---------------------------
+// The river's current is real gameplay (`waterZones.ts` pushes a swimming
+// player); these make it VISIBLE: elongated foam lanes that drift downstream
+// inside the channel, driven by the baked flow field (`riverFlowTexture.ts`)
+// and drawn only on the detail tier (medium/high). The lane noise reuses the
+// ripple normal texture's red channel — no extra fetch target.
+
+/** Streak-lane UV tiling ALONG the flow (uv units per world unit) — small, so
+ *  one texture repeat stretches ~20 u downstream: lanes, not speckle. */
+export const STREAM_STREAK_TILE_ALONG = 0.05;
+/** …and ACROSS the flow — tighter, so lanes stay narrow. */
+export const STREAM_STREAK_TILE_CROSS = 0.3;
+/** Whole texture repeats the lane scroll advances per uTime wrap — an INTEGER
+ *  so the scroll closes exactly over {@link WRAP_PERIOD} (the same wrap-clock
+ *  discipline as {@link RIPPLE_SPEED_1}): at the wrap the UV jumps by exactly
+ *  this many repeats, invisible under RepeatWrapping. 6 cycles ≈ 1.9 u/s of
+ *  apparent downstream drift at the ALONG tiling. */
+export const STREAM_STREAK_WRAP_CYCLES = 6;
+export const STREAM_STREAK_SCROLL = STREAM_STREAK_WRAP_CYCLES / WRAP_PERIOD;
+/** smoothstep window over the noise channel — how much of the surface streaks. */
+export const STREAM_STREAK_LO = 0.62;
+export const STREAM_STREAK_HI = 0.85;
+/** Peak lane opacity (mixed toward the foam colour), scaled by flow strength. */
+export const STREAM_STREAK_STRENGTH = 0.55;

@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { describe, expect, it, vi } from "vitest";
 import { buildBoundaries, WATER_ROUGHNESS_BASE, WATER_ROUGHNESS_DETAIL, type WaterTextureLoader } from "./boundaries.ts";
+import { FLOW_TEXTURE_EXTENT } from "./riverFlowTexture.ts";
 
 // Visual-overhaul slice 4 (ripple normal-map detail): the async
 // ripple-texture-attach path, runnable headless (a stub `WaterTextureLoader`
@@ -75,7 +76,7 @@ describe("buildBoundaries — detail on: async ripple-texture attach (upgrade in
     await b.texturesReady;
 
     expect(calls).toEqual(["assets/textures/water/ripple-normal.webp"]);
-    expect((mat.customProgramCacheKey as () => string)()).toBe("water-foam-disp-detail-v1");
+    expect((mat.customProgramCacheKey as () => string)()).toBe("water-foam-disp-detail-v2");
 
     // Inspect the uniforms via a fresh shader object, mirroring
     // terrain.textures.test.ts's own discipline.
@@ -97,6 +98,13 @@ describe("buildBoundaries — detail on: async ripple-texture attach (upgrade in
     // The SAME uTime object the live WaterSystem holds is still wired through
     // the upgraded patch (no second clock).
     expect(shader.uniforms.uTime).toBe(b.waterUniforms!.uTime);
+
+    // The baked river-flow field rides the same upgrade (living-water epic):
+    // linear-filtered DataTexture + the shared world→UV extent.
+    const flowTex = shader.uniforms.uRiverFlow.value as THREE.DataTexture;
+    expect(flowTex).toBeInstanceOf(THREE.DataTexture);
+    expect(flowTex.minFilter).toBe(THREE.LinearFilter);
+    expect(shader.uniforms.uFlowExtent.value).toBe(FLOW_TEXTURE_EXTENT);
 
     b.dispose();
   });

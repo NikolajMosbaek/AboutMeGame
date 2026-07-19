@@ -10,6 +10,9 @@ import {
   FOAM_DEPTH_START,
   RIPPLE_HEADING_2_COS,
   RIPPLE_TILE_1,
+  STREAM_STREAK_SCROLL,
+  STREAM_STREAK_TILE_ALONG,
+  WRAP_PERIOD,
   glslFloat,
   waveGlsl,
 } from "./waterSurface.ts";
@@ -582,7 +585,7 @@ describe("makeWaterPatch — detail variant (visual-overhaul slice 4: ripple nor
       makeWaterPatch({ hasFoam, uniforms: {}, displacement, detail }).customProgramCacheKey();
 
     const detailKey = key(true, true, true);
-    expect(detailKey).toBe("water-foam-disp-detail-v1");
+    expect(detailKey).toBe("water-foam-disp-detail-v2");
     expect(detailKey).not.toBe(key(true, true, false));
     expect(detailKey).toMatch(/^water-/);
 
@@ -609,5 +612,53 @@ describe("makeWaterPatch — detail variant (visual-overhaul slice 4: ripple nor
     expect(shader.uniforms.uWaterDeepDetail).toBe(uWaterDeepDetail);
     // The SAME uTime object the live WaterSystem advances — no separate clock.
     expect(shader.uniforms.uTime).toBe(uTime);
+  });
+});
+
+describe("makeWaterPatch — stream flow (living-water epic: the current is visible)", () => {
+  const detailPatch = () =>
+    makeWaterPatch({ hasFoam: true, uniforms: {}, displacement: true, detail: true });
+
+  it("the detail fragment samples the baked flow field and draws drifting streak lanes", () => {
+    const shader = freshShader();
+    detailPatch().onBeforeCompile(shader as unknown as THREE.WebGLProgramParametersWithUniforms);
+    const fs = stripGlslComments(shader.fragmentShader);
+    expect(fs).toMatch(/uniform\s+sampler2D\s+uRiverFlow/);
+    expect(fs).toMatch(/uniform\s+float\s+uFlowExtent/);
+    expect(fs).toMatch(/STREAM_STREAK_SCROLL/);
+    expect(fs).toMatch(/STREAM_STREAK_STRENGTH/);
+    // Lanes mix toward the foam colour, scaled by the flow strength channel.
+    expect(fs).toMatch(/uFoamColor,\s*clamp\(\s*lane/);
+  });
+
+  it("bakes the streak constants from their waterSurface exports — wrap-safe scroll included", () => {
+    const shader = freshShader();
+    detailPatch().onBeforeCompile(shader as unknown as THREE.WebGLProgramParametersWithUniforms);
+    const fs = shader.fragmentShader;
+    expect(fs).toContain(`const float STREAM_STREAK_SCROLL = ${glslFloat(STREAM_STREAK_SCROLL)};`);
+    expect(fs).toContain(
+      `const float STREAM_STREAK_TILE_ALONG = ${glslFloat(STREAM_STREAK_TILE_ALONG)};`,
+    );
+    // The scroll closes exactly over the uTime wrap (integer cycles).
+    expect(Number.isInteger(STREAM_STREAK_SCROLL * WRAP_PERIOD)).toBe(true);
+  });
+
+  it("non-detail variants compile ZERO flow tokens — low tier and base look untouched", () => {
+    for (const opts of [
+      { hasFoam: false, uniforms: {} },
+      { hasFoam: true, uniforms: {} },
+      { hasFoam: true, uniforms: {}, displacement: true },
+    ]) {
+      const shader = freshShader();
+      makeWaterPatch(opts).onBeforeCompile(
+        shader as unknown as THREE.WebGLProgramParametersWithUniforms,
+      );
+      expect(shader.fragmentShader).not.toContain("uRiverFlow");
+      expect(shader.fragmentShader).not.toContain("STREAM_STREAK");
+    }
+  });
+
+  it("the detail cache key is bumped so three never serves the pre-flow program", () => {
+    expect(detailPatch().customProgramCacheKey()).toBe("water-foam-disp-detail-v2");
   });
 });
