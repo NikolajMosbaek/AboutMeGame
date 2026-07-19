@@ -5,13 +5,15 @@
 // wall — a translucent scrolling curtain, a crest lip, splash foam discs and
 // a few bobbing mist puffs, plus a distance-attenuated roar
 // (`roarLevelAt` → `AudioEngine.setWaterfallLevel`). All procedural: two
-// generated `DataTexture`s, zero asset bytes, ≤ 6 draw calls in a compact
-// group three frustum-culls as a whole — invisible from the zero-headroom
-// spawn vantage on the far side of the island.
+// generated `DataTexture`s, zero asset bytes, ≤ 6 draw calls whose meshes
+// each frustum-cull on their own chunk-local bounding spheres — occluded (and
+// mostly culled) from the zero-headroom spawn vantage across the island.
 //
 // Animation is a `WaterfallSystem` scrolling the curtain texture's offset —
-// no shader patch, no per-vertex work. Pause holds it; reduced motion holds
-// it (a still curtain still reads as a waterfall; the mist stays put).
+// no shader patch, no per-vertex work. Reduced motion holds it (a still
+// curtain still reads as a waterfall; the mist stays put). Like the water
+// swell's `WaterSystem`, it keeps animating under the pause menu — the
+// optional `PauseSource` seam exists for callers that want a hard hold.
 
 import * as THREE from "three";
 import type { FrameContext, System } from "../engine/types.ts";
@@ -34,6 +36,8 @@ export const ROAR_RADIUS = 70;
 const CURTAIN_SCROLL_SPEED = 0.55; // texture repeats per second, downward
 const SPLASH_DRIFT_SPEED = 0.06;
 const MIST_COUNT = 5;
+const MIST_BOB_RATE = 0.8; // rad/s
+const MIST_BOB_PERIOD = (Math.PI * 2) / MIST_BOB_RATE;
 
 /** Distance-attenuated roar level 0..1 — squared falloff so it swells fast
  *  on approach (how a real falls reads) and dies politely by the radius. */
@@ -141,6 +145,17 @@ export function buildWaterfall(): Waterfall {
   disposables.push(lipGeo, lipMat);
   group.add(lip);
 
+  // Rock cap: a dark slab bridging the lip back to the rising wall — from
+  // the banks, the crest otherwise floats proud of the rock silhouette
+  // (review finding: the terrain only reaches lip height ~6 u upstream).
+  const capGeo = new THREE.BoxGeometry(FALL_WIDTH + 2.4, 1.4, 7);
+  const capMat = new THREE.MeshStandardMaterial({ color: 0x4f5548, flatShading: true, roughness: 1 });
+  const cap = new THREE.Mesh(capGeo, capMat);
+  cap.position.set(0, FALL_TOP - 0.4, -3.2);
+  cap.name = "waterfall-cap";
+  disposables.push(capGeo, capMat);
+  group.add(cap);
+
   // Splash: two offset foam discs boiling at the pool.
   const splashTextures: THREE.DataTexture[] = [];
   for (const [radius, y, drift] of [
@@ -218,17 +233,23 @@ export class WaterfallSystem implements System {
 
   private elapsed = 0;
   private readonly m = new THREE.Matrix4();
+  private readonly mist: THREE.InstancedMesh | null;
 
   constructor(
     private readonly falls: Waterfall,
     private readonly session?: PauseSource,
     private readonly reducedMotion?: ReducedMotionSource,
-  ) {}
+  ) {
+    const found = falls.group.getObjectByName("waterfall-mist");
+    this.mist = found instanceof THREE.InstancedMesh ? found : null;
+  }
 
   update(ctx: FrameContext): void {
     if (this.session?.paused) return;
     if (this.reducedMotion?.getSnapshot().reducedMotion) return; // still falls
-    this.elapsed += ctx.dt;
+    // The bob clock wraps at its own sine period (the wrap-clock convention —
+    // sin(x + 2π) == sin(x) exactly, so the wrap is seamless).
+    this.elapsed = (this.elapsed + ctx.dt) % (MIST_BOB_PERIOD);
 
     // Falling water: scroll the curtain map downward (offset wraps in [0,1)).
     const tex = this.falls.curtainTexture;
@@ -241,18 +262,17 @@ export class WaterfallSystem implements System {
     });
 
     // Mist: gentle bob (tiny matrix refresh over MIST_COUNT instances).
-    const mist = this.falls.group.getObjectByName("waterfall-mist");
-    if (mist instanceof THREE.InstancedMesh) {
+    if (this.mist) {
       for (let i = 0; i < MIST_COUNT; i++) {
-        const bob = Math.sin(this.elapsed * 0.8 + i * 1.7) * 0.3;
+        const bob = Math.sin(this.elapsed * MIST_BOB_RATE + i * 1.7) * 0.3;
         this.m.makeTranslation(
           (hash2(i * 3.3, 7.1) - 0.5) * FALL_WIDTH,
           1.2 + hash2(i * 5.7, 2.9) * 2.5 + bob,
           1 + hash2(i * 9.1, 4.3) * 2,
         );
-        mist.setMatrixAt(i, this.m);
+        this.mist.setMatrixAt(i, this.m);
       }
-      mist.instanceMatrix.needsUpdate = true;
+      this.mist.instanceMatrix.needsUpdate = true;
     }
   }
 

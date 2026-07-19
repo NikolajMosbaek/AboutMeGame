@@ -819,6 +819,10 @@ export class AudioEngine {
       this.rainSource.stop();
       this.stopRainBed();
     }
+    if (this.waterfallSource) {
+      this.waterfallSource.stop();
+      this.stopWaterfallBed();
+    }
     this.master.disconnect();
     void this.ctx.close().catch(() => {});
   }

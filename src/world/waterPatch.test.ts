@@ -11,7 +11,6 @@ import {
   RIPPLE_HEADING_2_COS,
   RIPPLE_TILE_1,
   STREAM_STREAK_SCROLL,
-  STREAM_STREAK_TILE_ALONG,
   WRAP_PERIOD,
   glslFloat,
   waveGlsl,
@@ -636,9 +635,7 @@ describe("makeWaterPatch — stream flow (living-water epic: the current is visi
     detailPatch().onBeforeCompile(shader as unknown as THREE.WebGLProgramParametersWithUniforms);
     const fs = shader.fragmentShader;
     expect(fs).toContain(`const float STREAM_STREAK_SCROLL = ${glslFloat(STREAM_STREAK_SCROLL)};`);
-    expect(fs).toContain(
-      `const float STREAM_STREAK_TILE_ALONG = ${glslFloat(STREAM_STREAK_TILE_ALONG)};`,
-    );
+    expect(fs).toContain("const float STREAM_ARC_FIELDS = ");
     // The scroll closes exactly over the uTime wrap (integer cycles).
     expect(Number.isInteger(STREAM_STREAK_SCROLL * WRAP_PERIOD)).toBe(true);
   });

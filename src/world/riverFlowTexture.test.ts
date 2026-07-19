@@ -3,6 +3,7 @@ import * as THREE from "three";
 import {
   FLOW_TEXTURE_EXTENT,
   FLOW_TEXTURE_RES,
+  RIVER_ARC_LENGTH,
   bakeRiverFlow,
   buildRiverFlowTexture,
   flowSampleAt,
@@ -10,13 +11,34 @@ import {
 import { LAGOON, RIVER } from "./worldConfig.ts";
 
 describe("flowSampleAt (pure)", () => {
-  it("is full-strength downstream in the river bed, matching the segment direction", () => {
+  it("is full-strength in the bed, with a CONTINUOUS arc coordinate across a bend", () => {
     // Mid-point of the {-2,-14}→{-20,38} segment, on the course.
-    const s = flowSampleAt(-11, 12);
-    expect(s.strength).toBeGreaterThan(0.9);
-    const segLen = Math.hypot(-20 - -2, 38 - -14);
-    expect(s.dx).toBeCloseTo((-20 - -2) / segLen, 1);
-    expect(s.dz).toBeCloseTo((38 - -14) / segLen, 1);
+    const mid = flowSampleAt(-11, 12);
+    expect(mid.strength).toBeGreaterThan(0.9);
+    expect(mid.arc).toBeGreaterThan(0);
+    expect(mid.arc).toBeLessThan(RIVER_ARC_LENGTH);
+    // Walk THROUGH the sharp bend at {-20, 38}: arc must advance
+    // monotonically with no junction jump (the contour-ring artifact both
+    // review rounds chased came from a discontinuous flow axis).
+    let prev = -Infinity;
+    for (let t = 0; t <= 1.0001; t += 0.05) {
+      // Course points just up- and downstream of the bend vertex.
+      const x = -14 + (-2 - -14) * t; // -14 → -2 … crossing near the vertex
+      const z = 25 + (55 - 25) * t;
+      const p = flowSampleAt(x - 3, z); // hug the course (west of it)
+      if (p.strength <= 0) continue;
+      expect(p.arc).toBeGreaterThanOrEqual(prev - 1.5); // ≤ small local slack
+      prev = Math.max(prev, p.arc);
+    }
+  });
+
+  it("signs the cross coordinate by bank and zeroes it on the course", () => {
+    const on = flowSampleAt(-11, 12);
+    expect(Math.abs(on.cross)).toBeLessThan(1.5);
+    // Perpendicular offsets land on opposite signs.
+    const a = flowSampleAt(-11 + 4, 12);
+    const b = flowSampleAt(-11 - 4, 12);
+    expect(Math.sign(a.cross)).not.toBe(Math.sign(b.cross));
   });
 
   it("fades to zero across the banks and is zero on dry land", () => {
@@ -36,18 +58,17 @@ describe("flowSampleAt (pure)", () => {
 });
 
 describe("bakeRiverFlow", () => {
-  it("bakes RGBA texels: direction recoverable from RG, strength in B", () => {
+  it("bakes RGBA texels: arc in R, signed cross in G, strength in B", () => {
     const data = bakeRiverFlow();
     expect(data.length).toBe(FLOW_TEXTURE_RES * FLOW_TEXTURE_RES * 4);
     // Locate the texel for the mid-course point (-11, 12).
     const u = Math.round(((-11 / (2 * FLOW_TEXTURE_EXTENT) + 0.5) * (FLOW_TEXTURE_RES - 1)));
     const v = Math.round(((12 / (2 * FLOW_TEXTURE_EXTENT) + 0.5) * (FLOW_TEXTURE_RES - 1)));
     const i = (v * FLOW_TEXTURE_RES + u) * 4;
-    const dx = (data[i] / 255) * 2 - 1;
-    const dz = (data[i + 1] / 255) * 2 - 1;
+    const sample = flowSampleAt(-11, 12);
+    expect(data[i] / 255).toBeCloseTo(sample.arc / RIVER_ARC_LENGTH, 1);
+    expect(Math.abs(data[i + 1] / 255 - 0.5)).toBeLessThan(0.25); // near the course centre
     expect(data[i + 2]).toBeGreaterThan(150); // strong flow in the bed
-    expect(dx).toBeLessThan(0); // downstream heads -x here
-    expect(dz).toBeGreaterThan(0); // and +z
     expect(data[i + 3]).toBe(255);
   });
 
