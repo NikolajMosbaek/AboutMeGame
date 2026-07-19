@@ -46,7 +46,7 @@ export interface Sky {
 }
 
 const SKY_TOP = new THREE.Color(0x3a78c2); // upper sky blue
-const SKY_BOTTOM = new THREE.Color(0xcfe4f2); // pale horizon haze
+const SKY_BOTTOM = new THREE.Color(0xc6dcc2); // pale humid-green horizon haze (jungle-feel round 2)
 /** Default sun direction/colour the dome shows before any per-frame writer
  *  touches it — the same NOON direction/colour `sky.ts`'s static sun ships
  *  (`(0.6,1,0.4)` normalized, `#fff1d6`), so a construction-only preview (a

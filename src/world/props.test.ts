@@ -93,15 +93,27 @@ describe("buildProps jungle vegetation (pivot slice C)", () => {
     props.dispose();
   });
 
-  it("never places a canopy tree, palm, understory plant or rock inside the camp clearing", () => {
+  it("keeps PER-CATEGORY camp clearances: trees respect the sky opening, brush crowds the edge", () => {
+    // Jungle-feel round 2: the shared 18 u ring left a bare LAWN at spawn.
+    // Trees/palms keep the full opening; understory hugs 9 u, rocks 12 u.
     const props = buildProps(terrain);
-    const clearRadius = WORLD.campClearRadius + 4;
-    for (const name of ["canopy-trunk", "palm-trunk", "understory", "rocks"]) {
+    const minByLayer: Record<string, number> = {
+      "canopy-trunk": WORLD.campClearRadius + 4,
+      "palm-trunk": WORLD.campClearRadius + 4,
+      understory: 9,
+      rocks: 12,
+    };
+    for (const [name, minR] of Object.entries(minByLayer)) {
       for (const p of positionsOf(byName(props.group, name))) {
         const d = Math.hypot(p.x - SPAWN.x, p.z - SPAWN.z);
-        expect(d).toBeGreaterThanOrEqual(clearRadius - 1e-6);
+        expect(d).toBeGreaterThanOrEqual(minR - 1e-6);
       }
     }
+    // And the brush DOES take the invitation: some understory within 14 u.
+    const nearCamp = positionsOf(byName(props.group, "understory")).filter(
+      (p) => Math.hypot(p.x - SPAWN.x, p.z - SPAWN.z) < WORLD.campClearRadius + 4,
+    );
+    expect(nearCamp.length).toBeGreaterThan(0);
     props.dispose();
   });
 

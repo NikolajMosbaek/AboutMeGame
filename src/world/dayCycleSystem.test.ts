@@ -105,11 +105,11 @@ describe("DayCycleSystem (G3 slice, T2)", () => {
     });
 
     it("dome bottom == SKY_BOTTOM #cfe4f2", () => {
-      expect(dome.uniforms.bottomColor.value.getHex()).toBe(0xcfe4f2);
+      expect(dome.uniforms.bottomColor.value.getHex()).toBe(0xc6dcc2);
     });
 
     it("fog == horizon #cfe4f2 (fog refactor is a no-op at noon)", () => {
-      expect(fog.color.getHex()).toBe(0xcfe4f2);
+      expect(fog.color.getHex()).toBe(0xc6dcc2);
     });
 
     it("fog density == FOG_DENSITY_BASE 0.0022 at noon (slice 5, item 5)", () => {
