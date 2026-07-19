@@ -56,7 +56,7 @@ wins — only `"auto"` follows detection (`resolveQuality`'s contract).
 | `maxPixelRatio` | **1** | 1.5 | 2 | Fill rate is the dominant mobile cost; capping DPR at 1 is the single biggest lever for the target phone. |
 | `shadows` | **off** | on | on | The shadow map is the costliest single feature; off on low. |
 | `shadowMapSize` | 1024 | 1024 | 2048 | Smaller map ⇒ cheaper shadow pass on medium. |
-| `propDensity` | **0.2** | 0.55 | 1.0 | Multiplier on the vegetation budgets (900 canopy trees / 120 palms / 2200 understory / 300 rocks, `src/world/props.ts` — jungle-density epic 2026-07-19) — fewer instances ⇒ fewer triangles. Low's absolute load is held at the pre-epic floor (0.2 × new counts == 0.4 × old counts for trees/palms), pinned by `quality.test.ts`. |
+| `propDensity` | **0.2** | 0.55 | 1.0 | Multiplier on the vegetation budgets (680 canopy trees / 72 palms / 2200 understory / 160 rocks, `src/world/props.ts` — jungle-density epic 2026-07-19) — fewer instances ⇒ fewer triangles. Low's absolute load is held at (slightly below) the pre-epic floor — measured 152,918 tris vs the pre-epic 156,837 — pinned by `quality.test.ts`; low also keeps the original crown scales and no tall ferns (`fullFoliage=false`), so its FILL cost is unchanged too. |
 | `fog` | **off** | on | on | Cheap, but low drops it so the shorter draw distance reads cleanly. |
 | `waterDisplacement` | **off** | on | on | Vertex displacement + grid subdivision on the full-screen water plane; off on low to protect mobile fill rate. Applies on reload. |
 | `bloom` | **off** | on | on | Threshold post-processing pass that makes the emissive site accents (and later fireflies) glow; fill-rate spend, not draw/triangle; off on low to protect mobile fill rate. **Shipped** behind the renderer seam — pmndrs `postprocessing`'s mipmap-blur `BloomEffect`, merged with SMAA/vignette/tone-mapping into ONE `EffectPass` in `src/engine/createCompositor.ts` (visual-overhaul slice 1, replacing the earlier three-examples `UnrealBloomPass` chain); applies on reload. |
@@ -656,6 +656,25 @@ measurement noise):
 | low | `"none"` (pre-slice-6 props, unchanged) | 0.4 | 28 | 156,837 | 31.4% |
 | medium | `"full"` | 0.7 | 77 | 365,382 | 73.1% |
 | high | `"full"` | 1.0 | 85 | ~442,000 (438,782–447,952 across 3 runs) | ~88.4% |
+
+**Superseded by the jungle-density epic (2026-07-19)** — remeasured with the
+same instrumented-GL method after the density raise (680 canopy / 72 palms /
+2200 understory / 160 rocks / 3000 grass) + `floraUpgrade.ts`'s chunked
+instancing. NOTE the old "count does not vary by camera position" property no
+longer holds — that was a symptom of the island-spanning single meshes this
+epic fixed; canopy/understory now split into spatial chunk meshes with
+chunk-local bounding spheres, so the frustum AND the player-fitted shadow
+pass cull for real, and the understory is additionally distance-culled
+(`floraCullSystem.ts`, 90 u). The camp-vista spawn is the MAX vantage
+(shore palms + water + camp props); the jungle interior — where the player
+actually spends the session — now pays LESS than the pre-epic high tier
+despite ~1.5× the trees and 2.4× the understory:
+
+| Tier | Vantage | Avg draw calls/frame | Avg triangles/frame | % of 500k budget |
+|---|---|---|---|---|
+| low | spawn (camp vista) | 31 | 152,918 | 30.6% — BELOW the pre-epic 156,837 floor |
+| high | spawn (camp vista, max) | 121 | 485,582 | 97.1% |
+| high | jungle interior | ~105 | ~418,000 (measured at canopy 700; ≈410k at 680) | ~82% |
 
 The low-tier figure (28 draws / 156,837 triangles) matches the prior
 (mislabelled) sample almost exactly, which cross-validates the new

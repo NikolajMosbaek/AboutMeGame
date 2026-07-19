@@ -22,22 +22,33 @@ export interface Props {
 // well under the ≤150 draw-call / frame budget — regardless of instance count.
 //
 // Jungle-density epic (2026-07-19, user finding "it feels like an island with
-// some trees on"): full-density counts roughly doubled and valley crowns
-// enlarged so the canopy actually closes, with ~a third of the understory as
-// eye-height tall ferns that break sightlines. The LOW tier's absolute load
-// is held at the pre-epic floor by the matching `propDensity` drop in
-// `src/perf/quality.ts` (0.4 → 0.2) — pinned by quality.test.ts.
-export const CANOPY_TREE_COUNT = 900;
-export const PALM_COUNT = 120;
+// some trees on"): full-density counts raised so the valley canopy closes and
+// the floor crowds, with ~a third of the understory as eye-height tall ferns
+// that break sightlines. Counts are sized against the 500k-triangle budget
+// WITH the chunked frustum culling `floraUpgrade.ts` builds (worst-case
+// panorama ≈ budget; a typical in-jungle frame pays far less — the numbers
+// are in docs/perf-budget.md). The LOW tier's absolute load is held at the
+// pre-epic floor by the matching `propDensity` drop in `src/perf/quality.ts`
+// (0.4 → 0.2, pinned by quality.test.ts) AND by `fullFoliage=false` (low
+// keeps the original crown scales and no tall ferns — its fill cost is
+// unchanged, not just its instance count).
+export const CANOPY_TREE_COUNT = 680;
+export const PALM_COUNT = 72;
 export const UNDERSTORY_COUNT = 2200;
-export const ROCK_COUNT = 300;
+export const ROCK_COUNT = 160;
 
 /** Share of understory placements that come up as eye-height tall ferns, and
  *  their scale band (vs the regular 0.7–1.3 shrubs). Enclosure — the "I'm IN
- *  a jungle" read — comes from foliage at eye level, not knee level. */
+ *  a jungle" read — comes from foliage at eye level, not knee level. Only
+ *  with `fullFoliage` (medium/high, `quality.floraDetail === "full"`). */
 export const TALL_FERN_SHARE = 0.32;
 const TALL_FERN_SCALE_MIN = 1.9;
 const TALL_FERN_SCALE_SPAN = 0.9;
+/** Tall ferns only stand on near-flat ground — their ~1.5 u footprint floats
+ *  visibly on the downhill side of anything steeper (review finding). Checked
+ *  four-way (unlike the shared one-sided `gentleSlope`): a downhill drop on
+ *  the unsampled side is exactly where a big fern's base shows air. */
+const TALL_FERN_MAX_DROP = 1.0;
 
 const POI_CLEARANCE = 10; // keep vegetation from crowding the expedition sites
 
@@ -98,7 +109,13 @@ const ROCK_GROUND_RADIUS = 1.2;
  * to an untextured, plainly-coloured cross-plane — the world still builds and
  * tests never need a real canvas context.
  */
-export function buildProps(terrain: Terrain, density = 1): Props {
+/**
+ * @param fullFoliage The jungle-density look: enlarged valley crowns and the
+ * eye-height tall-fern share. `buildWorld` maps it from
+ * `quality.floraDetail === "full"` (medium/high) so the LOW tier keeps the
+ * original crown scales and understory silhouette — identical fill cost.
+ */
+export function buildProps(terrain: Terrain, density = 1, fullFoliage = true): Props {
   const group = new THREE.Group();
   group.name = "props";
   const groundPoints: GroundPoint[] = [];
@@ -131,6 +148,12 @@ export function buildProps(terrain: Terrain, density = 1): Props {
     return slope <= maxSlope;
   };
   const inRiverChannel = (x: number, z: number) => distToRiver(x, z) < RIVER.bankHalfWidth + 1;
+  /** Four-way local relief check for the eye-height tall ferns. */
+  const flatGround = (x: number, z: number, y: number, e = 1.5) =>
+    Math.abs(terrain.heightAt(x + e, z) - y) <= TALL_FERN_MAX_DROP &&
+    Math.abs(terrain.heightAt(x - e, z) - y) <= TALL_FERN_MAX_DROP &&
+    Math.abs(terrain.heightAt(x, z + e) - y) <= TALL_FERN_MAX_DROP &&
+    Math.abs(terrain.heightAt(x, z - e) - y) <= TALL_FERN_MAX_DROP;
 
   // A point in the river-fringe corridor (bankHalfWidth+1 .. +6): a jittered
   // offset perpendicular to a random river segment, so the understory reads
@@ -244,10 +267,11 @@ export function buildProps(terrain: Terrain, density = 1): Props {
     if (inRiverChannel(x, z)) continue;
     if (!clearOfSites(x, z)) continue;
     if (!gentleSlope(x, z, y)) continue;
-    // Bigger crowns than the original 0.7–1.3 band: canopy closure scales
-    // with count × crown AREA, so the size bump buys ~40% more coverage
-    // without a single extra triangle.
-    const s = 0.85 + rng.value(i, 7) * 0.7;
+    // Bigger crowns than the original 0.7–1.3 band (fullFoliage only): canopy
+    // closure scales with count × crown AREA, so the size bump buys ~40% more
+    // coverage without a single extra triangle. Low keeps the original band —
+    // crown quads are alpha-cutout fill, the metric that binds on mobile.
+    const s = fullFoliage ? 0.85 + rng.value(i, 7) * 0.7 : 0.7 + rng.value(i, 7) * 0.6;
     const rot = rng.value(i, 3) * Math.PI * 2;
     placeCanopy(x, z, y, s, rot, (rng.value(i, 9) - 0.5) * 0.12);
   }
@@ -332,8 +356,12 @@ export function buildProps(terrain: Terrain, density = 1): Props {
   const placeUnderstory = (x: number, y: number, z: number, seedIdx: number) => {
     // A deterministic share of placements comes up TALL — eye-height ferns
     // that break sightlines (the enclosure that makes it read as jungle).
-    // Slightly darker: deep-shade foliage, and it visually recedes.
-    const tall = rng.value(seedIdx, 11) < TALL_FERN_SHARE;
+    // Only on near-flat ground (a big fern's footprint floats on a slope) and
+    // only with fullFoliage. Slightly darker: deep-shade foliage, it recedes.
+    const tall =
+      fullFoliage &&
+      rng.value(seedIdx, 11) < TALL_FERN_SHARE &&
+      flatGround(x, z, y);
     const s = tall
       ? TALL_FERN_SCALE_MIN + rng.value(seedIdx, 7) * TALL_FERN_SCALE_SPAN
       : 0.7 + rng.value(seedIdx, 7) * 0.6;

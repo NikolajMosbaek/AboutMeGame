@@ -5,6 +5,7 @@ import { makeWindPatch } from "./windPatch.ts";
 import type { WindUniforms } from "./windSystem.ts";
 import { buildGrass } from "./grass.ts";
 import type { Terrain } from "./terrain.ts";
+import { WORLD } from "./worldConfig.ts";
 
 // The CC0 flora model upgrade (visual-overhaul slice 6, flora & fauna) —
 // swaps `props.ts`'s procedural cylinder/cross-plane vegetation for real
@@ -116,6 +117,23 @@ export interface Disposable {
   dispose(): void;
 }
 
+/** A swapped category: its live meshes (for the distance-cull system) plus
+ *  the disposer. Structurally a {@link Disposable}, so existing callers keep
+ *  working unchanged. */
+export interface SwappedCategory extends Disposable {
+  meshes: THREE.InstancedMesh[];
+}
+
+/** Grid cell of a world x/z for `chunkGrid` — the world tile spans
+ *  `WORLD.size` centred on the origin. */
+function cellOf(x: number, z: number, grid: number): number {
+  const half = WORLD.size / 2;
+  const cell = WORLD.size / grid;
+  const cx = Math.min(grid - 1, Math.max(0, Math.floor((x + half) / cell)));
+  const cz = Math.min(grid - 1, Math.max(0, Math.floor((z + half) / cell)));
+  return cz * grid + cx;
+}
+
 /**
  * Replace one category's procedural `InstancedMesh`(es) with model-backed
  * variants at the SAME transforms. `sourceMesh` is read for its per-instance
@@ -125,30 +143,50 @@ export interface Disposable {
  * Exported so the test can exercise the swap/dispose lifecycle directly
  * against synthetic `InstancedMesh`/`LoadedVariant` fixtures, without a real
  * network fetch.
+ *
+ * `chunkGrid > 1` (jungle-density epic) splits each variant's instances into
+ * a `grid × grid` spatial partition, one `InstancedMesh` per non-empty cell,
+ * each with its own chunk-local bounding sphere — a single island-spanning
+ * mesh can never be frustum-culled (its sphere always intersects), so every
+ * triangle was paid from every camera angle; chunked meshes cull for real,
+ * in the main pass AND the player-fitted shadow pass. Materials stay one per
+ * VARIANT, shared across that variant's chunks, so the shader/program count
+ * is unchanged. Draw calls grow by at most `variants × grid²`, well inside
+ * the 150 budget (measured in docs/perf-budget.md).
  */
 export function swapCategory(
   group: THREE.Group,
   oldMeshes: (THREE.InstancedMesh | undefined)[],
   sourceMesh: THREE.InstancedMesh | undefined,
   variants: LoadedVariant[],
-  options: { namePrefix: string; castShadow: boolean; wind?: { strength: number; uniforms: WindUniforms } },
-): Disposable {
+  options: {
+    namePrefix: string;
+    castShadow: boolean;
+    wind?: { strength: number; uniforms: WindUniforms };
+    chunkGrid?: number;
+  },
+): SwappedCategory {
   if (!sourceMesh || variants.length === 0) {
-    return { dispose() {} };
+    return { meshes: [], dispose() {} };
   }
 
+  const grid = Math.max(1, options.chunkGrid ?? 1);
   const count = sourceMesh.count;
-  const perVariantMatrices: THREE.Matrix4[][] = variants.map(() => []);
+  // matrices[variant][cell] — cell 0 is the only bucket when grid === 1.
+  const buckets: THREE.Matrix4[][][] = variants.map(() =>
+    Array.from({ length: grid * grid }, () => []),
+  );
   const m = new THREE.Matrix4();
   for (let i = 0; i < count; i++) {
     sourceMesh.getMatrixAt(i, m);
-    perVariantMatrices[variantIndexOf(i, variants.length)].push(m.clone());
+    const vi = variantIndexOf(i, variants.length);
+    const cell = grid === 1 ? 0 : cellOf(m.elements[12], m.elements[14], grid);
+    buckets[vi][cell].push(m.clone());
   }
 
   const newMeshes: THREE.InstancedMesh[] = [];
   const materials: THREE.Material[] = [];
   variants.forEach((variant, vi) => {
-    const matrices = perVariantMatrices[vi];
     const material = new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 1 });
     if (options.wind) {
       const patch = makeWindPatch({
@@ -161,15 +199,22 @@ export function swapCategory(
     }
     materials.push(material);
 
-    const mesh = new THREE.InstancedMesh(variant.geometry, material, Math.max(1, matrices.length));
-    mesh.name = `${options.namePrefix}-${vi}`;
-    mesh.castShadow = options.castShadow;
-    mesh.receiveShadow = true;
-    matrices.forEach((matrix, i) => mesh.setMatrixAt(i, matrix));
-    mesh.count = matrices.length;
-    mesh.instanceMatrix.needsUpdate = true;
-    group.add(mesh);
-    newMeshes.push(mesh);
+    buckets[vi].forEach((matrices, cell) => {
+      // Empty cells build nothing — but a variant with NO instances anywhere
+      // still gets one empty mesh when unchunked, preserving the pre-epic
+      // "one mesh per variant" contract the tests pin.
+      if (matrices.length === 0 && !(grid === 1 && cell === 0)) return;
+      const mesh = new THREE.InstancedMesh(variant.geometry, material, Math.max(1, matrices.length));
+      mesh.name = grid === 1 ? `${options.namePrefix}-${vi}` : `${options.namePrefix}-${vi}-c${cell}`;
+      mesh.castShadow = options.castShadow;
+      mesh.receiveShadow = true;
+      matrices.forEach((matrix, i) => mesh.setMatrixAt(i, matrix));
+      mesh.count = matrices.length;
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.computeBoundingSphere(); // chunk-local bounds — culling bites
+      group.add(mesh);
+      newMeshes.push(mesh);
+    });
   });
 
   for (const old of oldMeshes) {
@@ -177,6 +222,7 @@ export function swapCategory(
   }
 
   return {
+    meshes: newMeshes,
     dispose() {
       for (const mesh of newMeshes) {
         group.remove(mesh);
@@ -190,7 +236,18 @@ export function swapCategory(
 
 export interface FloraUpgradeHandle {
   dispose(): void;
+  /** The understory's chunk meshes once the swap has landed (empty before,
+   *  and again after dispose) — the `FloraCullSystem` distance-culls these:
+   *  a 1–3 u fern contributes nothing at 100+ u but still costs triangles. */
+  understoryChunks(): THREE.InstancedMesh[];
 }
+
+/** Spatial chunk grids per category (jungle-density epic). Canopy chunks
+ *  coarsely (vista trees stay visible at any range; chunking only serves the
+ *  frustum + fitted shadow pass). Understory chunks finer, because it is ALSO
+ *  distance-culled. Palms/rocks stay single meshes (small budgets). */
+const CANOPY_CHUNK_GRID = 4;
+const UNDERSTORY_CHUNK_GRID = 4;
 
 /**
  * Kick off the async model load + swap. Returns immediately with a handle
@@ -210,6 +267,7 @@ export function upgradeFlora(
 ): FloraUpgradeHandle {
   let cancelled = false;
   let applied: Disposable | null = null;
+  let understoryMeshes: THREE.InstancedMesh[] = [];
 
   (async () => {
     try {
@@ -282,7 +340,12 @@ export function upgradeFlora(
           [findMesh(propsGroup, "canopy-trunk"), findMesh(propsGroup, "canopy-cross")],
           findMesh(propsGroup, "canopy-trunk"),
           canopy,
-          { namePrefix: "canopy-model", castShadow: true, wind: { strength: CANOPY_WIND_STRENGTH, uniforms: windUniforms } },
+          {
+            namePrefix: "canopy-model",
+            castShadow: true,
+            wind: { strength: CANOPY_WIND_STRENGTH, uniforms: windUniforms },
+            chunkGrid: CANOPY_CHUNK_GRID,
+          },
         ),
       );
       disposers.push(
@@ -294,19 +357,20 @@ export function upgradeFlora(
           { namePrefix: "palm-model", castShadow: true, wind: { strength: PALM_WIND_STRENGTH, uniforms: windUniforms } },
         ),
       );
-      disposers.push(
-        swapCategory(
-          propsGroup,
-          [findMesh(propsGroup, "understory")],
-          findMesh(propsGroup, "understory"),
-          understory,
-          {
-            namePrefix: "understory-model",
-            castShadow: false,
-            wind: { strength: UNDERSTORY_WIND_STRENGTH, uniforms: windUniforms },
-          },
-        ),
+      const understorySwap = swapCategory(
+        propsGroup,
+        [findMesh(propsGroup, "understory")],
+        findMesh(propsGroup, "understory"),
+        understory,
+        {
+          namePrefix: "understory-model",
+          castShadow: false,
+          wind: { strength: UNDERSTORY_WIND_STRENGTH, uniforms: windUniforms },
+          chunkGrid: UNDERSTORY_CHUNK_GRID,
+        },
       );
+      disposers.push(understorySwap);
+      understoryMeshes = understorySwap.meshes;
       disposers.push(
         swapCategory(propsGroup, [findMesh(propsGroup, "rocks")], findMesh(propsGroup, "rocks"), rock, {
           namePrefix: "rock-model",
@@ -332,6 +396,10 @@ export function upgradeFlora(
     dispose() {
       cancelled = true;
       applied?.dispose();
+      understoryMeshes = [];
+    },
+    understoryChunks() {
+      return understoryMeshes;
     },
   };
 }

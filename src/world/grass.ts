@@ -20,7 +20,7 @@ import type { WindUniforms } from "./windSystem.ts";
 
 // Jungle-density epic (2026-07-19): thicker floor cover. Medium/high only
 // (floraDetail "full"), so the low tier never pays for a single blade.
-export const GRASS_COUNT = 3800;
+export const GRASS_COUNT = 3000;
 
 const BLADE_WIDTH = 0.5;
 const BLADE_TIP_WIDTH = 0.12;

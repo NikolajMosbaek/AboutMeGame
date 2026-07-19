@@ -5,6 +5,7 @@ import { buildSky, type Sky } from "./sky.ts";
 import { buildBoundaries, type Boundaries } from "./boundaries.ts";
 import { buildLandmarks, type Landmarks } from "./landmarks.ts";
 import { buildProps } from "./props.ts";
+import { FloraCullSystem } from "./floraCullSystem.ts";
 import { buildGroundingShadows } from "./groundingShadows.ts";
 import { WaterSystem } from "./waterSystem.ts";
 import { DayCycleSystem } from "./dayCycleSystem.ts";
@@ -130,7 +131,10 @@ export function buildWorld(
     );
   }
 
-  const props = buildProps(terrain, quality.propDensity);
+  // `fullFoliage` (enlarged crowns + eye-height tall ferns) rides the same
+  // knob as the model upgrade: the tiers that can afford the fill get the
+  // jungle look; low keeps the original silhouettes at the original cost.
+  const props = buildProps(terrain, quality.propDensity, quality.floraDetail === "full");
   scene.add(props.group);
 
   // Blob grounding shadows (G5 #160) — ONLY on tiers without a real shadow
@@ -182,6 +186,10 @@ export function buildWorld(
         console.error("flora upgrade chunk failed to load — keeping procedural props:", err);
       },
     );
+    // Distance-cull the understory chunk meshes the swap will deliver
+    // (jungle-density epic): reads the chunk list through the handle each
+    // frame — empty until the swap lands, empty again after teardown.
+    engine.addSystem(new FloraCullSystem(() => floraUpgradeHandle?.understoryChunks() ?? []));
   }
 
   // Aquatic life (#184): kelp beds + lily pads in the lagoon (2 draw calls,
