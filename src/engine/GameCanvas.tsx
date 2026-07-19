@@ -13,6 +13,8 @@ import { useReducedMotion } from "../settings/reducedMotion.ts";
 import { StatsOverlay } from "../perf/StatsOverlay.tsx";
 import { RevealPanel } from "../ui/RevealPanel.tsx";
 import { Hud } from "../ui/Hud.tsx";
+import { DangerIndicator } from "../ui/DangerIndicator.tsx";
+import type { DangerStore } from "../wildlife/dangerWarning.ts";
 import { Onboarding } from "../ui/Onboarding.tsx";
 import { SettingsMenu } from "../ui/SettingsMenu.tsx";
 import { JournalPanel } from "../ui/JournalPanel.tsx";
@@ -53,6 +55,9 @@ export interface GameHandle {
     consumeInteract(): boolean;
   };
   hud: HudStore;
+  /** Wildlife-threat state for the visual danger banner. Optional so a minimal
+   *  preview/test build without wildlife still mounts. */
+  danger?: DangerStore;
   settings: SettingsStore;
   session: GameSession;
   /** Survival meters + the death→respawn action (pivot slice D). Optional so a
@@ -471,6 +476,7 @@ export function GameCanvas({
       {showStats && engine && <StatsOverlay engine={engine} />}
       {game && (
         <>
+          {game.danger && <DangerIndicator danger={game.danger} />}
           <Hud
             hud={game.hud}
             discovery={game.discovery.store}

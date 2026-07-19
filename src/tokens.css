@@ -921,6 +921,34 @@ body {
   user-select: none;
 }
 
+/* ----- Wildlife danger warning (a11y: the visual twin of the rattle/growl) ----- */
+/* Static banner (colour + icon + text, no motion), so it needs no reduced-motion
+   gate. Sits just below the top-centre compass; above the HUD, below modals. */
+.danger-indicator {
+  position: fixed;
+  top: max(3.2rem, calc(var(--safe-top, 0px) + 3.2rem));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 16;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.8rem;
+  font: 700 0.9rem var(--font-ui);
+  color: #fff;
+  background: rgba(158, 12, 12, 0.92);
+  border-radius: 0.5rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+  user-select: none;
+  max-width: min(90vw, 24rem);
+  text-align: center;
+}
+.danger-indicator__icon {
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
 /* ----- Onboarding (#43) ----- */
 .onboarding-backdrop {
   position: fixed;
