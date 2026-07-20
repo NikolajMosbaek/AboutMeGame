@@ -962,6 +962,24 @@ body {
   opacity: 0.85;
 }
 
+/* Center reticle for the first-person view — a small dot marking where look
+   points (dig, drink, read). Deliberately subtle; the dark outline keeps it
+   legible over both bright sky and dark jungle. Static, so no motion gate. */
+.crosshair {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.55);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
+  z-index: 15;
+  pointer-events: none;
+  user-select: none;
+}
+
 /* ----- Wildlife danger warning (a11y: the visual twin of the rattle/growl) ----- */
 /* Static banner (colour + icon + text, no motion), so it needs no reduced-motion
    gate. Sits just below the top-centre compass; above the HUD, below modals. */
