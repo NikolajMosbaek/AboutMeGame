@@ -40,6 +40,28 @@ describe("SettingsMenu", () => {
     expect(screen.getByRole("slider", { name: /master volume/i })).toBeDisabled();
   });
 
+  it("sets look sensitivity through the slider", () => {
+    const settings = store();
+    render(
+      <SettingsMenu settings={settings} onClose={() => {}} onExit={() => {}} onResetProgress={() => {}} />,
+    );
+    const slider = screen.getByRole("slider", { name: /look sensitivity/i });
+    expect(slider).toHaveValue("1"); // default 1×
+    fireEvent.change(slider, { target: { value: "1.8" } });
+    expect(settings.getSnapshot().lookSensitivity).toBeCloseTo(1.8, 5);
+  });
+
+  it("toggles invert vertical look", () => {
+    const settings = store();
+    render(
+      <SettingsMenu settings={settings} onClose={() => {}} onExit={() => {}} onResetProgress={() => {}} />,
+    );
+    const invert = screen.getByRole("switch", { name: /invert vertical look/i });
+    expect(invert).toHaveAttribute("aria-checked", "false");
+    fireEvent.click(invert);
+    expect(settings.getSnapshot().invertY).toBe(true);
+  });
+
   it("selects a quality preset", () => {
     const settings = store();
     render(

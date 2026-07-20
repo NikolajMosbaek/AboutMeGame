@@ -63,6 +63,51 @@ describe("ExplorerSystem (pivot slice B)", () => {
     expect(sys.state.pitch).toBe(-TUNE.maxPitch); // …clamps, never flips
   });
 
+  it("scales look deltas by the look-sensitivity setting", () => {
+    const input = fakeInput();
+    const look = { getSnapshot: () => ({ lookSensitivity: 2, invertY: false }) };
+    const sys = new ExplorerSystem(
+      input.snap,
+      fakeTerrain(0),
+      openBounds(),
+      noWater(),
+      { x: 0, z: 0, yaw: 0 },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      look,
+    );
+    input.look.dx = 0.1;
+    input.look.dy = 0.1;
+    sys.update(FRAME);
+    // 2× the raw delta on both axes (yaw decreases for a rightward dx).
+    expect(sys.state.yaw).toBeCloseTo(-0.2, 5);
+    expect(sys.state.pitch).toBeCloseTo(-0.2, 5);
+  });
+
+  it("inverts the vertical look axis when invertY is set (dx/yaw unaffected)", () => {
+    const input = fakeInput();
+    const look = { getSnapshot: () => ({ lookSensitivity: 1, invertY: true }) };
+    const sys = new ExplorerSystem(
+      input.snap,
+      fakeTerrain(0),
+      openBounds(),
+      noWater(),
+      { x: 0, z: 0, yaw: 0 },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      look,
+    );
+    input.look.dx = 0.1;
+    input.look.dy = 0.1; // a downward drag now looks UP
+    sys.update(FRAME);
+    expect(sys.state.pitch).toBeCloseTo(0.1, 5); // flipped (non-inverted would be -0.1)
+    expect(sys.state.yaw).toBeCloseTo(-0.1, 5); // horizontal is unchanged by invert-Y
+  });
+
   it("strafe right moves along the camera's screen-right (-X when facing +Z)", () => {
     const input = fakeInput();
     const sys = new ExplorerSystem(input.snap, fakeTerrain(0), openBounds(), noWater(), { x: 0, z: 0, yaw: 0 });

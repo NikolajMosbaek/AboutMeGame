@@ -3,7 +3,7 @@ import type { System, FrameContext } from "../engine/types.ts";
 import type { World, ReducedMotionSource } from "../world/buildWorld.ts";
 import type { GameSession } from "../gameSession.ts";
 import { createPlayerInput, type PlayerInputController } from "./input.ts";
-import { ExplorerSystem } from "./explorer.ts";
+import { ExplorerSystem, type LookSource } from "./explorer.ts";
 import { FirstPersonCameraSystem } from "./fpCamera.ts";
 import { SPAWN } from "../world/worldConfig.ts";
 import { createSwimZones } from "../world/waterZones.ts";
@@ -29,6 +29,9 @@ export function buildPlayer(
   motion?: ReducedMotionSource,
   /** Survival's sprint gate (stamina left?). Absent = always allowed. */
   canSprint?: () => boolean,
+  /** Live look preferences (sensitivity, invert-Y) — buildGame passes the
+   *  settings store. Absent = the explorer's built-in 1× default. */
+  look?: LookSource,
 ): Player {
   const input = createPlayerInput(overlay, undefined, () => !session.paused);
   engine.addSystem(new InputPollSystem(input, session));
@@ -45,6 +48,8 @@ export function buildPlayer(
     createSwimZones(),
     // Solid props (trunks, boulders) to slide out of instead of clipping through.
     world.collisionField,
+    // Live look preferences (sensitivity, invert-Y) from the settings store.
+    look,
   );
   engine.addSystem(explorer);
 

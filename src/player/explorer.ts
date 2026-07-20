@@ -12,6 +12,19 @@ import { NO_COLLISION, type CollisionField } from "../world/collision.ts";
  *  only asks how deep it is where it wants to step. */
 export type WaterDepthAt = (x: number, z: number) => number;
 
+/** Live look preferences the explorer scales its per-frame look deltas by. A
+ *  `SettingsStore` satisfies it via `getSnapshot()` ({ lookSensitivity,
+ *  invertY, ... }); the explorer reads only these two. */
+export interface LookSource {
+  getSnapshot(): { lookSensitivity: number; invertY: boolean };
+}
+
+/** Neutral look preferences: the built-in 1× rate, non-inverted. The default
+ *  when no source is injected (unit tests, zone-less previews). */
+const DEFAULT_LOOK: LookSource = {
+  getSnapshot: () => ({ lookSensitivity: 1, invertY: false }),
+};
+
 export interface ExplorerState {
   /** Feet position on the ground — or the body's centre while swimming, where
    *  `position.y` floats free of the terrain (camera adds the mode's eye
@@ -184,6 +197,10 @@ export class ExplorerSystem implements System {
     /** Solid props to slide out of (buildPlayer injects `world.collisionField`).
      *  Absent = nothing collides — the right default for zone-less unit tests. */
     private readonly collision: CollisionField = NO_COLLISION,
+    /** Live look preferences (buildPlayer injects the settings store). Read
+     *  every frame so a change in the pause menu applies immediately. Absent =
+     *  the built-in 1× rate, non-inverted — the right default for unit tests. */
+    private readonly look: LookSource = DEFAULT_LOOK,
   ) {
     this.yaw = spawn.yaw ?? 0;
     this.pos.set(spawn.x, terrain.heightAt(spawn.x, spawn.z), spawn.z);
@@ -232,8 +249,10 @@ export class ExplorerSystem implements System {
     // (screen-right of forward (sin,cos) is (-cos… ) — see forwardXZFromYaw's
     // companion rightXZFromYaw; the signs here and there must stay paired).
     const look = this.input.consumeLook();
-    this.yaw -= look.dx;
-    this.pitch = THREE.MathUtils.clamp(this.pitch - look.dy, -TUNE.maxPitch, TUNE.maxPitch);
+    const { lookSensitivity: sens, invertY } = this.look.getSnapshot();
+    this.yaw -= look.dx * sens;
+    const dPitch = look.dy * sens * (invertY ? -1 : 1);
+    this.pitch = THREE.MathUtils.clamp(this.pitch - dPitch, -TUNE.maxPitch, TUNE.maxPitch);
 
     const c = this.input.state;
     const moving = Math.abs(c.moveX) > 0.01 || Math.abs(c.moveZ) > 0.01;

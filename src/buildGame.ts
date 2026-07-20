@@ -123,6 +123,7 @@ export function buildGame(
     session,
     settings,
     () => sprintGate(),
+    settings, // live look preferences (sensitivity, invert-Y)
   );
   // The treasure quest registers BEFORE discovery: once every page is read,
   // the dig press outranks re-opening the fig's clue text. Its view of the

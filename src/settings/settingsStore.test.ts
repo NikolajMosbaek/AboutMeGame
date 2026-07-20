@@ -17,6 +17,8 @@ function mem(seed?: Record<string, string>) {
 const DEFAULTS: Settings = {
   muted: false,
   volume: 1,
+  lookSensitivity: 1,
+  invertY: false,
   quality: "auto",
   reducedMotion: false,
 };
@@ -31,11 +33,11 @@ describe("settingsStore", () => {
     const storage = mem();
     const store = createSettingsStore(storage);
     store.set({ muted: true, quality: "low" });
-    expect(store.getSnapshot()).toEqual({ muted: true, volume: 1, quality: "low", reducedMotion: false });
+    expect(store.getSnapshot()).toEqual({ ...DEFAULTS, muted: true, quality: "low" });
 
     // A fresh store reading the same storage sees the persisted values.
     const reloaded = createSettingsStore(storage);
-    expect(reloaded.getSnapshot()).toEqual({ muted: true, volume: 1, quality: "low", reducedMotion: false });
+    expect(reloaded.getSnapshot()).toEqual({ ...DEFAULTS, muted: true, quality: "low" });
   });
 
   it("returns a stable snapshot reference when a set changes nothing", () => {
@@ -131,6 +133,33 @@ describe("settingsStore", () => {
         mem({ "aboutmegame.settings.v1": JSON.stringify({ volume: "loud" }) }),
       ).getSnapshot().volume,
     ).toBe(1);
+  });
+
+  it("round-trips look sensitivity + invert-Y and clamps sensitivity into range", () => {
+    const storage = mem();
+    createSettingsStore(storage).set({ lookSensitivity: 1.8, invertY: true });
+    const reloaded = createSettingsStore(storage).getSnapshot();
+    expect(reloaded.lookSensitivity).toBe(1.8);
+    expect(reloaded.invertY).toBe(true);
+
+    // Out-of-range persisted sensitivity is clamped, never frozen (0) or whip (huge).
+    expect(
+      createSettingsStore(
+        mem({ "aboutmegame.settings.v1": JSON.stringify({ lookSensitivity: 0 }) }),
+      ).getSnapshot().lookSensitivity,
+    ).toBe(0.2);
+    expect(
+      createSettingsStore(
+        mem({ "aboutmegame.settings.v1": JSON.stringify({ lookSensitivity: 99 }) }),
+      ).getSnapshot().lookSensitivity,
+    ).toBe(3);
+
+    // Non-numeric / non-boolean fall back to the defaults.
+    const bad = createSettingsStore(
+      mem({ "aboutmegame.settings.v1": JSON.stringify({ lookSensitivity: "fast", invertY: "yes" }) }),
+    ).getSnapshot();
+    expect(bad.lookSensitivity).toBe(1);
+    expect(bad.invertY).toBe(false);
   });
 
   it("degrades gracefully when storage is absent", () => {

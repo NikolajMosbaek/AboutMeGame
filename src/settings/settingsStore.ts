@@ -14,9 +14,22 @@ export interface Settings {
   /** Master volume, 0..1. Scales the engine's master gain; independent of
    *  `muted` (mute still silences whatever the volume is). */
   volume: number;
+  /** Mouse/touch look-speed multiplier, clamped to [SENSITIVITY_MIN,
+   *  SENSITIVITY_MAX]. 1 = the built-in rate; the explorer scales its look
+   *  deltas by it. */
+  lookSensitivity: number;
+  /** Invert the vertical look axis (push up → look down), a common comfort
+   *  preference for first-person games. */
+  invertY: boolean;
   quality: Quality;
   reducedMotion: boolean;
 }
+
+/** Usable bounds for the look-sensitivity multiplier — shared by the load-time
+ *  clamp and the settings slider so a stored value can never freeze or whip the
+ *  view, and the UI can't offer an out-of-range value. */
+export const SENSITIVITY_MIN = 0.2;
+export const SENSITIVITY_MAX = 3;
 
 export interface SettingsStore {
   getSnapshot(): Settings;
@@ -28,6 +41,8 @@ export interface SettingsStore {
 const DEFAULTS: Settings = {
   muted: false,
   volume: 1,
+  lookSensitivity: 1,
+  invertY: false,
   quality: "auto",
   reducedMotion: false,
 };
@@ -78,6 +93,10 @@ function load(storage: Storage | undefined): Settings {
     return {
       muted: typeof parsed.muted === "boolean" ? parsed.muted : base.muted,
       volume: isVolume(parsed.volume) ? clamp01(parsed.volume) : base.volume,
+      lookSensitivity: isVolume(parsed.lookSensitivity)
+        ? clampSensitivity(parsed.lookSensitivity)
+        : base.lookSensitivity,
+      invertY: typeof parsed.invertY === "boolean" ? parsed.invertY : base.invertY,
       quality: isQuality(parsed.quality) ? parsed.quality : base.quality,
       reducedMotion:
         typeof parsed.reducedMotion === "boolean" ? parsed.reducedMotion : base.reducedMotion,
@@ -107,6 +126,12 @@ function isVolume(v: unknown): v is number {
 /** Clamp a persisted/updated volume into the valid 0..1 range. */
 function clamp01(v: number): number {
   return Math.min(1, Math.max(0, v));
+}
+
+/** Clamp look sensitivity into its usable range (never 0/negative → frozen or
+ *  inverted-by-magnitude look, never absurdly high → whip). */
+function clampSensitivity(v: number): number {
+  return Math.min(SENSITIVITY_MAX, Math.max(SENSITIVITY_MIN, v));
 }
 
 function safeLocalStorage(): Storage | undefined {
