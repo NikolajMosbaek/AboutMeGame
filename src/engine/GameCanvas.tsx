@@ -69,7 +69,7 @@ export interface GameHandle {
   /** The treasure quest (pivot slice G) — dig prompt + win screen.
    *  `getFinaleGlow` (visual-overhaul slice 7) feeds the compositor's finale
    *  golden sweep — see `createBloomCompositor`'s `finaleSource` param. */
-  quest?: { store: QuestStore; getFinaleGlow(): number };
+  quest?: { store: QuestStore; getFinaleGlow(): number; clearWin?(): void };
   /** Toggle shadow casting live when graphics quality changes (#47). */
   setShadowsEnabled?: (enabled: boolean) => void;
   /** Touch surface (mobile-controls upgrade): `pressInteract` queues the same
@@ -428,13 +428,20 @@ export function GameCanvas({
 
   const closeMenu = useCallback(() => setMenuOpen(false), []);
   const closeJournal = useCallback(() => setJournalOpen(false), []);
-  const resetProgress = useCallback(() => game?.discovery.reset(), [game]);
+  // Reset clears BOTH the read pages and the persisted win — otherwise a reset
+  // run would relaunch straight back into a solved (already-won) world.
+  const resetProgress = useCallback(() => {
+    game?.discovery.reset();
+    game?.quest?.clearWin?.();
+  }, [game]);
 
-  // Replay = a fresh expedition: wipe the saved pages and reload — the world,
-  // survival meters, plants, wildlife and quest all rebuild from zero. A reload
-  // is the one honest full reset now that five systems carry session state.
+  // Replay = a fresh expedition: wipe the saved pages AND the win, then reload —
+  // the world, survival meters, plants, wildlife and quest all rebuild from
+  // zero. A reload is the one honest full reset now that five systems carry
+  // session state.
   const replayExpedition = useCallback(() => {
     game?.discovery.reset();
+    game?.quest?.clearWin?.();
     window.location.reload();
   }, [game]);
 

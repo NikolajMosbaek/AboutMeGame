@@ -17,6 +17,7 @@ import { ForageSystem } from "./forage/ForageSystem.ts";
 import { buildTreasure } from "./quest/buildTreasure.ts";
 import { createQuestStore, type QuestStore } from "./quest/questStore.ts";
 import { QuestSystem, TUNE as QUEST_TUNE, type DiscoveredIds } from "./quest/QuestSystem.ts";
+import { createWinPersistence } from "./quest/winRecord.ts";
 import { POI_ANCHORS } from "./world/worldConfig.ts";
 import { SPAWN } from "./world/worldConfig.ts";
 import { AudioSystem } from "./audio/AudioSystem.ts";
@@ -60,7 +61,7 @@ export interface Game {
    *  (visual-overhaul slice 7) is `TreasureBurstSystem`'s own 0..1 sweep
    *  signal, surfaced here (not the system itself) so `GameCanvas` can thread
    *  it into the compositor's golden screen-sweep without reaching into fx. */
-  quest: { store: QuestStore; getFinaleGlow(): number };
+  quest: { store: QuestStore; getFinaleGlow(): number; clearWin(): void };
   /** Toggle the sun's shadow casting live (#47), so a quality change in the menu
    *  re-applies shadows in BOTH directions — the renderer's shadowMap.enabled
    *  flag alone can't turn shadows back on once the caster was built without it. */
@@ -127,6 +128,11 @@ export function buildGame(
   // the dig press outranks re-opening the fig's clue text. Its view of the
   // read pages is late-bound to the discovery store built just after.
   const treasure = buildTreasure(world.landmarks);
+  // The win is the one piece of run state that survives a reload: a persisted
+  // record means the idol stays dug up and the completion stats stay real,
+  // rather than the run silently re-burying the treasure on every launch.
+  const winPersist = createWinPersistence();
+  const restoredWin = winPersist.load();
   let discoveredIds: DiscoveredIds = () => [];
   let sitePanelOpen: () => boolean = () => false;
   // Late-bound (wildlife registers further down): the finale startles every
@@ -146,8 +152,14 @@ export function buildGame(
     treasure.reveal,
     treasure.dispose,
     () => onFinaleStart(),
+    (record) => winPersist.save(record),
+    restoredWin !== null,
   );
   engine.addSystem(questSystem);
+  // A restored winner returns to a solved island: raise the chest at build so
+  // the idol is already out of the ground (the quest starts treasureFound=true,
+  // so it would never call reveal() itself).
+  if (restoredWin !== null) treasure.reveal();
 
   const discovery = buildDiscovery(engine, world, player, session);
   discoveredIds = () => discovery.store.getSnapshot().discoveredIds;
@@ -317,7 +329,11 @@ export function buildGame(
       hurt: (amount: number) => survivalSystem.hurt(amount),
     },
     forage: { store: forageStore },
-    quest: { store: questStore, getFinaleGlow: () => treasureBurst.getFinaleGlow() },
+    quest: {
+      store: questStore,
+      getFinaleGlow: () => treasureBurst.getFinaleGlow(),
+      clearWin: () => winPersist.clear(),
+    },
     setShadowsEnabled(enabled) {
       world.sky.sun.castShadow = enabled;
     },

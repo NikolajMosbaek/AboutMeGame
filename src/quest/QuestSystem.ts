@@ -1,6 +1,7 @@
 import type { System, FrameContext } from "../engine/types.ts";
 import type { GameSession } from "../gameSession.ts";
 import type { QuestStore } from "./questStore.ts";
+import type { WinRecord } from "./winRecord.ts";
 
 export const TUNE = {
   /** How close to the dig patch counts as digging distance. */
@@ -70,6 +71,9 @@ export class QuestSystem implements System {
   private finaleRemaining: number | null = null;
   private treasureFound = false;
   private lastCluesFound = 0;
+  /** The win is written exactly once — guards the per-frame update loop and a
+   *  restored-already-won session from re-saving. */
+  private winPersisted = false;
 
   constructor(
     private readonly clueIds: readonly string[],
@@ -88,7 +92,25 @@ export class QuestSystem implements System {
     /** Fires once, the instant the dig completes and the finale begins —
      *  buildGame wires the bird startle through it. */
     private readonly onFinaleStart?: () => void,
-  ) {}
+    /** Persist the win the instant the dig completes (finale start), so a
+     *  reload during the ~4.5 s finale window still keeps the win. Called at
+     *  most once. */
+    private readonly persistWin?: (record: WinRecord) => void,
+    /** Rebuilt from a persisted win: start already-won so the idol stays dug up
+     *  (buildGame reveals it) and the win panel never re-pops — its baseline
+     *  reads treasureFound=true from the seed push below. */
+    restoredWin = false,
+  ) {
+    if (restoredWin) {
+      this.treasureFound = true;
+      this.winPersisted = true;
+      // Seed the store synchronously (before React mounts the TreasurePanel /
+      // GameCanvas edge watcher) so their baseline snapshot already reads
+      // treasureFound=true — otherwise the false→true seam would fire a phantom
+      // win pop on every reload of a finished run.
+      this.push(0, false, 0);
+    }
+  }
 
   dispose(): void {
     this.disposeTreasure?.();
@@ -147,6 +169,9 @@ export class QuestSystem implements System {
           this.finaleRemaining = TUNE.finaleSeconds;
           this.revealTreasure?.();
           this.onFinaleStart?.();
+          // Persist NOW, at the dig's completion — not at the treasureFound flip
+          // 4.5 s later — so a reload during the finale still keeps the win.
+          this.persistCompletion();
         }
       }
     } else if (digOwnsKey && this.input.consumeInteract()) {
@@ -157,6 +182,21 @@ export class QuestSystem implements System {
     // moment — never publish a stale "press E to dig" alongside it.
     const stillLive = !this.treasureFound && this.finaleRemaining === null;
     this.push(cluesFound, digOwnsKey && stillLive, stillLive ? missingPages : 0);
+  }
+
+  /** Freeze the completion stats and hand them to the persistence seam, once. A
+   *  dig only ever completes with every page read, so cluesFound is the full
+   *  set. */
+  private persistCompletion(): void {
+    if (this.winPersisted) return;
+    this.winPersisted = true;
+    this.persistWin?.({
+      playSeconds: Math.floor(this.playSeconds),
+      cluesFound: this.clueIds.length,
+      cluesTotal: this.clueIds.length,
+      deaths: this.deaths.getSnapshot().deaths,
+      fruitEaten: this.eaten.getSnapshot().eaten,
+    });
   }
 
   private push(cluesFound?: number, digOwnsKey?: boolean, missingPages?: number): void {
