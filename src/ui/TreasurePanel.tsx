@@ -118,7 +118,9 @@ export function TreasurePanel({
           <button ref={firstRef} type="button" className="cta" onClick={onReplay}>
             Replay
           </button>
-          <button type="button" className="cta" onClick={handleShare}>
+          {/* Secondary weight: Share produces the least-valuable outcome (a bare
+              link), so it shouldn't compete with Replay as a primary CTA. */}
+          <button type="button" className="cta cta--quiet" onClick={handleShare}>
             Share
           </button>
           <button type="button" className="cta cta--quiet" onClick={keepExploring}>
