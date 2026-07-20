@@ -4,7 +4,6 @@ import { act, render } from "@testing-library/react";
 import { QUALITY_TIERS } from "../perf/quality.ts";
 import { createDiscoveryStore } from "../discovery/discoveryStore.ts";
 import { createHudStore } from "../ui/hudStore.ts";
-import { createNavStore } from "../ui/navStore.ts";
 import { createSession } from "../gameSession.ts";
 import { createSettingsStore } from "../settings/settingsStore.ts";
 import type { GameHandle } from "./GameCanvas.tsx";
@@ -104,7 +103,6 @@ function makeHandle(withDayCycle: boolean): GameHandle {
       consumeInteract: () => false,
     },
     hud: createHudStore(),
-    nav: createNavStore(),
     settings: createSettingsStore(),
     session: createSession(),
     dayCycle: withDayCycle ? dayCycleAccessor : undefined,

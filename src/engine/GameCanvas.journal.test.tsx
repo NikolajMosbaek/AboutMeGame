@@ -4,7 +4,6 @@ import type { GameHandle } from "./GameCanvas.tsx";
 import { createDiscoveryStore } from "../discovery/discoveryStore.ts";
 import type { DiscoveryStore } from "../discovery/discoveryStore.ts";
 import { createHudStore } from "../ui/hudStore.ts";
-import { createNavStore } from "../ui/navStore.ts";
 import { createSession } from "../gameSession.ts";
 import type { GameSession } from "../gameSession.ts";
 import { createSettingsStore } from "../settings/settingsStore.ts";
@@ -87,7 +86,6 @@ function makeHandle(): { handle: GameHandle; store: DiscoveryStore; session: Gam
       consumeInteract: () => false,
     },
     hud: createHudStore(),
-    nav: createNavStore(),
     settings: createSettingsStore(),
     session,
   };
@@ -337,5 +335,35 @@ describe("GameCanvas — J opener + Escape precedence (T11)", () => {
       fireEvent.keyDown(window, { key: "j" });
     });
     expect(journalPanelProps.length).toBeGreaterThan(afterClose);
+  });
+});
+
+describe("GameCanvas — first-run onboarding pauses the sim", () => {
+  beforeEach(() => {
+    vi.stubGlobal("ResizeObserver", StubResizeObserver);
+    // Do NOT mark onboarding seen: the first-run overlay must open on mount.
+    localStorage.clear();
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+    localStorage.clear();
+  });
+
+  it("holds the sim under the 'onboarding' reason while the tutorial is up, and releases it on dismiss", () => {
+    const { handle, session } = makeHandle();
+    render(<GameCanvas build={() => handle} showStats={false} />);
+
+    // The tutorial overlay is up, so decay, wildlife and the play-clock hold.
+    const dismiss = screen.getByRole("button", { name: /got it/i });
+    expect(session.isPaused("onboarding")).toBe(true);
+    expect(session.paused).toBe(true);
+
+    // Dismissing it resumes the sim (no other reason holds it in this harness).
+    act(() => {
+      fireEvent.click(dismiss);
+    });
+    expect(session.isPaused("onboarding")).toBe(false);
+    expect(session.paused).toBe(false);
   });
 });

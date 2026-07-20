@@ -13,8 +13,6 @@ export interface Settings {
   muted: boolean;
   quality: Quality;
   reducedMotion: boolean;
-  /** Project nav markers for already-discovered landmarks (default OFF). */
-  showDiscoveredMarkers: boolean;
 }
 
 export interface SettingsStore {
@@ -28,7 +26,6 @@ const DEFAULTS: Settings = {
   muted: false,
   quality: "auto",
   reducedMotion: false,
-  showDiscoveredMarkers: false,
 };
 const QUALITIES: readonly Quality[] = ["auto", "low", "high"];
 
@@ -57,25 +54,31 @@ export function createSettingsStore(
   };
 }
 
+/** Runtime defaults: like DEFAULTS but with `reducedMotion` seeded from the OS
+ *  `prefers-reduced-motion` preference. So a first run with no saved choice
+ *  already honours a system-level reduced-motion setting for the JS-gated world
+ *  motion (head-bob, FX, sprint FOV, damage flash) — not only the CSS the media
+ *  query covers. An explicit in-game choice, once saved, still wins over this. */
+function runtimeDefaults(): Settings {
+  return { ...DEFAULTS, reducedMotion: prefersReducedMotion() };
+}
+
 /** Read + validate persisted settings, dropping anything malformed. */
 function load(storage: Storage | undefined): Settings {
-  if (!storage) return { ...DEFAULTS };
+  const base = runtimeDefaults();
+  if (!storage) return base;
   try {
     const raw = storage.getItem(KEY);
-    if (!raw) return { ...DEFAULTS };
+    if (!raw) return base;
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     return {
-      muted: typeof parsed.muted === "boolean" ? parsed.muted : DEFAULTS.muted,
-      quality: isQuality(parsed.quality) ? parsed.quality : DEFAULTS.quality,
+      muted: typeof parsed.muted === "boolean" ? parsed.muted : base.muted,
+      quality: isQuality(parsed.quality) ? parsed.quality : base.quality,
       reducedMotion:
-        typeof parsed.reducedMotion === "boolean" ? parsed.reducedMotion : DEFAULTS.reducedMotion,
-      showDiscoveredMarkers:
-        typeof parsed.showDiscoveredMarkers === "boolean"
-          ? parsed.showDiscoveredMarkers
-          : DEFAULTS.showDiscoveredMarkers,
+        typeof parsed.reducedMotion === "boolean" ? parsed.reducedMotion : base.reducedMotion,
     };
   } catch {
-    return { ...DEFAULTS };
+    return base;
   }
 }
 
@@ -97,5 +100,16 @@ function safeLocalStorage(): Storage | undefined {
     return typeof localStorage !== "undefined" ? localStorage : undefined;
   } catch {
     return undefined;
+  }
+}
+
+/** The OS's `prefers-reduced-motion: reduce` preference, guarded like storage
+ *  above: a missing `matchMedia` (SSR, jsdom without a stub) degrades to false
+ *  rather than throwing. */
+function prefersReducedMotion(): boolean {
+  try {
+    return typeof matchMedia !== "undefined" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  } catch {
+    return false;
   }
 }

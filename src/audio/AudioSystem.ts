@@ -40,6 +40,8 @@ export interface StrideSource {
     readonly speed: number;
     readonly sprinting: boolean;
     readonly wading: boolean;
+    /** On foot vs. swimming — footsteps play only on foot. */
+    readonly mode: "walk" | "swim";
   };
 }
 
@@ -287,7 +289,10 @@ export class AudioSystem implements System {
     // session pausing, which zeroes `state.speed`) resets the timer so the
     // very next step after resuming fires immediately rather than picking up
     // a stale countdown.
-    if (state.speed > FOOTSTEP_MIN_SPEED) {
+    // Only on foot — swim strokes are not footsteps. Swim speed (2.6+ m/s)
+    // clears the FOOTSTEP_MIN_SPEED floor, so without the mode guard the
+    // dry-land tick played underwater on every stroke.
+    if (state.speed > FOOTSTEP_MIN_SPEED && state.mode !== "swim") {
       this.footstepTimer -= ctx.dt;
       if (this.footstepTimer <= 0) {
         this.engine.footstep(state.wading);

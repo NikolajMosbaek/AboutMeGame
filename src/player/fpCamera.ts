@@ -12,6 +12,13 @@ const BOB_SWAY = 0.5;
 /** Stride frequency scale — bob cycles per metre travelled. */
 const BOB_FREQ = 1.6;
 
+/** Sprint FOV: degrees added to the base FOV while sprinting, so on-foot speed
+ *  has a sense of pace (there is no vehicle speedometer). Eased in/out and
+ *  suppressed under reduced motion — an FOV shift is a vestibular cue. */
+const SPRINT_FOV_BOOST = 6;
+/** Ease rate for the FOV widen/return (THREE.MathUtils.damp lambda, per second). */
+const FOV_DAMP = 6;
+
 /**
  * First-person camera (pivot slice B): eye at `TUNE.eyeHeight` above the feet,
  * oriented straight from the explorer's yaw/pitch (no smoothing — in first
@@ -25,12 +32,19 @@ export class FirstPersonCameraSystem implements System {
   private bobDistance = 0;
   private readonly euler = new THREE.Euler(0, 0, 0, "YXZ");
   private readonly right = new THREE.Vector3();
+  /** The camera's constructed FOV — the sprint widen eases around it, so the
+   *  base is read once here rather than hardcoded a second time. */
+  private readonly baseFov: number;
+  private fov: number;
 
   constructor(
     private readonly engine: Engine,
     private readonly explorer: ExplorerSystem,
     private readonly motion?: ReducedMotionSource,
-  ) {}
+  ) {
+    this.baseFov = this.engine.camera.fov;
+    this.fov = this.baseFov;
+  }
 
   update(ctx: FrameContext): void {
     const s = this.explorer.state;
@@ -63,6 +77,17 @@ export class FirstPersonCameraSystem implements System {
       .add(this.right.multiplyScalar(sway));
     this.engine.camera.position.y =
       s.position.y + (swimming ? TUNE.swimEyeHeight : TUNE.eyeHeight) + bobY;
+
+    // Sprint FOV widen (suppressed under reduced motion). A projection-only
+    // change: no draw/triangle cost, and the projection matrix is rebuilt only
+    // on the frames the value actually moves, not every frame.
+    const targetFov = this.baseFov + (s.sprinting && !reduced ? SPRINT_FOV_BOOST : 0);
+    const nextFov = THREE.MathUtils.damp(this.fov, targetFov, FOV_DAMP, ctx.dt);
+    if (Math.abs(nextFov - this.fov) > 1e-3) {
+      this.fov = nextFov;
+      this.engine.camera.fov = nextFov;
+      this.engine.camera.updateProjectionMatrix();
+    }
   }
 
   describe(): Record<string, unknown> {

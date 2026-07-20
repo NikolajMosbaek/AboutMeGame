@@ -1,5 +1,6 @@
-import { useEffect, useRef, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { SettingsStore, Quality } from "../settings/settingsStore.ts";
+import { useFocusTrap } from "./useFocusTrap.ts";
 
 export interface SettingsMenuProps {
   settings: SettingsStore;
@@ -30,7 +31,20 @@ const QUALITIES: ReadonlyArray<{ value: Quality; label: string }> = [
  */
 export function SettingsMenu({ settings, onClose, onExit, onResetProgress }: SettingsMenuProps) {
   const s = useSyncExternalStore(settings.subscribe, settings.getSnapshot);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialogRef);
   const resumeRef = useRef<HTMLButtonElement>(null);
+  // "Reset progress" wipes every found clue and journal page — irreversible, and
+  // it sits one row under the primary Resume button, so a stray click would
+  // silently erase a run. Gate it behind an explicit confirm (with feedback once
+  // done) rather than firing on the first click.
+  const [resetPhase, setResetPhase] = useState<"idle" | "confirm" | "done">("idle");
+  const cancelResetRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    // Land focus on Cancel when the confirm appears, so a reflexive Enter backs
+    // out rather than wiping the run.
+    if (resetPhase === "confirm") cancelResetRef.current?.focus();
+  }, [resetPhase]);
 
   useEffect(() => {
     resumeRef.current?.focus();
@@ -48,7 +62,7 @@ export function SettingsMenu({ settings, onClose, onExit, onResetProgress }: Set
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="menu" role="dialog" aria-modal="true" aria-labelledby="menu-title">
+      <div ref={dialogRef} className="menu" role="dialog" aria-modal="true" aria-labelledby="menu-title">
         <h2 id="menu-title" className="menu__title">
           Paused
         </h2>
@@ -100,26 +114,45 @@ export function SettingsMenu({ settings, onClose, onExit, onResetProgress }: Set
           </button>
         </label>
 
-        <label className="menu__row">
-          <span>Show discovered markers</span>
-          <button
-            type="button"
-            className="menu__toggle"
-            role="switch"
-            aria-checked={s.showDiscoveredMarkers}
-            onClick={() => settings.set({ showDiscoveredMarkers: !s.showDiscoveredMarkers })}
-          >
-            {s.showDiscoveredMarkers ? "On" : "Off"}
-          </button>
-        </label>
-
         <div className="menu__actions">
           <button ref={resumeRef} type="button" className="cta menu__resume" onClick={onClose}>
             Resume
           </button>
-          <button type="button" className="menu__btn" onClick={onResetProgress}>
-            Reset progress
-          </button>
+          {resetPhase === "idle" && (
+            <button type="button" className="menu__btn" onClick={() => setResetPhase("confirm")}>
+              Reset progress
+            </button>
+          )}
+          {resetPhase === "confirm" && (
+            <div className="menu__confirm" role="group" aria-label="Confirm reset progress">
+              <span className="menu__confirm-q">Reset all progress? This can’t be undone.</span>
+              <div className="menu__confirm-actions">
+                <button
+                  ref={cancelResetRef}
+                  type="button"
+                  className="menu__btn"
+                  onClick={() => setResetPhase("idle")}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="menu__btn menu__btn--danger"
+                  onClick={() => {
+                    onResetProgress();
+                    setResetPhase("done");
+                  }}
+                >
+                  Yes, reset
+                </button>
+              </div>
+            </div>
+          )}
+          {resetPhase === "done" && (
+            <p className="menu__reset-done" role="status">
+              Progress reset.
+            </p>
+          )}
           <button type="button" className="menu__btn" onClick={onExit}>
             Back to title
           </button>

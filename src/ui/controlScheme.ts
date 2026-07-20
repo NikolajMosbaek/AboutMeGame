@@ -47,6 +47,7 @@ const KEYBOARD_ENTRIES: ReadonlyArray<ControlEntry> = Object.freeze([
     action: "Swim up — in the lagoon you swim where you look; the river's current is not your friend",
   }),
   Object.freeze({ label: "E", action: "Use / examine" }),
+  Object.freeze({ label: "J", action: "Journal" }),
   Object.freeze({ label: "Esc", action: "Menu" }),
 ]);
 

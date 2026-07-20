@@ -5,6 +5,7 @@ import type { Boundaries } from "../world/boundaries.ts";
 import type { PlayerInputSnapshot, MoveState } from "./input.ts";
 import type { GameSession } from "../gameSession.ts";
 import type { SwimZones } from "../world/waterZones.ts";
+import { NO_COLLISION, type CollisionField } from "../world/collision.ts";
 
 /** Still water depth at a ground point, metres (`<= 0` means dry land). The
  *  world owns the definition of "water" (`World.waterDepthAt`); the explorer
@@ -44,6 +45,9 @@ export const TUNE = {
   accelLambda: 9,
   /** Eye height above the feet — the first-person camera reads this. */
   eyeHeight: 1.7,
+  /** The player's body radius for solid-prop collision (metres). Small, so
+   *  dense jungle reads as something you weave through, not a wall. */
+  playerRadius: 0.35,
   /** Pitch clamp: just short of straight up/down so the view never flips. */
   maxPitch: 1.45,
   /** Uphill grade (rise/run) where climbing starts to slow you. */
@@ -177,6 +181,9 @@ export class ExplorerSystem implements System {
      *  zones). Absent = deep water refuses everywhere — the pre-#184 rule,
      *  which is also the right default for zone-less unit tests. */
     private readonly zones: SwimZones = { inLagoon: () => false, riverFlowAt: () => null },
+    /** Solid props to slide out of (buildPlayer injects `world.collisionField`).
+     *  Absent = nothing collides — the right default for zone-less unit tests. */
+    private readonly collision: CollisionField = NO_COLLISION,
   ) {
     this.yaw = spawn.yaw ?? 0;
     this.pos.set(spawn.x, terrain.heightAt(spawn.x, spawn.z), spawn.z);
@@ -314,6 +321,26 @@ export class ExplorerSystem implements System {
       }
     } else if (this.speed <= 0.01) {
       this.wading = this.waterDepthAt(this.pos.x, this.pos.z) > TUNE.wadeDepth;
+    }
+
+    // Solid-prop collision: after the step is committed, slide out of any trunk
+    // or boulder it entered. A no-op field (tests/previews) and clear ground
+    // both leave the position untouched; a glancing approach keeps its tangential
+    // motion, so dense jungle reads as something you weave through, not a wall.
+    // Skipped if the step just became a swim. The push is REFUSED if it would
+    // eject into deep un-wadeable water or up a blocked slope — better to graze a
+    // trunk than be shoved into the sea or a cliff (rare: colliders are on-land).
+    if (this.mode === "walk") {
+      const r = this.collision.resolve(this.pos.x, this.pos.z, TUNE.playerRadius);
+      if (r.x !== this.pos.x || r.z !== this.pos.z) {
+        const run = Math.hypot(r.x - this.pos.x, r.z - this.pos.z);
+        const rise = this.terrain.heightAt(r.x, r.z) - this.terrain.heightAt(this.pos.x, this.pos.z);
+        const grade = run > 1e-6 ? rise / run : 0;
+        if (this.waterDepthAt(r.x, r.z) <= TUNE.maxWadeDepth && grade < TUNE.slopeBlockGrade) {
+          this.pos.x = r.x;
+          this.pos.z = r.z;
+        }
+      }
     }
   }
 

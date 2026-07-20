@@ -64,6 +64,24 @@ describe("createPlayerInput (pivot slice B)", () => {
     expect(input.consumeInteract()).toBe(false);
   });
 
+  it("Enter/E on a focused modal control does not leak a world-interact edge", () => {
+    // A real <button> inside a role=dialog — how the onboarding and death
+    // overlays render. Activating it with Enter must NOT arm a world interact,
+    // or the stray edge auto-opens + credits the in-range base-camp site.
+    const dialog = document.createElement("div");
+    dialog.setAttribute("role", "dialog");
+    const btn = document.createElement("button");
+    dialog.appendChild(btn);
+    document.body.appendChild(dialog);
+    btn.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    expect(input.consumeInteract()).toBe(false);
+
+    // But a press whose target is the world (not interactive UI) still arms it.
+    overlay.dispatchEvent(new KeyboardEvent("keydown", { key: "e", bubbles: true }));
+    expect(input.consumeInteract()).toBe(true);
+    dialog.remove();
+  });
+
   it("desktop construction mounts no touch controls and touchActive stays false", () => {
     expect(overlay.querySelector(".touch-joystick")).toBeNull();
     expect(input.touchActive).toBe(false);

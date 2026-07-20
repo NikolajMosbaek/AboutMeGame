@@ -37,9 +37,9 @@ describe("resolveActionPriority — the one interact-key ladder", () => {
     expect(p).toEqual({ kind: "dig", icon: "⛏", label: "Dig" });
   });
 
-  it("dig-locked sits between dig and a site in range, and is not pressable", () => {
+  it("dig-locked shows at the dig patch with pages missing and no site to read, and is not pressable", () => {
     const p = resolveActionPriority(
-      input({ missingPages: 3, siteInRange: true, forageFruit: "mango", canDrink: true }),
+      input({ missingPages: 3, forageFruit: "mango", canDrink: true }),
     );
     expect(p).toEqual({
       kind: "dig-locked",
@@ -47,6 +47,13 @@ describe("resolveActionPriority — the one interact-key ladder", () => {
       label: "The place is right — 3 pages still missing",
       disabled: true,
     });
+  });
+
+  it("a readable site outranks the dig-locked hint (the ancient fig with its own page unread)", () => {
+    // At the fig the player stands on both a clue site and the dig patch with
+    // pages still missing; they must be told to READ, not shown the lock.
+    const p = resolveActionPriority(input({ missingPages: 3, siteInRange: true }));
+    expect(p).toEqual({ kind: "read", icon: "📖", label: "Read" });
   });
 
   it("dig-locked speaks singular for one missing page", () => {

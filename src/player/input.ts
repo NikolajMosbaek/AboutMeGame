@@ -77,6 +77,13 @@ const TOUCH_SENS = 0.0044;
  *  integrated over the polled dt so a 120 Hz display doesn't double aim speed. */
 const PAD_LOOK_RATE = 3.4;
 
+/** Focused interactive UI (modal buttons, the pause menu, form fields) that a
+ *  key or click is *activating* — never the world. Both the pointer-lock click
+ *  and the keyboard interact edge skip a target inside this, so activating a
+ *  control can't also grab the mouse or leak a world-interact edge. */
+const INTERACTIVE_UI =
+  "button, a, input, select, textarea, [role='dialog'], [role='menu']";
+
 /**
  * Build the first-person input controller. `overlay` is the canvas container:
  * touch controls mount into it, and a mouse/pen click on it requests pointer
@@ -106,7 +113,15 @@ export function createPlayerInput(
   const keys = new Set<string>();
   const onKeyDown = (e: KeyboardEvent) => {
     const k = e.key.toLowerCase();
-    if (!e.repeat && (k === "e" || k === "enter")) interactQueued = true;
+    // Enter/E while a modal button or form field has focus is *activating that
+    // control* (e.g. onboarding "Got it", the death overlay "Wake at camp") — it
+    // must not also arm a world-interact edge, or DiscoverySystem consumes the
+    // stray edge on the next live frame and spuriously opens + credits the
+    // in-range site. Same guard the pointer-lock click uses (see onPointerUp).
+    if (!e.repeat && (k === "e" || k === "enter")) {
+      const target = e.target as HTMLElement | null;
+      if (!target?.closest?.(INTERACTIVE_UI)) interactQueued = true;
+    }
     keys.add(k);
     if (MOVE_KEYS.has(k)) e.preventDefault();
   };
@@ -148,7 +163,7 @@ export function createPlayerInput(
     // Clicks on interactive UI inside the overlay (HUD buttons, panels) must
     // not grab the mouse — only clicks on the world itself do.
     const target = e.target as HTMLElement | null;
-    if (target?.closest?.("button, a, input, select, textarea, [role='dialog'], [role='menu']")) return;
+    if (target?.closest?.(INTERACTIVE_UI)) return;
     // A refused lock (headless, iframe policy, no recent gesture) is non-fatal:
     // the game stays playable and the next click simply tries again. Chrome
     // returns a promise (swallow the rejection); older engines throw instead.

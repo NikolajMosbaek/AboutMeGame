@@ -5,6 +5,7 @@ import type { Boundaries } from "../world/boundaries.ts";
 import { createSession } from "../gameSession.ts";
 import { FRAME, fakeInput, fakeTerrain, openBounds, seaLevelWater, noWater } from "./testDoubles.ts";
 import { WORLD } from "../world/worldConfig.ts";
+import { buildCollisionField } from "../world/collision.ts";
 
 function run(sys: ExplorerSystem, frames: number) {
   for (let i = 0; i < frames; i++) sys.update(FRAME);
@@ -69,6 +70,31 @@ describe("ExplorerSystem (pivot slice B)", () => {
     run(sys, 60);
     expect(sys.state.position.x).toBeLessThan(-2);
     expect(Math.abs(sys.state.position.z)).toBeLessThan(1e-6);
+  });
+
+  it("blocks a straight walk into a solid prop instead of passing through it", () => {
+    const input = fakeInput();
+    // A trunk 3 m ahead. Without collision the forward-walk test proves this run
+    // reaches z > 6 — straight through where the trunk stands.
+    const collision = buildCollisionField([{ x: 0, z: 3, r: 1 }]);
+    const sys = new ExplorerSystem(
+      input.snap,
+      fakeTerrain(0),
+      openBounds(),
+      noWater(),
+      { x: 0, z: 0, yaw: 0 },
+      undefined, // session (default)
+      undefined, // canSprint (default)
+      undefined, // zones (default no-op)
+      collision,
+    );
+    input.state.moveZ = 1;
+    run(sys, 120);
+    const s = sys.state;
+    // Held at the rim: centre z=3, r=1 + playerRadius 0.35 → can't pass z≈1.65.
+    expect(s.position.z).toBeLessThan(2);
+    expect(s.position.z).toBeGreaterThan(1.3); // but it did reach the trunk
+    expect(Math.abs(s.position.x)).toBeLessThan(0.5); // head-on: no lateral shove
   });
 
   it("refuses steps up a cliff (grade beyond slopeBlockGrade)", () => {

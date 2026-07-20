@@ -5,6 +5,7 @@ import { buildSky, type Sky } from "./sky.ts";
 import { buildBoundaries, type Boundaries } from "./boundaries.ts";
 import { buildLandmarks, type Landmarks } from "./landmarks.ts";
 import { buildProps } from "./props.ts";
+import { buildCollisionField, type CollisionField } from "./collision.ts";
 import { buildWaterfall, WaterfallSystem } from "./waterfall.ts";
 import { applyCanopyShade, applyOpenFloorShade } from "./canopyShade.ts";
 import { FloraCullSystem } from "./floraCullSystem.ts";
@@ -57,6 +58,10 @@ export interface World {
    *  the foam bake uses. Movement (wading/blocking), and later drinking,
    *  audio and FX all ask here, so a reshaped river changes one function. */
   waterDepthAt(x: number, z: number): number;
+  /** Solid props the player can't walk through (tree trunks, boulders, later
+   *  ruin walls) — the movement step pushes out of these. CPU-only; built once
+   *  from the placed props (`props.colliders`). */
+  collisionField: CollisionField;
   /** The living-sky loop's current phase (pivot slice F wildlife seam),
    *  current palette (visual-overhaul slice 2's `EnvLightSystem` seam), and
    *  live sun direction (visual-overhaul slice 5's god-rays seam) — see
@@ -138,6 +143,11 @@ export function buildWorld(
   // jungle look; low keeps the original silhouettes at the original cost.
   const props = buildProps(terrain, quality.propDensity, quality.floraDetail === "full");
   scene.add(props.group);
+
+  // Solid-prop collision (built once from the placed trunks/boulders). Density
+  // scales the collider COUNT with the props, so the low tier's field is cheaper
+  // to build and query, in step with its sparser jungle.
+  const collisionField = buildCollisionField(props.colliders);
 
   // Bake the under-canopy ground shade into the terrain's vertex colours
   // (every tier — the splat patch multiplies vColor into its blended albedo,
@@ -228,6 +238,7 @@ export function buildWorld(
     boundaries,
     landmarks,
     waterDepthAt: (x, z) => WORLD.seaLevel - terrain.heightAt(x, z),
+    collisionField,
     dayCycle: {
       getPhase: () => dayCycleSystem.getPhase(),
       getPalette: () => dayCycleSystem.getPalette(),

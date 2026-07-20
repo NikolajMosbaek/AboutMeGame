@@ -4,7 +4,6 @@ import type { GameHandle } from "./GameCanvas.tsx";
 import { createDiscoveryStore } from "../discovery/discoveryStore.ts";
 import type { DiscoveryStore } from "../discovery/discoveryStore.ts";
 import { createHudStore } from "../ui/hudStore.ts";
-import { createNavStore } from "../ui/navStore.ts";
 import { createSession } from "../gameSession.ts";
 import { createSettingsStore } from "../settings/settingsStore.ts";
 import { createQuestStore } from "../quest/questStore.ts";
@@ -98,7 +97,6 @@ function makeHandle(): { handle: GameHandle; store: DiscoveryStore; resetCalls: 
       consumeInteract: () => false,
     },
     hud: createHudStore(),
-    nav: createNavStore(),
     settings: createSettingsStore(),
     session: createSession(),
     quest: { store: createQuestStore(POIS.length), getFinaleGlow: () => 0 },

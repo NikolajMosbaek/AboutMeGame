@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useSyncExternalStore } from "react";
 import type { SurvivalStore } from "../survival/survivalStore.ts";
+import { useFocusTrap } from "./useFocusTrap.ts";
 
 export interface DeathOverlayProps {
   survival: SurvivalStore;
@@ -19,6 +20,8 @@ export interface DeathOverlayProps {
 export function DeathOverlay({ survival, onRespawn }: DeathOverlayProps) {
   const s = useSyncExternalStore(survival.subscribe, survival.getSnapshot);
   const btnRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialogRef);
 
   useEffect(() => {
     if (!s.alive) btnRef.current?.focus();
@@ -27,7 +30,7 @@ export function DeathOverlay({ survival, onRespawn }: DeathOverlayProps) {
   if (s.alive) return null;
 
   return (
-    <div className="death-overlay" role="dialog" aria-modal="true" aria-labelledby="death-title">
+    <div ref={dialogRef} className="death-overlay" role="dialog" aria-modal="true" aria-labelledby="death-title">
       <div className="death-overlay__card">
         <h2 id="death-title">The jungle keeps its secrets… this time.</h2>
         <p>

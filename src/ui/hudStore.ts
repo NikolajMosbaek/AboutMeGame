@@ -4,8 +4,6 @@
 // and injected, with a cached snapshot so React doesn't loop.
 
 export interface HudSnapshot {
-  /** Whole metres-per-second; rounded so per-frame jitter doesn't churn React. */
-  speed: number;
   /** Sprinting right now (the HUD shows the exertion state). */
   sprinting: boolean;
   /** Compass heading in whole degrees, 0..359 (0 = north = -Z… the world's +Z
@@ -48,7 +46,7 @@ export function createHudStore(): HudStore {
   const listeners = new Set<() => void>();
   // Cached snapshot — a new object only on a real change, so
   // useSyncExternalStore (which compares by reference) doesn't loop.
-  let snapshot: HudSnapshot = { speed: 0, sprinting: false, heading: 0, compass: "N" };
+  let snapshot: HudSnapshot = { sprinting: false, heading: 0, compass: "N" };
 
   return {
     getSnapshot: () => snapshot,
@@ -57,15 +55,14 @@ export function createHudStore(): HudStore {
       return () => listeners.delete(listener);
     },
     set(next) {
-      const speed = Math.round(next.speed);
       const sprinting = next.sprinting;
       const heading = ((Math.round(next.heading) % 360) + 360) % 360;
       const compass = compassWithHysteresis(heading, snapshot.compass);
       // Skip the allocation + notify when nothing the HUD shows changed.
-      if (speed === snapshot.speed && sprinting === snapshot.sprinting && heading === snapshot.heading) {
+      if (sprinting === snapshot.sprinting && heading === snapshot.heading) {
         return;
       }
-      snapshot = { speed, sprinting, heading, compass };
+      snapshot = { sprinting, heading, compass };
       for (const l of listeners) l();
     },
   };

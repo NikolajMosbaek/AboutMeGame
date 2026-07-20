@@ -4,6 +4,7 @@ import { makeNoise2D } from "./noise.ts";
 import { LAGOON, POI_ANCHORS, RIVER, SPAWN, WORLD } from "./worldConfig.ts";
 import { distToRiver, type Terrain } from "./terrain.ts";
 import type { GroundPoint } from "./groundingShadows.ts";
+import type { Collider } from "./collision.ts";
 
 export interface Props {
   group: THREE.Group;
@@ -16,6 +17,11 @@ export interface Props {
    *  instance) — `canopyShade.ts` bakes the under-canopy ground darkening
    *  from these. Palms deliberately excluded: the shore stays open. */
   canopyCrowns: Array<{ x: number; z: number; r: number }>;
+  /** One walk-blocking collider per SOLID instance (canopy trunk, palm, rock —
+   *  never understory, which you brush through). The radius is the solid core
+   *  (a trunk/boulder), NOT the crown-sized `groundPoints` radius. Assembled
+   *  into a `CollisionField` by `buildWorld`. */
+  colliders: Collider[];
   dispose(): void;
 }
 
@@ -80,6 +86,13 @@ const CANOPY_GROUND_RADIUS = 1.4;
 const PALM_GROUND_RADIUS = 1.1;
 const ROCK_GROUND_RADIUS = 1.2;
 
+/** Solid-collision radii (the trunk/boulder core the player can't walk through)
+ *  — deliberately narrower than the crown-sized grounding radii above: you
+ *  brush past leaves and fronds, not trunks. Understory is not collidable. */
+const CANOPY_TRUNK_COLLIDER_MAX = 0.6; // cap; the scaled trunk is ~0.35·s
+const PALM_TRUNK_COLLIDER_FACTOR = 0.3; // ·s
+const ROCK_COLLIDER_FACTOR = 0.8; // ·(ROCK_GROUND_RADIUS·s) — a boulder is near-solid
+
 /**
  * Jungle set dressing (pivot slice C, "The Lost Idol"). Replaces the old
  * conifer/rock scatter with layered vegetation banded by elevation
@@ -124,6 +137,7 @@ export function buildProps(terrain: Terrain, density = 1, fullFoliage = true): P
   group.name = "props";
   const groundPoints: GroundPoint[] = [];
   const canopyCrowns: Array<{ x: number; z: number; r: number }> = [];
+  const colliders: Collider[] = [];
   const rng = makeNoise2D(WORLD.seed ^ 0x9e3779b9);
 
   const d = Math.max(0, Math.min(1, density));
@@ -275,6 +289,7 @@ export function buildProps(terrain: Terrain, density = 1, fullFoliage = true): P
     canopyCross.setColorAt(canopyPlaced, tint.setHex(0xffffff).offsetHSL(0, 0, lightness));
     groundPoints.push({ x, y, z, radius: CANOPY_GROUND_RADIUS * s });
     canopyCrowns.push({ x, z, r: (CANOPY_CROSS_WIDTH / 2) * s });
+    colliders.push({ x, z, r: Math.min(CANOPY_TRUNK_COLLIDER_MAX, 0.35 * s) });
     canopyPlaced++;
   };
 
@@ -370,6 +385,7 @@ export function buildProps(terrain: Terrain, density = 1, fullFoliage = true): P
     palmFronds.setMatrixAt(palmPlaced, m);
     palmFronds.setColorAt(palmPlaced, tint.setHex(0xffffff).offsetHSL(0, 0, (rng.value(ch, 9) - 0.5) * 0.12));
     groundPoints.push({ x, y, z, radius: PALM_GROUND_RADIUS * s });
+    colliders.push({ x, z, r: PALM_TRUNK_COLLIDER_FACTOR * s });
     palmPlaced++;
   }
   palmTrunks.count = palmPlaced;
@@ -445,6 +461,7 @@ export function buildProps(terrain: Terrain, density = 1, fullFoliage = true): P
     m.compose(pos, q, sc);
     rocks.setMatrixAt(rocksPlaced, m);
     groundPoints.push({ x, y, z, radius: ROCK_GROUND_RADIUS * s });
+    colliders.push({ x, z, r: ROCK_COLLIDER_FACTOR * ROCK_GROUND_RADIUS * s });
     rocksPlaced++;
   };
   const rockGeneralBudget = Math.max(1, Math.round(rockBudget * 0.7));
@@ -479,6 +496,7 @@ export function buildProps(terrain: Terrain, density = 1, fullFoliage = true): P
     group,
     groundPoints,
     canopyCrowns,
+    colliders,
     dispose() {
       for (const im of [canopyTrunks, canopyCross, palmTrunks, palmFronds, understory, rocks]) im.dispose();
       for (const geo of [canopyTrunkGeo, canopyCrossGeo, palmTrunkGeo, palmFrondGeo, understoryGeo, rockGeo]) {

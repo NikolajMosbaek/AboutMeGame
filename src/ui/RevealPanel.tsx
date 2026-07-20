@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useSyncExternalStore } from "react";
+import { useFocusTrap } from "./useFocusTrap.ts";
 import type { DiscoveryStore, OpenInfo } from "../discovery/discoveryStore.ts";
 import { nextUndiscovered } from "../discovery/nextUndiscovered.ts";
 import type { PoiInteraction } from "../content/contentModel.ts";
@@ -44,6 +45,8 @@ export function RevealPanel({ store, pois, quest }: RevealPanelProps) {
   );
   const closeRef = useRef<HTMLButtonElement>(null);
   const firstOptionRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialogRef);
 
   const open = snap.open;
   const interactionType = open?.interaction.type;
@@ -89,6 +92,7 @@ export function RevealPanel({ store, pois, quest }: RevealPanelProps) {
           }}
         >
           <div
+            ref={dialogRef}
             className="reveal-panel"
             role="dialog"
             aria-modal="true"

@@ -1,6 +1,6 @@
 # The Lost Idol
 
-**A browser-based first-person jungle survival treasure hunt.** You wake at a riverside camp on an uncharted island, the last of a vanished expedition. Drink and forage to stay alive, follow five pages that lead deeper into the jungle, mind the wildlife, and dig up the Emerald Idol. No installs, just a link.
+**A browser-based first-person jungle survival treasure hunt.** You wake at a riverside camp on an uncharted island, the last of a vanished expedition. Drink and forage to stay alive, read the torn page at your camp and follow five more that lead deeper into the jungle, mind the wildlife, and dig up the Emerald Idol. No installs, just a link.
 
 **[Play it here](https://nikolajmosbaek.github.io/AboutMeGame/)**
 

@@ -29,19 +29,37 @@ describe("SettingsMenu", () => {
     expect(settings.getSnapshot().quality).toBe("low");
   });
 
-  it("wires Resume, Reset progress and Back to title", () => {
+  it("wires Resume and Back to title", () => {
     const onClose = vi.fn();
     const onExit = vi.fn();
-    const onResetProgress = vi.fn();
     render(
-      <SettingsMenu settings={store()} onClose={onClose} onExit={onExit} onResetProgress={onResetProgress} />,
+      <SettingsMenu settings={store()} onClose={onClose} onExit={onExit} onResetProgress={() => {}} />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Reset progress" }));
-    expect(onResetProgress).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "Back to title" }));
     expect(onExit).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "Resume" }));
     expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("guards Reset progress behind an explicit confirm", () => {
+    const onResetProgress = vi.fn();
+    render(
+      <SettingsMenu settings={store()} onClose={() => {}} onExit={() => {}} onResetProgress={onResetProgress} />,
+    );
+    // The first click only arms the confirm — it must NOT wipe the run.
+    fireEvent.click(screen.getByRole("button", { name: "Reset progress" }));
+    expect(onResetProgress).not.toHaveBeenCalled();
+
+    // Cancel backs out cleanly, restoring the idle button.
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(onResetProgress).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Reset progress" })).toBeInTheDocument();
+
+    // Arm again, then confirm — now it resets exactly once and acknowledges.
+    fireEvent.click(screen.getByRole("button", { name: "Reset progress" }));
+    fireEvent.click(screen.getByRole("button", { name: "Yes, reset" }));
+    expect(onResetProgress).toHaveBeenCalledOnce();
+    expect(screen.getByText("Progress reset.")).toBeInTheDocument();
   });
 
   it("closes on Escape", () => {
@@ -51,18 +69,6 @@ describe("SettingsMenu", () => {
     );
     fireEvent.keyDown(window, { key: "Escape" });
     expect(onClose).toHaveBeenCalledOnce();
-  });
-
-  it("shows a 'Show discovered markers' switch reflecting settings (default off) and toggles it", () => {
-    const settings = store();
-    render(
-      <SettingsMenu settings={settings} onClose={() => {}} onExit={() => {}} onResetProgress={() => {}} />,
-    );
-    const markers = screen.getByRole("switch", { name: /show discovered markers/i });
-    expect(markers).toHaveAttribute("aria-checked", "false"); // default off
-    fireEvent.click(markers);
-    expect(settings.getSnapshot().showDiscoveredMarkers).toBe(true);
-    expect(markers).toHaveAttribute("aria-checked", "true");
   });
 
 });

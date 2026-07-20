@@ -441,8 +441,42 @@ body {
 }
 :root[data-reduced-motion="true"] .underwater-overlay::before { animation: none; }
 
-/* Low-meter attention flash — non-essential motion, so both reduced-motion
-   gates suppress it (the colour + width still carry the state). */
+/* ----- Damage feedback ----- */
+/* A red edge-vignette that flashes on a health drop, peak opacity set per hit
+   via --damage-peak. Opacity-only (no transform), so it stays reduced-motion
+   safe and is deliberately NOT suppressed by the reduced-motion gates — the
+   component already halves the peak in that mode, keeping the hit legible. Sits
+   above the world/underwater wash but below the HUD text and every modal. */
+.damage-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 14;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(158, 12, 12, 0) 42%,
+    rgba(158, 12, 12, 0.55) 78%,
+    rgba(138, 8, 8, 0.92) 100%
+  );
+  opacity: 0;
+  animation: damage-flash 480ms ease-out forwards;
+}
+@keyframes damage-flash {
+  0% { opacity: 0; }
+  10% { opacity: var(--damage-peak, 0.6); }
+  100% { opacity: 0; }
+}
+
+/* Persistent (non-motion) low-meter cue: an amber warning ring on the track,
+   always on when low, so a critical meter stays legible even with the flash
+   suppressed. This fixes the reduced-motion gap — the per-meter fill colour is
+   constant, so on its own it did NOT distinguish a low meter from a full one. */
+.meter--low .meter__track {
+  border-color: #ffcf5a;
+  box-shadow: 0 0 0 1px #e8a13a, 0 0 6px rgba(232, 161, 58, 0.65);
+}
+/* Attention flash on top for users who allow motion; both reduced-motion gates
+   suppress only the flash, leaving the ring above as the low cue. */
 .meter--low .meter__fill {
   animation: meter-flash 1s ease-in-out infinite;
 }
@@ -614,13 +648,6 @@ body {
 /* Device-aware hint text: exactly one of the pair renders. The touch variant
    wins on coarse pointers (where the keyboard line would be a lie). */
 .hint-touch { display: none; }
-
-.hud-stat__value {
-  font-variant-numeric: tabular-nums;
-  display: inline-block;
-  min-width: 1.4ch;
-  text-align: right;
-}
 
 /* ----- Discovery UI (#38) ----- */
 .discovery-progress {
@@ -825,17 +852,13 @@ body {
 .hud-mode--sprint {
   color: var(--color-fly);
 }
-
-.hud-stat {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 0.2rem;
-  font: 700 1rem ui-monospace, "SF Mono", Menlo, monospace;
-}
-.hud-stat__unit {
+/* SPRINT tag rides beside the compass letter so the heading stays visible
+   while sprinting (the compass is the only wayfinding cue). */
+.hud-mode__badge {
+  margin-left: 0.35rem;
   font-size: 0.7rem;
-  font-weight: 600;
-  opacity: 0.65;
+  font-weight: 700;
+  letter-spacing: 0.05em;
 }
 
 .hud-top-right {
@@ -914,44 +937,49 @@ body {
   user-select: none;
 }
 
-/* ----- Navigation hints (#44) ----- */
-.nav-markers {
+/* ----- "Click to look" pointer-lock affordance (desktop) ----- */
+.look-prompt {
   position: fixed;
-  inset: 0;
-  z-index: 12;
-  pointer-events: none;
-}
-
-.nav-dot,
-.nav-arrow {
-  position: absolute;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.1rem;
+  left: 50%;
+  top: 58%;
   transform: translate(-50%, -50%);
-  color: var(--nav-color, var(--color-fg));
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
-}
-
-.nav-dot__pip {
-  width: 0.7rem;
-  height: 0.7rem;
-  border-radius: 50%;
-  background: var(--nav-color, var(--color-fg));
-  border: 2px solid rgba(255, 255, 255, 0.85);
-}
-
-.nav-dot__label,
-.nav-arrow__label {
-  font: 700 0.7rem var(--font-ui);
+  z-index: 15;
+  padding: 0.4rem 0.9rem;
+  font: 600 0.9rem var(--font-ui);
   color: var(--color-fg);
+  background: var(--surface-chip);
+  border-radius: 0.5rem;
+  pointer-events: none;
+  user-select: none;
+  opacity: 0.85;
 }
 
-.nav-arrow__glyph {
-  font-size: 1.3rem;
+/* ----- Wildlife danger warning (a11y: the visual twin of the rattle/growl) ----- */
+/* Static banner (colour + icon + text, no motion), so it needs no reduced-motion
+   gate. Sits just below the top-centre compass; above the HUD, below modals. */
+.danger-indicator {
+  position: fixed;
+  top: max(3.2rem, calc(var(--safe-top, 0px) + 3.2rem));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 16;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.8rem;
+  font: 700 0.9rem var(--font-ui);
+  color: #fff;
+  background: rgba(158, 12, 12, 0.92);
+  border-radius: 0.5rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+  user-select: none;
+  max-width: min(90vw, 24rem);
+  text-align: center;
+}
+.danger-indicator__icon {
+  font-size: 1.1rem;
   line-height: 1;
-  display: inline-block;
 }
 
 /* ----- Onboarding (#43) ----- */
@@ -1097,6 +1125,34 @@ body {
 }
 .menu__btn:hover {
   filter: brightness(1.3);
+}
+/* Two-step "Reset progress" confirm (guards an irreversible one-click wipe). */
+.menu__confirm {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.6rem var(--space-2);
+  border: 1px solid var(--color-danger, #d9524a);
+  border-radius: 0.6rem;
+}
+.menu__confirm-q {
+  font: 600 0.85rem var(--font-ui);
+  color: var(--color-fg);
+}
+.menu__confirm-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+.menu__btn--danger {
+  border-color: var(--color-danger, #d9524a);
+  color: var(--color-danger, #d9524a);
+}
+.menu__reset-done {
+  margin: 0;
+  padding: 0.4rem var(--space-2);
+  font: 600 0.85rem var(--font-ui);
+  color: var(--color-fg);
+  opacity: 0.85;
 }
 .menu__toggle:focus-visible,
 .menu__seg:focus-visible,

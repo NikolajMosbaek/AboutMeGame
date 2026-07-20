@@ -13,7 +13,9 @@ import { useReducedMotion } from "../settings/reducedMotion.ts";
 import { StatsOverlay } from "../perf/StatsOverlay.tsx";
 import { RevealPanel } from "../ui/RevealPanel.tsx";
 import { Hud } from "../ui/Hud.tsx";
-import { NavMarkers } from "../ui/NavMarkers.tsx";
+import { DangerIndicator } from "../ui/DangerIndicator.tsx";
+import type { DangerStore } from "../wildlife/dangerWarning.ts";
+import { LookPrompt } from "../ui/LookPrompt.tsx";
 import { Onboarding } from "../ui/Onboarding.tsx";
 import { SettingsMenu } from "../ui/SettingsMenu.tsx";
 import { JournalPanel } from "../ui/JournalPanel.tsx";
@@ -21,6 +23,7 @@ import { DiscoveryAnnouncer } from "../ui/DiscoveryAnnouncer.tsx";
 import { TreasurePanel } from "../ui/TreasurePanel.tsx";
 import { SurvivalMeters } from "../ui/SurvivalMeters.tsx";
 import { UnderwaterOverlay } from "../ui/UnderwaterOverlay.tsx";
+import { DamageOverlay } from "../ui/DamageOverlay.tsx";
 import { DeathOverlay } from "../ui/DeathOverlay.tsx";
 import { ActionHint } from "../ui/ActionHint.tsx";
 import { TouchActionButton } from "../ui/TouchActionButton.tsx";
@@ -30,7 +33,6 @@ import type { QuestStore } from "../quest/questStore.ts";
 import type { DiscoveryStore } from "../discovery/discoveryStore.ts";
 import type { JournalPoi } from "../content/discoverablePois.ts";
 import type { HudStore } from "../ui/hudStore.ts";
-import type { NavStore } from "../ui/navStore.ts";
 import type { SettingsStore } from "../settings/settingsStore.ts";
 import type { GameSession } from "../gameSession.ts";
 
@@ -46,7 +48,7 @@ export interface GameHandle {
     pois: { id: string; order: number; title: string }[];
     /** Position-free projection of the landmarks for the journal UI (M3): content
      *  + colour with no THREE leaking into React. Additive to `pois`, which keeps
-     *  the THREE `position` NavSystem reads. */
+     *  the THREE `position` the engine's systems read. */
     journalPois: JournalPoi[];
     /** Drain the queued interact edge before opening a reveal from the journal,
      *  so the next `DiscoverySystem.update` can't consume a stale Enter/e press
@@ -54,7 +56,9 @@ export interface GameHandle {
     consumeInteract(): boolean;
   };
   hud: HudStore;
-  nav: NavStore;
+  /** Wildlife-threat state for the visual danger banner. Optional so a minimal
+   *  preview/test build without wildlife still mounts. */
+  danger?: DangerStore;
   settings: SettingsStore;
   session: GameSession;
   /** Survival meters + the death→respawn action (pivot slice D). Optional so a
@@ -117,7 +121,7 @@ export interface GameCanvasProps {
  * No engine state leaks into module scope, so React StrictMode's double-mount
  * (and any test) gets a clean engine each time.
  *
- * It also hosts the Epic 5 shell overlays (HUD, nav hints, onboarding, pause
+ * It also hosts the Epic 5 shell overlays (HUD, onboarding, pause
  * menu) over the canvas, and owns the menu's open/close state — the one place
  * that toggles `session.setPaused("menu", …)` and applies the Escape-to-open
  * rule (open the menu only when no reveal panel is up, so Escape isn't
@@ -338,6 +342,14 @@ export function GameCanvas({
     game?.session.setPaused("journal", journalOpen);
   }, [game, journalOpen]);
 
+  // First-run onboarding pauses the sim under its own reason, like the menu and
+  // journal. Without this the world ran behind the tutorial overlay: hunger and
+  // thirst drained, wildlife stayed live, and the expedition clock inflated
+  // while a new player read the controls. Cleared the instant it is dismissed.
+  useEffect(() => {
+    game?.session.setPaused("onboarding", onboardingOpen);
+  }, [game, onboardingOpen]);
+
   // The reveal handoff (flaw three): when a journal entry opens a reveal,
   // DiscoverySystem only establishes the "reveal" pause reason on its NEXT tick,
   // one frame after the React `openPoi` commit. If we cleared `journalOpen` at
@@ -465,6 +477,8 @@ export function GameCanvas({
       {showStats && engine && <StatsOverlay engine={engine} />}
       {game && (
         <>
+          {game.danger && <DangerIndicator danger={game.danger} />}
+          {game.input && <LookPrompt session={game.session} touchActive={game.input.touchActive} />}
           <Hud
             hud={game.hud}
             discovery={game.discovery.store}
@@ -474,6 +488,7 @@ export function GameCanvas({
           {game.survival && (
             <>
               <UnderwaterOverlay survival={game.survival.store} />
+              <DamageOverlay survival={game.survival.store} settings={game.settings} />
               <SurvivalMeters survival={game.survival.store} />
               <DeathOverlay survival={game.survival.store} onRespawn={game.survival.respawn} />
               <ActionHint
@@ -495,7 +510,6 @@ export function GameCanvas({
             </>
           )}
           <DiscoveryAnnouncer store={game.discovery.store} />
-          <NavMarkers nav={game.nav} />
           <RevealPanel store={game.discovery.store} pois={game.discovery.pois} quest={game.quest?.store} />
           {game.quest && (
             <TreasurePanel
