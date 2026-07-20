@@ -3,6 +3,7 @@ import { AudioEngine, nightAmount } from "./AudioEngine.ts";
 import type {
   AudioContextLike,
   BiquadFilterNodeLike,
+  DynamicsCompressorNodeLike,
   GainNodeLike,
   OscillatorNodeLike,
 } from "./AudioEngine.ts";
@@ -25,6 +26,7 @@ function fakeContext() {
   const oscillators: OscillatorNodeLike[] = [];
   const gains: GainNodeLike[] = [];
   const filters: BiquadFilterNodeLike[] = [];
+  const compressors: DynamicsCompressorNodeLike[] = [];
   const connections: Array<[unknown, unknown]> = [];
 
   // Mix the connect/disconnect spies INTO `node` (not a spread copy) so the
@@ -71,6 +73,17 @@ function fakeContext() {
       filters.push(f);
       return f;
     },
+    createDynamicsCompressor() {
+      const c = withNode({
+        threshold: fakeParam(),
+        knee: fakeParam(),
+        ratio: fakeParam(),
+        attack: fakeParam(),
+        release: fakeParam(),
+      }) as unknown as DynamicsCompressorNodeLike;
+      compressors.push(c);
+      return c;
+    },
     createBuffer(_ch: number, length: number) {
       const data = new Float32Array(length);
       return { getChannelData: () => data };
@@ -100,7 +113,7 @@ function fakeContext() {
   const setState = (s: string) => {
     state = s;
   };
-  return { ctx, oscillators, gains, filters, connections, setState, bufferSources };
+  return { ctx, oscillators, gains, filters, compressors, connections, setState, bufferSources };
 }
 
 describe("AudioEngine", () => {
@@ -110,14 +123,29 @@ describe("AudioEngine", () => {
     expect(ctx.resume).toHaveBeenCalled();
   });
 
-  it("connects a master gain to the destination at full volume", () => {
-    const { ctx, gains, connections } = fakeContext();
+  it("routes the master through a limiter into the destination at full volume", () => {
+    const { ctx, gains, compressors, connections } = fakeContext();
     new AudioEngine(() => ctx);
     // First gain created is the master.
     const master = gains[0];
     expect(master.gain.value).toBeGreaterThan(0);
-    // Reference check (not deep equal) — the nodes hold circular spies.
-    expect(connections.some(([from, to]) => from === master && to === ctx.destination)).toBe(true);
+    // Master chain is master → limiter → destination (not master → destination
+    // directly any more). Reference checks — the nodes hold circular spies.
+    const limiter = compressors[0];
+    expect(limiter).toBeDefined();
+    expect(connections.some(([from, to]) => from === master && to === limiter)).toBe(true);
+    expect(connections.some(([from, to]) => from === limiter && to === ctx.destination)).toBe(true);
+    // The master no longer connects straight to the destination.
+    expect(connections.some(([from, to]) => from === master && to === ctx.destination)).toBe(false);
+  });
+
+  it("configures the master limiter as a brickwall-ish peak catcher", () => {
+    const { ctx, compressors } = fakeContext();
+    new AudioEngine(() => ctx);
+    const limiter = compressors[0];
+    expect(limiter.threshold.value).toBeLessThanOrEqual(0); // limits below 0 dBFS
+    expect(limiter.ratio.value).toBeGreaterThanOrEqual(8); // high ratio = near-brickwall
+    expect(limiter.attack.value).toBeLessThan(0.02); // fast enough to catch transients
   });
 
   it("creates and starts oscillators when a chime plays", () => {
