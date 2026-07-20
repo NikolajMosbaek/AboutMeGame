@@ -51,6 +51,13 @@ export interface MutedSource {
   getSnapshot(): { muted: boolean; volume: number };
 }
 
+/** The shared pause flag — the game session satisfies it via `.paused`. Lets
+ *  the sparse ambient accents fall silent behind the death overlay and menus
+ *  instead of chirping cheerfully over them. */
+export interface PauseAudioSource {
+  readonly paused: boolean;
+}
+
 /** The day-cycle loop fraction — `World.dayCycle` satisfies it. */
 export interface DayPhaseSource {
   getPhase(): number;
@@ -218,6 +225,9 @@ export class AudioSystem implements System {
     private readonly monkeyHeist?: HeistSource,
     private readonly weatherSource?: WeatherAudioSource,
     private readonly waterfallSource?: WaterfallAudioSource,
+    /** Shared pause flag — silences the sparse bird/owl accents while a menu or
+     *  the death overlay is up. Absent = never paused (tests/previews). */
+    private readonly pause?: PauseAudioSource,
   ) {
     // Apply the persisted mute + volume before anything plays.
     this.engine.setMuted(this.muted.getSnapshot().muted);
@@ -280,13 +290,17 @@ export class AudioSystem implements System {
     const riverAmount = dist === Infinity ? 0 : Math.max(0, 1 - dist / RIVER_SILENCE_DIST);
     this.engine.setRiverProximity(riverAmount);
 
-    // Sparse bird/owl accents, on their own random-interval timer.
-    this.critterTimer -= ctx.dt;
-    if (this.critterTimer <= 0) {
-      if (nightAmount(this.dayPhase.getPhase()) > 0.5) this.engine.owlHoot();
-      else this.engine.birdChirp();
-      this.critterTimer =
-        CRITTER_MIN_INTERVAL + Math.random() * (CRITTER_MAX_INTERVAL - CRITTER_MIN_INTERVAL);
+    // Sparse bird/owl accents, on their own random-interval timer — but never
+    // over a pause: a cheery chirp on the death overlay or behind a menu breaks
+    // the moment. The timer freezes while paused and resumes on unpause.
+    if (!this.pause?.paused) {
+      this.critterTimer -= ctx.dt;
+      if (this.critterTimer <= 0) {
+        if (nightAmount(this.dayPhase.getPhase()) > 0.5) this.engine.owlHoot();
+        else this.engine.birdChirp();
+        this.critterTimer =
+          CRITTER_MIN_INTERVAL + Math.random() * (CRITTER_MAX_INTERVAL - CRITTER_MIN_INTERVAL);
+      }
     }
 
     // Footsteps: paced ticks while actually moving. Stopping (including the

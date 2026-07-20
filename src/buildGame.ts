@@ -296,6 +296,7 @@ export function buildGame(
           level01: () =>
             roarLevelAt(player.explorer.state.position.x, player.explorer.state.position.z),
         },
+        session, // pause flag — silence ambient accents over menus/death
       ),
     );
     // Mobile-Safari survival net (S4): a PERSISTENT resume on every gesture and
