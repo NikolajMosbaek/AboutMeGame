@@ -71,7 +71,8 @@ export function Onboarding({ persistence, onOpenChange, channel }: OnboardingPro
           A torn page waits at your camp, and five more lead to the Emerald Idol — six in
           all. Follow them, drink at the river and forage fruit to stay alive, and keep clear
           of snakes. If a growl comes close, put water or open ground between you and the
-          jaguar. Dig once you've found them all. Here are the controls:
+          jaguar. In the lagoon you can swim where you look; the river's current is not your
+          friend. Dig once you've found them all. Here are the controls:
         </p>
         <dl className="onboarding__controls">
           {scheme.entries.map((entry) => (

@@ -29,10 +29,10 @@ describe("resolveControlScheme", () => {
     expect(byLabel("E")).toBe("Use / examine");
     expect(byLabel("J")).toBe("Journal");
     expect(byLabel("Esc")).toBe("Menu");
-    // Swimming (#184): Space is a real binding again, and the one line of
-    // water lore rides with it — the lagoon swims, the river grips.
-    expect(byLabel("Space")).toMatch(/swim where you look/i);
-    expect(byLabel("Space")).toMatch(/current is not your friend/i);
+    // Swimming (#184): Space is a real binding. The row is a terse control label
+    // now ("Swim up") — the lagoon-swims / river-grips lore moved to the
+    // onboarding lede rather than crammed into the controls table.
+    expect(byLabel("Space")).toBe("Swim up");
 
     // The vehicle-era hints are gone.
     expect(labels).not.toContain("F");
