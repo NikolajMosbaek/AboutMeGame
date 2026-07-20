@@ -40,8 +40,12 @@ export const TUNE = {
   breathRegenPerSec: FULL / 3,
   /** Health loss per second while breath is empty (drowning). */
   drownDrainPerSec: 4,
-  /** Sprint re-engages only above this (the explorer's gate reads it). */
+  /** Sprint drops out at or below this floor (the explorer's gate reads it). */
   sprintMinStamina: 10,
+  /** ...and once dropped out, sprint only re-engages after stamina recovers
+   *  back above this higher line — a Schmitt-trigger hysteresis so exhausted
+   *  sprinting settles into a walk instead of chattering on/off at the floor. */
+  sprintReengageStamina: 25,
   /** Health drain per second PER empty meter (both empty stack to 4/s). */
   starveDrainPerSec: 2,
   /** Health regen per second while fed AND watered (both above half). */
@@ -83,6 +87,9 @@ export class SurvivalSystem implements System {
   private alive = true;
   private deaths = 0;
   private canDrink = false;
+  /** Sprint-hysteresis latch: set once stamina hits the floor, held until it
+   *  recovers past sprintReengageStamina — the fix for at-floor sprint chatter. */
+  private sprintLocked = false;
 
   constructor(
     private readonly explorer: ExplorerSystem,
@@ -96,8 +103,9 @@ export class SurvivalSystem implements System {
     this.push();
   }
 
-  /** The explorer's sprint gate: stamina left, and you're not dying/dead. */
-  canSprint = (): boolean => this.alive && this.stamina > TUNE.sprintMinStamina;
+  /** The explorer's sprint gate: alive, and not locked out by the stamina
+   *  hysteresis (see the Schmitt trigger in update()). */
+  canSprint = (): boolean => this.alive && !this.sprintLocked;
 
   /** Restore hunger (foraging slice feeds this). Clamped; no-op while dead. */
   eat(amount: number): void {
@@ -125,6 +133,7 @@ export class SurvivalSystem implements System {
     if (this.alive) return;
     this.health = TUNE.respawnLevel;
     this.stamina = FULL;
+    this.sprintLocked = false; // woke with full stamina — sprint is available
     this.hunger = TUNE.respawnLevel;
     this.thirst = TUNE.respawnLevel;
     this.breath = FULL; // you wake on dry land
@@ -208,6 +217,16 @@ export class SurvivalSystem implements System {
     }
 
     this.clamp();
+
+    // Sprint hysteresis (Schmitt trigger): latch OFF at the floor, and stay off
+    // until stamina climbs back past the higher re-engage line — so holding
+    // sprint at empty settles into a walk instead of chattering on/off. The
+    // explorer reads canSprint() (the latch), not the raw stamina level.
+    if (this.sprintLocked) {
+      if (this.stamina >= TUNE.sprintReengageStamina) this.sprintLocked = false;
+    } else if (this.stamina <= TUNE.sprintMinStamina) {
+      this.sprintLocked = true;
+    }
 
     // Death: pause the world under its own reason; the overlay owns the rest.
     if (this.health <= 0 && this.alive) {

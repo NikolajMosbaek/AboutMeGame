@@ -66,20 +66,47 @@ describe("SurvivalSystem (pivot slice D)", () => {
     expect(r.input.snap.consumeInteract()).toBe(false);
   });
 
-  it("sprint drains stamina in ~6s and blocks sprint under the floor via the gate", () => {
+  it("sprint drains stamina in ~6s, then hysteresis holds it off until stamina recovers past the re-engage line (no floor chatter)", () => {
     const r = rig();
     r.input.state.moveZ = 1;
     r.input.state.sprint = true;
     run(r, 7 * FPS); // sprint past empty
     expect(r.store.getSnapshot().stamina).toBe(0);
-    expect(r.sys.canSprint()).toBe(false);
+    expect(r.sys.canSprint()).toBe(false); // exhausted → latched out
 
-    // Recovery: stop sprinting; ~10s to full from empty.
+    // Partial recovery to BETWEEN the floor (10) and the re-engage line (25):
+    // the old bug re-allowed sprint the instant stamina ticked past 10, so a
+    // held Shift chattered on/off. Hysteresis keeps sprint latched out here.
     r.input.state.sprint = false;
-    run(r, 2 * FPS);
-    expect(r.sys.canSprint()).toBe(true); // back over the re-engage floor
+    run(r, 2 * FPS); // ~20 stamina at FULL/10 per second
+    const mid = r.store.getSnapshot().stamina;
+    expect(mid).toBeGreaterThan(TUNE.sprintMinStamina);
+    expect(mid).toBeLessThan(TUNE.sprintReengageStamina);
+    expect(r.sys.canSprint()).toBe(false); // still latched out — no chatter
+
+    // Once stamina climbs past the re-engage line, sprint is available again.
+    run(r, 2 * FPS); // now ≥ 25
+    expect(r.store.getSnapshot().stamina).toBeGreaterThanOrEqual(TUNE.sprintReengageStamina);
+    expect(r.sys.canSprint()).toBe(true);
+
     run(r, 9 * FPS);
     expect(r.store.getSnapshot().stamina).toBe(FULL);
+  });
+
+  it("does not chatter at the floor: holding sprint while empty keeps the gate flatly false", () => {
+    const r = rig();
+    r.input.state.moveZ = 1;
+    r.input.state.sprint = true; // held down the whole time
+    run(r, 7 * FPS); // drain to empty
+    expect(r.sys.canSprint()).toBe(false);
+
+    // Keep holding sprint. Stamina stays pinned at the floor, and the gate must
+    // stay flatly false every single frame — never flicker true the way the
+    // no-hysteresis gate did the instant stamina ticked one unit past 10.
+    for (let i = 0; i < 90; i++) {
+      run(r, 1);
+      expect(r.sys.canSprint()).toBe(false);
+    }
   });
 
   it("an empty thirst meter drains health at the tuned rate", () => {
