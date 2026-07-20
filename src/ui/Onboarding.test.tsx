@@ -25,6 +25,15 @@ describe("Onboarding", () => {
     expect(screen.getByText(/W A S D/)).toBeInTheDocument();
   });
 
+  it("warns about the jaguar in the lede, with the out (water / open ground)", () => {
+    render(<Onboarding persistence={fakePersistence(false)} />);
+    const lede = screen.getByText(/keep clear\s+of snakes/i);
+    // The island's deadliest animal is named up front, and the escape the
+    // mechanic grants is taught alongside it.
+    expect(lede.textContent).toMatch(/jaguar/i);
+    expect(lede.textContent).toMatch(/water or open ground/i);
+  });
+
   it("does not show when already seen", () => {
     render(<Onboarding persistence={fakePersistence(true)} />);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
