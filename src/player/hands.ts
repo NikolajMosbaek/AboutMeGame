@@ -110,9 +110,11 @@ function buildArmGeometry(): THREE.BufferGeometry {
   return merged;
 }
 
-/** Thirst rises on a drink — the survival store satisfies it. */
+/** Thirst rises on a drink; `alive` flips false→true on waking — the survival
+ *  store satisfies it. Both are read so the respawn refill (a thirst jump that
+ *  rides the alive edge) is told apart from a real drink. */
 export interface DrinkSource {
-  getSnapshot(): { thirst: number };
+  getSnapshot(): { thirst: number; alive: boolean };
 }
 /** Eaten count rises on a bite — the forage store satisfies it. */
 export interface EatSource {
@@ -130,11 +132,6 @@ export interface PauseSource {
   readonly paused: boolean;
 }
 
-/** A thirst rise LARGER than this isn't a drink — it's the respawn refill
- *  (survival resets meters to 75 on death), which must not cup a phantom
- *  hand (review finding). A real gulp is +30. */
-const DRINK_RISE_MAX = 35;
-
 export class HandsSystem implements System {
   readonly id = "hands";
 
@@ -148,6 +145,7 @@ export class HandsSystem implements System {
   private action: HandAction = "idle";
   private actionT = 0;
   private lastThirst: number;
+  private lastAlive: boolean;
   private lastEaten: number;
 
   private readonly offset = new THREE.Vector3();
@@ -176,23 +174,31 @@ export class HandsSystem implements System {
     this.fruitMesh.frustumCulled = false;
     scene.add(this.group);
 
-    this.lastThirst = this.survival.getSnapshot().thirst;
+    const sv = this.survival.getSnapshot();
+    this.lastThirst = sv.thirst;
+    this.lastAlive = sv.alive;
     this.lastEaten = this.forage.getSnapshot().eaten;
   }
 
   update(ctx: FrameContext): void {
-    if (this.session?.paused) return; // hold mid-pose, like every other system
-
-    // Edges (mount baselines captured, the AudioSystem posture). A rise
-    // bigger than a gulp is the respawn refill, not a drink.
-    const thirst = this.survival.getSnapshot().thirst;
-    if (thirst > this.lastThirst && thirst - this.lastThirst <= DRINK_RISE_MAX) {
-      this.start("drink");
-    }
-    this.lastThirst = thirst;
+    // Track survival/forage baselines every frame — even while paused — so the
+    // death→respawn transition (which happens under the death pause) registers
+    // as an alive false→true edge. That edge, not a thirst-delta guess, tells
+    // the respawn refill apart from a real drink, so waking never cups a
+    // phantom hand. Only the animation *triggering* below is gated by pause.
+    const snap = this.survival.getSnapshot();
+    const respawned = !this.lastAlive && snap.alive;
+    const drank = !respawned && snap.thirst > this.lastThirst;
+    this.lastThirst = snap.thirst;
+    this.lastAlive = snap.alive;
     const eaten = this.forage.getSnapshot().eaten;
-    if (eaten > this.lastEaten) this.start("eat");
+    const ate = eaten > this.lastEaten;
     this.lastEaten = eaten;
+
+    if (this.session?.paused) return; // hold mid-pose; baselines already tracked
+
+    if (drank) this.start("drink");
+    if (ate) this.start("eat");
 
     const digging = this.quest.getSnapshot().digProgress !== null;
     if (digging && this.action !== "dig") this.start("dig");

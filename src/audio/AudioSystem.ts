@@ -328,7 +328,10 @@ export class AudioSystem implements System {
 
     // Survival edges: drink (thirst rises), a sharp health drop, death.
     const sv = this.survival.getSnapshot();
-    if (sv.thirst > this.lastThirst) this.engine.gulp();
+    // Waking refills thirst to respawnLevel in one jump; that alive false→true
+    // edge is a respawn, not a drink, so it must not fire a phantom gulp.
+    const respawned = !this.lastAlive && sv.alive;
+    if (!respawned && sv.thirst > this.lastThirst) this.engine.gulp();
     if (sv.health < this.lastHealth - HURT_DROP_THRESHOLD) this.engine.hurtThud();
     if (this.lastAlive && !sv.alive) this.engine.deathSting();
     this.lastThirst = sv.thirst;

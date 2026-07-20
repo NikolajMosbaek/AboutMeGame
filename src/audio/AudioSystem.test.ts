@@ -355,6 +355,28 @@ describe("AudioSystem", () => {
     expect(engine.deathSting).toHaveBeenCalledTimes(1);
   });
 
+  it("does not gulp on the respawn refill (thirst jumps up as alive flips true)", () => {
+    const survival = survivalSource({ thirst: 10, health: 100, alive: true });
+    const { engine, sys } = makeSystem({ survival });
+    sys.update(CTX());
+
+    survival.getSnapshot().alive = false; // death
+    sys.update(CTX());
+    expect(engine.gulp).not.toHaveBeenCalled();
+
+    // Wake: thirst refills to 75 in the same frame alive flips back true — a
+    // respawn, not a drink, so no gulp.
+    survival.getSnapshot().alive = true;
+    survival.getSnapshot().thirst = 75;
+    sys.update(CTX());
+    expect(engine.gulp).not.toHaveBeenCalled();
+
+    // A genuine post-respawn drink still gulps.
+    survival.getSnapshot().thirst = 95;
+    sys.update(CTX());
+    expect(engine.gulp).toHaveBeenCalledTimes(1);
+  });
+
   it("fires the fanfare at finale START, not again when treasureFound lands at its end", () => {
     const quest = questSource({ digProgress: null, finaleActive: false, treasureFound: false });
     const { engine, sys } = makeSystem({ quest });
