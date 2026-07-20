@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { RevealPanel } from "./RevealPanel.tsx";
 import { createDiscoveryStore } from "../discovery/discoveryStore.ts";
@@ -117,6 +119,33 @@ describe("RevealPanel pois prop wiring (t4)", () => {
     // Body unlocks as before; Next now appears for the committed guess.
     expect(screen.getByText(GUESS_BODY)).toBeTruthy();
     expect(screen.getByRole("button", { name: /^Next:/ })).toBeTruthy();
+  });
+});
+
+describe("RevealPanel parchment styling (M7)", () => {
+  afterEach(() => {
+    document.head.querySelectorAll("style").forEach((s) => s.remove());
+  });
+
+  it("styles the opened clue page as aged parchment — ink text and a serif voice, not the dark dialog", () => {
+    // Load the shipped stylesheet into a real <style> so jsdom's CSSOM applies
+    // it (the Hud.test pattern), then read the panel's resolved look.
+    const css = readFileSync(resolve(process.cwd(), "src/tokens.css"), "utf8");
+    const style = document.createElement("style");
+    style.textContent = css;
+    document.head.appendChild(style);
+
+    const store = createDiscoveryStore(13);
+    openPlain(store);
+    const { container } = render(<RevealPanel store={store} pois={POIS} />);
+
+    const panel = container.querySelector<HTMLElement>(".reveal-panel");
+    expect(panel).not.toBeNull();
+    const cs = getComputedStyle(panel!);
+    // Sepia ink (#3b2f1c), not the old light-on-dark fg.
+    expect(cs.color).toBe("rgb(59, 47, 28)");
+    // A serif journal voice, not the UI sans.
+    expect(cs.fontFamily.toLowerCase()).toContain("serif");
   });
 });
 
