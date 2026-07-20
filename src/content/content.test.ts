@@ -203,6 +203,14 @@ describe("content model (#34)", () => {
       expect(by.get(id)?.body, `${id} must point onward`).toMatch(re);
     }
   });
+
+  it("foreshadows the jaguar in the pages (the island's deadliest animal is introduced, not sprung)", () => {
+    // A ~45-damage pounce that the player was never warned about reads as
+    // unfair even though it telegraphs. The expedition's own notes must name
+    // the predator somewhere, so the dread is seeded before the first strike.
+    const bodies = [...contentById().values()].map((p) => p.body).join("\n");
+    expect(bodies).toMatch(/jaguar/i);
+  });
 });
 
 describe("POI placement binding (#36)", () => {

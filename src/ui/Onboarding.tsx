@@ -69,8 +69,9 @@ export function Onboarding({ persistence, onOpenChange, channel }: OnboardingPro
         </h2>
         <p className="onboarding__lede">
           A torn page waits at your camp, and five more lead to the Emerald Idol — six in
-          all. Follow them, drink at the river and forage fruit to stay alive, keep clear of
-          snakes, and dig once you've found them all. Here are the controls:
+          all. Follow them, drink at the river and forage fruit to stay alive, and keep clear
+          of snakes. If a growl comes close, put water or open ground between you and the
+          jaguar. Dig once you've found them all. Here are the controls:
         </p>
         <dl className="onboarding__controls">
           {scheme.entries.map((entry) => (
