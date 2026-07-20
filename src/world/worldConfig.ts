@@ -115,7 +115,13 @@ export const SPAWN = {
  */
 export const POI_ANCHORS: PoiAnchor[] = [
   { poiId: "site-base-camp", order: 1, label: "Base Camp", x: SPAWN.x + 6, z: SPAWN.z + 2, archetype: "camp", color: 0xffcb47 },
-  { poiId: "site-wrecked-canoe", order: 2, label: "Wrecked Canoe", x: -29, z: 57, archetype: "canoe", color: 0x7ad1ff },
+  // On the low west bank of the river (h≈0.8 — dry footing to stand and read,
+  // with the hull beached reaching down into the water just east), where the
+  // river calms toward the lagoon. Matches clue 2 — "dragged out of the water
+  // on the west bank, keep the water on your right." The old (-29, 57) sat ~11 m
+  // up a dry hillside (distToRiver ~16 > bank), contradicting the clue. Pinned by
+  // worldConfig.canoe.test.ts; kept a real trek from camp (>30 u) per worldConfig.test.
+  { poiId: "site-wrecked-canoe", order: 2, label: "Wrecked Canoe", x: -7.6, z: 102, archetype: "canoe", color: 0x7ad1ff },
   { poiId: "site-carved-overhang", order: 3, label: "Carved Overhang", x: 34, z: -104, archetype: "overhang", color: 0xc8a2ff },
   { poiId: "site-last-camp", order: 4, label: "The Last Camp", x: -72, z: -24, archetype: "remains", color: 0xb0b6c0 },
   { poiId: "site-fallen-idol-ruin", order: 5, label: "Fallen Ruin", x: 84, z: 26, archetype: "ruin", color: 0xff8a5c },
