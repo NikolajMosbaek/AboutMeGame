@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { AudioSystem, nearestWaterDistance } from "./AudioSystem.ts";
+import type { PauseAudioSource } from "./AudioSystem.ts";
 import type { AudioEngine } from "./AudioEngine.ts";
 import { createDiscoveryStore } from "../discovery/discoveryStore.ts";
 import type { FrameContext } from "../engine/types.ts";
@@ -107,6 +108,7 @@ function neutralArgs() {
     quest: questSource({ digProgress: null, finaleActive: false, treasureFound: false }),
     snakes: snakeSource(false),
     jaguar: jaguarSource(false),
+    pause: { paused: false } as PauseAudioSource,
   };
 }
 
@@ -129,6 +131,12 @@ function makeSystem(
     args.quest,
     args.snakes,
     args.jaguar,
+    undefined, // birdsFlush
+    undefined, // fishScatter
+    undefined, // monkeyHeist
+    undefined, // weatherSource
+    undefined, // waterfallSource
+    args.pause,
   );
   return { engine, store, sys, args };
 }
@@ -299,6 +307,21 @@ describe("AudioSystem", () => {
     sys.update(CTX());
     sys.update(CTX());
     expect(engine.recoverIfInterrupted).toHaveBeenCalledTimes(2);
+  });
+
+  it("freezes the ambient bird/owl accents while paused, and resumes on unpause", () => {
+    const pause = { paused: true };
+    const { engine, sys } = makeSystem({ pause });
+    // Well past the 4–11 s accent interval, but paused ⇒ nothing chirps over
+    // the death overlay / a menu.
+    for (let i = 0; i < 40; i++) sys.update(CTX(0.5)); // 20 s
+    expect(engine.birdChirp).not.toHaveBeenCalled();
+    expect(engine.owlHoot).not.toHaveBeenCalled();
+
+    // Unpause: the accents resume (the default day phase ⇒ a bird chirp).
+    pause.paused = false;
+    for (let i = 0; i < 40; i++) sys.update(CTX(0.5));
+    expect(engine.birdChirp).toHaveBeenCalled();
   });
 
   it("keeps the engine mute synced to the live setting each frame", () => {
