@@ -36,6 +36,7 @@ export interface AudioContextLike {
   createGain(): GainNodeLike;
   createOscillator(): OscillatorNodeLike;
   createBiquadFilter(): BiquadFilterNodeLike;
+  createDynamicsCompressor(): DynamicsCompressorNodeLike;
   createBuffer(channels: number, length: number, sampleRate: number): AudioBufferLike;
   createBufferSource(): AudioBufferSourceNodeLike;
   resume(): Promise<void>;
@@ -85,6 +86,14 @@ export interface BiquadFilterNodeLike extends AudioNodeLike {
   readonly Q: AudioParamLike;
 }
 
+export interface DynamicsCompressorNodeLike extends AudioNodeLike {
+  readonly threshold: AudioParamLike;
+  readonly knee: AudioParamLike;
+  readonly ratio: AudioParamLike;
+  readonly attack: AudioParamLike;
+  readonly release: AudioParamLike;
+}
+
 /** Build the real context. The default `ctxFactory`; tests inject their own. */
 export type AudioContextFactory = () => AudioContextLike;
 
@@ -95,6 +104,18 @@ export type AudioContextFactory = () => AudioContextLike;
 const MASTER_GAIN = 0.7;
 /** Short ramp used to fade the master in/out on mute so it never clicks. */
 const MUTE_RAMP = 0.04;
+
+/** Master limiter (brickwall-ish) at the very end of the chain, so stacked
+ *  voices — the finale sting over the ambient bed with footsteps and a threat
+ *  cue at once — can't sum past 0 dBFS and clip the destination. A
+ *  DynamicsCompressor with a low threshold, hard knee, high ratio and fast
+ *  attack only engages on those peaks; the usual (much quieter) mix passes
+ *  through untouched. */
+const LIMITER_THRESHOLD = -3; // dBFS
+const LIMITER_KNEE = 0; // hard knee — a limiter, not a gentle compressor
+const LIMITER_RATIO = 20; // near-brickwall
+const LIMITER_ATTACK = 0.003; // seconds — catch transients
+const LIMITER_RELEASE = 0.25; // seconds — recover without pumping
 
 /** Insect/cicada bed level at full daytime brightness, and its night floor
  *  (quieter, not silent — a jungle at night is never dead quiet). */
@@ -163,6 +184,10 @@ const RIVER_EPSILON = 0.02;
 export class AudioEngine {
   private readonly ctx: AudioContextLike;
   private readonly master: GainNodeLike;
+  /** Brickwall-ish limiter between the master gain and the destination — held
+   *  as a field so the graph node keeps a firm JS reference for the context's
+   *  life. */
+  private readonly limiter: DynamicsCompressorNodeLike;
   private muted = false;
   /** Master volume, 0..1 — scales the un-muted master gain (see targetGain). */
   private volume = 1;
@@ -182,7 +207,16 @@ export class AudioEngine {
     this.ctx = ctxFactory();
     this.master = this.ctx.createGain();
     this.master.gain.value = MASTER_GAIN;
-    this.master.connect(this.ctx.destination);
+    // Master chain: every voice → master gain → limiter → destination. The
+    // limiter is the safety net so a loud pile-up can't clip.
+    this.limiter = this.ctx.createDynamicsCompressor();
+    this.limiter.threshold.value = LIMITER_THRESHOLD;
+    this.limiter.knee.value = LIMITER_KNEE;
+    this.limiter.ratio.value = LIMITER_RATIO;
+    this.limiter.attack.value = LIMITER_ATTACK;
+    this.limiter.release.value = LIMITER_RELEASE;
+    this.master.connect(this.limiter);
+    this.limiter.connect(this.ctx.destination);
     // Spawned suspended by autoplay policy — resume now (we mount post-gesture)
     // and rely on the pointer/key fallback if the policy still holds it.
     void this.ctx.resume().catch(() => {});
