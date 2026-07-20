@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { Engine } from "./Engine.ts";
 import { createRenderer, applyRendererQuality } from "./createRenderer.ts";
+import { installContextLossHandlers } from "./contextLoss.ts";
 import type { createBloomCompositor, Compositor } from "./createCompositor.ts";
 import { EnvLightSystem } from "../world/envLightSystem.ts";
 import type { DayCycleSystem } from "../world/dayCycleSystem.ts";
@@ -145,6 +146,10 @@ export function GameCanvas({
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [treasureOpen, setTreasureOpen] = useState(false);
   const [webglError, setWebglError] = useState(false);
+  // The GPU context vanished mid-session (mobile memory pressure, driver reset,
+  // long backgrounding). We halt the loop and show a reload prompt rather than
+  // freezing silently — see the installContextLossHandlers wiring below.
+  const [contextLost, setContextLost] = useState(false);
 
   // Resolve the device tier once for this mount — `detectDeviceTier` reads real
   // hardware signals, so it's stable for the session and cheap to memoise.
@@ -267,6 +272,17 @@ export function GameCanvas({
     const onVisibility = () => (document.hidden ? eng.stop() : eng.start());
     document.addEventListener("visibilitychange", onVisibility);
 
+    // WebGL context loss: halt the loop (so it stops spinning on a dead context
+    // and the fps read-out can't corrupt) and surface a reload prompt. Every GPU
+    // resource is invalidated on loss, so a reload is the clean recovery rather
+    // than an in-place re-upload of the whole scene.
+    const detachContextLoss = installContextLossHandlers(canvas, {
+      onLost: () => {
+        eng.stop();
+        setContextLost(true);
+      },
+    });
+
     // Automation hooks (develop-web-game convention).
     window.advanceTime = (ms: number) => eng.advanceTime(ms);
     window.render_game_to_text = () => JSON.stringify(eng.getState());
@@ -283,6 +299,7 @@ export function GameCanvas({
       cancelled = true; // an in-flight compositor load must not attach to a dead engine
       observer.disconnect();
       document.removeEventListener("visibilitychange", onVisibility);
+      detachContextLoss();
       delete window.advanceTime;
       delete window.render_game_to_text;
       delete window.__ENGINE_STATE__;
@@ -468,6 +485,22 @@ export function GameCanvas({
         </p>
         <button type="button" className="cta" onClick={() => onExit?.()}>
           Back to start
+        </button>
+      </main>
+    );
+  }
+
+  if (contextLost) {
+    return (
+      <main className="webgl-fallback">
+        <h2>The 3D view was interrupted</h2>
+        <p>
+          Your device paused the game’s graphics — this can happen after a long
+          time in the background or under memory pressure. Reload to pick the
+          expedition back up; your found pages are saved.
+        </p>
+        <button type="button" className="cta" onClick={() => window.location.reload()}>
+          Reload
         </button>
       </main>
     );
