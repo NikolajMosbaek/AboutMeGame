@@ -11,6 +11,9 @@ export type Quality = "auto" | "low" | "high";
 
 export interface Settings {
   muted: boolean;
+  /** Master volume, 0..1. Scales the engine's master gain; independent of
+   *  `muted` (mute still silences whatever the volume is). */
+  volume: number;
   quality: Quality;
   reducedMotion: boolean;
 }
@@ -24,6 +27,7 @@ export interface SettingsStore {
 
 const DEFAULTS: Settings = {
   muted: false,
+  volume: 1,
   quality: "auto",
   reducedMotion: false,
 };
@@ -73,6 +77,7 @@ function load(storage: Storage | undefined): Settings {
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     return {
       muted: typeof parsed.muted === "boolean" ? parsed.muted : base.muted,
+      volume: isVolume(parsed.volume) ? clamp01(parsed.volume) : base.volume,
       quality: isQuality(parsed.quality) ? parsed.quality : base.quality,
       reducedMotion:
         typeof parsed.reducedMotion === "boolean" ? parsed.reducedMotion : base.reducedMotion,
@@ -93,6 +98,15 @@ function save(storage: Storage | undefined, settings: Settings): void {
 
 function isQuality(v: unknown): v is Quality {
   return typeof v === "string" && (QUALITIES as readonly string[]).includes(v);
+}
+
+function isVolume(v: unknown): v is number {
+  return typeof v === "number" && Number.isFinite(v);
+}
+
+/** Clamp a persisted/updated volume into the valid 0..1 range. */
+function clamp01(v: number): number {
+  return Math.min(1, Math.max(0, v));
 }
 
 function safeLocalStorage(): Storage | undefined {

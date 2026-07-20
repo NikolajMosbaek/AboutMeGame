@@ -164,6 +164,8 @@ export class AudioEngine {
   private readonly ctx: AudioContextLike;
   private readonly master: GainNodeLike;
   private muted = false;
+  /** Master volume, 0..1 — scales the un-muted master gain (see targetGain). */
+  private volume = 1;
   private disposed = false;
 
   /** Live oscillators that must be stopped on dispose (the ambient bed). */
@@ -207,6 +209,12 @@ export class AudioEngine {
     if (this.ctx.state === "interrupted") this.resume();
   }
 
+  /** The un-muted master level: the fixed engine gain scaled by the 0..1 volume
+   *  setting. The one place both `setMuted` (unmute) and `setVolume` ramp to. */
+  private targetGain(): number {
+    return MASTER_GAIN * this.volume;
+  }
+
   /** Mute/unmute the whole mix by ramping the master gain. When muting we also
    *  suspend the context so an idle muted game costs no audio thread; unmuting
    *  resumes it. Reads from the settings store live via the controller. */
@@ -215,9 +223,23 @@ export class AudioEngine {
     this.muted = muted;
     const t = this.ctx.currentTime;
     this.master.gain.setValueAtTime(this.master.gain.value, t);
-    this.master.gain.linearRampToValueAtTime(muted ? 0 : MASTER_GAIN, t + MUTE_RAMP);
+    this.master.gain.linearRampToValueAtTime(muted ? 0 : this.targetGain(), t + MUTE_RAMP);
     if (muted) void this.ctx.suspend().catch(() => {});
     else void this.ctx.resume().catch(() => {});
+  }
+
+  /** Set the master volume (0..1), scaling the un-muted master gain via the same
+   *  short ramp mute uses (so a drag never clicks). Independent of mute: while
+   *  muted the gain stays at 0 and the new volume takes effect on unmute. No-op
+   *  if unchanged. */
+  setVolume(volume: number): void {
+    const v = Math.min(1, Math.max(0, volume));
+    if (this.disposed || v === this.volume) return;
+    this.volume = v;
+    if (this.muted) return; // mute owns the gain (0) until unmute
+    const t = this.ctx.currentTime;
+    this.master.gain.setValueAtTime(this.master.gain.value, t);
+    this.master.gain.linearRampToValueAtTime(this.targetGain(), t + MUTE_RAMP);
   }
 
   get isMuted(): boolean {

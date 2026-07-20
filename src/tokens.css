@@ -1099,6 +1099,24 @@ body {
   gap: 0.25rem;
 }
 
+/* Master-volume slider. A real range input with a ≥44px-tall hit area; dimmed
+   and non-interactive while muted (mute owns silence). */
+.menu__slider {
+  flex: 0 1 9rem;
+  min-height: var(--tap-min);
+  accent-color: var(--color-accent);
+  cursor: pointer;
+}
+.menu__slider:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.menu__slider:focus-visible {
+  outline: 3px solid var(--color-accent);
+  outline-offset: 3px;
+  border-radius: 0.4rem;
+}
+
 /* "Detail level applies on reload" hint under the quality row (#47). */
 .menu__note {
   margin: 0.2rem 0 0;

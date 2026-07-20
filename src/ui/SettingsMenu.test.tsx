@@ -20,6 +20,26 @@ describe("SettingsMenu", () => {
     expect(settings.getSnapshot().muted).toBe(true);
   });
 
+  it("sets master volume through the settings store via the slider", () => {
+    const settings = store();
+    render(
+      <SettingsMenu settings={settings} onClose={() => {}} onExit={() => {}} onResetProgress={() => {}} />,
+    );
+    const slider = screen.getByRole("slider", { name: /master volume/i });
+    expect(slider).toHaveValue("100"); // full by default
+    fireEvent.change(slider, { target: { value: "40" } });
+    expect(settings.getSnapshot().volume).toBeCloseTo(0.4, 5);
+  });
+
+  it("disables the volume slider while muted (mute owns silence)", () => {
+    const settings = store();
+    settings.set({ muted: true });
+    render(
+      <SettingsMenu settings={settings} onClose={() => {}} onExit={() => {}} onResetProgress={() => {}} />,
+    );
+    expect(screen.getByRole("slider", { name: /master volume/i })).toBeDisabled();
+  });
+
   it("selects a quality preset", () => {
     const settings = store();
     render(

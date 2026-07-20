@@ -45,9 +45,10 @@ export interface StrideSource {
   };
 }
 
-/** Live mute flag — a `SettingsStore` satisfies it via `getSnapshot().muted`. */
+/** Live mute + master volume — a `SettingsStore` satisfies it via
+ *  `getSnapshot()` ({ muted, volume }). */
 export interface MutedSource {
-  getSnapshot(): { muted: boolean };
+  getSnapshot(): { muted: boolean; volume: number };
 }
 
 /** The day-cycle loop fraction — `World.dayCycle` satisfies it. */
@@ -218,8 +219,9 @@ export class AudioSystem implements System {
     private readonly weatherSource?: WeatherAudioSource,
     private readonly waterfallSource?: WaterfallAudioSource,
   ) {
-    // Apply the persisted mute before anything plays.
+    // Apply the persisted mute + volume before anything plays.
     this.engine.setMuted(this.muted.getSnapshot().muted);
+    this.engine.setVolume(this.muted.getSnapshot().volume);
 
     // Clue reveal → chime, exactly once per *new* discovery — except the find
     // that completes the set, which gets the completion sting instead (S2
@@ -252,8 +254,10 @@ export class AudioSystem implements System {
   }
 
   update(ctx: FrameContext): void {
-    // Keep mute in sync with the live setting (the pause menu writes it).
+    // Keep mute + volume in sync with the live settings (the pause menu writes
+    // them). Both engine setters no-op when unchanged, so this is cheap.
     this.engine.setMuted(this.muted.getSnapshot().muted);
+    this.engine.setVolume(this.muted.getSnapshot().volume);
 
     // A call or backgrounding can leave the context "interrupted" (Safari);
     // rAF is throttled while hidden, so checking here means the very first
