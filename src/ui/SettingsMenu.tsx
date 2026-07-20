@@ -80,6 +80,21 @@ export function SettingsMenu({ settings, onClose, onExit, onResetProgress }: Set
           </button>
         </label>
 
+        <label className="menu__row">
+          <span>Volume</span>
+          <input
+            type="range"
+            className="menu__slider"
+            min={0}
+            max={100}
+            step={5}
+            value={Math.round(s.volume * 100)}
+            aria-label="Master volume"
+            disabled={s.muted}
+            onChange={(e) => settings.set({ volume: Number(e.target.value) / 100 })}
+          />
+        </label>
+
         <div className="menu__row">
           <span>Quality</span>
           <div className="menu__segmented" role="radiogroup" aria-label="Graphics quality">

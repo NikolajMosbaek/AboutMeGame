@@ -225,6 +225,34 @@ describe("AudioEngine", () => {
     expect(ctx.suspend).toHaveBeenCalled();
   });
 
+  it("setVolume scales the un-muted master gain toward the requested level", () => {
+    const { ctx, gains } = fakeContext();
+    const engine = new AudioEngine(() => ctx);
+    const master = gains[0];
+    const full = master.gain.value; // MASTER_GAIN at volume 1
+    engine.setVolume(0.5);
+    const ramps = (master.gain.linearRampToValueAtTime as ReturnType<typeof vi.fn>).mock.calls;
+    const target = ramps.at(-1)![0];
+    expect(target).toBeGreaterThan(0);
+    expect(target).toBeCloseTo(full * 0.5, 5); // half the un-muted level
+  });
+
+  it("setVolume while muted does not raise the gain (mute owns it until unmute)", () => {
+    const { ctx, gains } = fakeContext();
+    const engine = new AudioEngine(() => ctx);
+    const master = gains[0];
+    const full = master.gain.value; // MASTER_GAIN at volume 1
+    engine.setMuted(true);
+    (master.gain.linearRampToValueAtTime as ReturnType<typeof vi.fn>).mockClear();
+    engine.setVolume(0.5); // changes the stored volume, not the live (muted) gain
+    expect(master.gain.linearRampToValueAtTime).not.toHaveBeenCalled();
+
+    // On unmute, the gain ramps to the NEW (half) volume, not the old full level.
+    engine.setMuted(false);
+    const ramps = (master.gain.linearRampToValueAtTime as ReturnType<typeof vi.fn>).mock.calls;
+    expect(ramps.at(-1)![0]).toBeCloseTo(full * 0.5, 5);
+  });
+
   it("ramps the master back up and resumes when unmuted", () => {
     const { ctx, gains } = fakeContext();
     const engine = new AudioEngine(() => ctx);

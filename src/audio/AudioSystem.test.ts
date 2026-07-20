@@ -34,6 +34,7 @@ function fakeEngine() {
     setRainLevel: vi.fn(),
     thunder: vi.fn(),
     setMuted: vi.fn(),
+    setVolume: vi.fn(),
     resume: vi.fn(),
     recoverIfInterrupted: vi.fn(),
     dispose: vi.fn(),
@@ -60,8 +61,8 @@ function explorerSource(state: {
   return { state: s };
 }
 
-function mutedSource(muted: boolean) {
-  return { getSnapshot: () => ({ muted }) };
+function mutedSource(muted: boolean, volume = 1) {
+  return { getSnapshot: () => ({ muted, volume }) };
 }
 
 function dayPhaseSource(phase: number) {
@@ -302,13 +303,24 @@ describe("AudioSystem", () => {
 
   it("keeps the engine mute synced to the live setting each frame", () => {
     let muted = false;
-    const muteSrc = { getSnapshot: () => ({ muted }) };
+    const muteSrc = { getSnapshot: () => ({ muted, volume: 1 }) };
     const { engine, sys } = makeSystem({ muted: muteSrc });
 
     expect(engine.setMuted).toHaveBeenLastCalledWith(false); // applied at construction
     muted = true;
     sys.update(CTX());
     expect(engine.setMuted).toHaveBeenLastCalledWith(true);
+  });
+
+  it("keeps the engine volume synced to the live setting each frame", () => {
+    let volume = 1;
+    const src = { getSnapshot: () => ({ muted: false, volume }) };
+    const { engine, sys } = makeSystem({ muted: src });
+
+    expect(engine.setVolume).toHaveBeenLastCalledWith(1); // applied at construction
+    volume = 0.3;
+    sys.update(CTX());
+    expect(engine.setVolume).toHaveBeenLastCalledWith(0.3);
   });
 
   it("fires drink/eat/hurt/death exactly once per edge", () => {

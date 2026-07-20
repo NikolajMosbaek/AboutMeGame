@@ -16,6 +16,7 @@ function mem(seed?: Record<string, string>) {
 
 const DEFAULTS: Settings = {
   muted: false,
+  volume: 1,
   quality: "auto",
   reducedMotion: false,
 };
@@ -30,11 +31,11 @@ describe("settingsStore", () => {
     const storage = mem();
     const store = createSettingsStore(storage);
     store.set({ muted: true, quality: "low" });
-    expect(store.getSnapshot()).toEqual({ muted: true, quality: "low", reducedMotion: false });
+    expect(store.getSnapshot()).toEqual({ muted: true, volume: 1, quality: "low", reducedMotion: false });
 
     // A fresh store reading the same storage sees the persisted values.
     const reloaded = createSettingsStore(storage);
-    expect(reloaded.getSnapshot()).toEqual({ muted: true, quality: "low", reducedMotion: false });
+    expect(reloaded.getSnapshot()).toEqual({ muted: true, volume: 1, quality: "low", reducedMotion: false });
   });
 
   it("returns a stable snapshot reference when a set changes nothing", () => {
@@ -105,6 +106,31 @@ describe("settingsStore", () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it("round-trips volume and clamps an out-of-range persisted value into 0..1", () => {
+    const storage = mem();
+    createSettingsStore(storage).set({ volume: 0.4 });
+    expect(createSettingsStore(storage).getSnapshot().volume).toBe(0.4);
+
+    // A persisted value outside 0..1 (corruption) is clamped, not trusted.
+    expect(
+      createSettingsStore(
+        mem({ "aboutmegame.settings.v1": JSON.stringify({ volume: 5 }) }),
+      ).getSnapshot().volume,
+    ).toBe(1);
+    expect(
+      createSettingsStore(
+        mem({ "aboutmegame.settings.v1": JSON.stringify({ volume: -2 }) }),
+      ).getSnapshot().volume,
+    ).toBe(0);
+
+    // A non-numeric volume falls back to the full default.
+    expect(
+      createSettingsStore(
+        mem({ "aboutmegame.settings.v1": JSON.stringify({ volume: "loud" }) }),
+      ).getSnapshot().volume,
+    ).toBe(1);
   });
 
   it("degrades gracefully when storage is absent", () => {
