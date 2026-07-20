@@ -1,8 +1,10 @@
 import { useRef, useEffect } from "react";
 import { APP_VERSION, VISION } from "../version.ts";
 import { createPersistence } from "../discovery/persistence.ts";
+import { createWinPersistence, type WinRecord } from "../quest/winRecord.ts";
 import { POI_ANCHORS } from "../world/worldConfig.ts";
 import { readControlChannel, type ControlChannel } from "./controlScheme.ts";
+import { formatPlayTime } from "./TreasurePanel.tsx";
 
 export interface TitleProgress {
   /** How many pages have been found in a previous session. */
@@ -25,6 +27,10 @@ export interface TitleScreenProps {
    *  touch copy. Injected so tests/previews can force a channel; defaults to the
    *  resolved platform signal (keyboard whenever the pointer is fine or absent). */
   channel?: ControlChannel;
+  /** The persisted completion, so a returning winner is recognised (and told
+   *  apart from someone who only read every page). Injected so tests don't touch
+   *  real storage; defaults to reading the win record. null = never won. */
+  win?: WinRecord | null;
 }
 
 // Title-local presentational copy for the one controls hint — first-person
@@ -46,6 +52,12 @@ function readProgress(): TitleProgress {
   return { discovered, total: POI_ANCHORS.length };
 }
 
+/** Read the persisted win without spinning up the engine — same
+ *  storage-only pattern as `readProgress`. */
+function readWin(): WinRecord | null {
+  return createWinPersistence().load();
+}
+
 /**
  * The landing screen (#40): the wordmark, the one-line pitch, a short controls
  * hint, and a single CTA. With saved progress it shows "N of total pages found"
@@ -59,8 +71,10 @@ export function TitleScreen({
   onReadText,
   progress = readProgress(),
   channel = readControlChannel(),
+  win = readWin(),
 }: TitleScreenProps) {
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const hasWon = win !== null;
   const hasProgress = progress.discovered > 0;
 
   // Move focus to the heading on mount so screen-reader users land at the top
@@ -76,14 +90,20 @@ export function TitleScreen({
       </h1>
       <p className="tagline">{VISION}</p>
 
-      {hasProgress && (
-        <p className="title-progress" role="status">
-          {progress.discovered} of {progress.total} pages found
+      {hasWon ? (
+        <p className="title-progress title-progress--won" role="status">
+          You found the Lost Idol in {formatPlayTime(win.playSeconds)}
         </p>
+      ) : (
+        hasProgress && (
+          <p className="title-progress" role="status">
+            {progress.discovered} of {progress.total} pages found
+          </p>
+        )
       )}
 
       <button type="button" className="cta" onClick={onStart}>
-        {hasProgress ? "Continue" : "Begin the expedition"}
+        {hasWon ? "Return to the island" : hasProgress ? "Continue" : "Begin the expedition"}
       </button>
 
       {onReadText && (

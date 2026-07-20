@@ -188,6 +188,14 @@ body {
   color: var(--color-accent);
 }
 
+/* A returning winner's completion badge — the emerald glow of the idol, so a
+   win reads as a trophy on the title rather than mid-run page progress. */
+.title-progress--won {
+  color: #7fe0a3;
+  font-size: 1.05rem;
+  letter-spacing: 0.01em;
+}
+
 /* Secondary link to the no-WebGL text view (#50). A text-style button so it
    reads as a quiet alternative beneath the primary CTA, but stays a real,
    focusable control with a ≥44px tap target. */

@@ -9,11 +9,19 @@ const FPS = 60;
 const CLUES = ["a", "b", "c", "d", "e", "f"];
 const DIG = { x: 100, z: -40 };
 
-function rig(opts: { found?: string[]; at?: { x: number; z: number } } = {}) {
+function rig(
+  opts: {
+    found?: string[];
+    at?: { x: number; z: number };
+    persistWin?: (record: unknown) => void;
+    restoredWin?: boolean;
+  } = {},
+) {
   const store = createQuestStore(CLUES.length);
   const session = createSession();
   const reveal = vi.fn();
   const onFinaleStart = vi.fn();
+  const persistWin = vi.fn(opts.persistWin);
   let found = opts.found ?? [];
   let panelOpen = false;
   let interact = false;
@@ -38,6 +46,8 @@ function rig(opts: { found?: string[]; at?: { x: number; z: number } } = {}) {
     reveal,
     undefined,
     onFinaleStart,
+    persistWin,
+    opts.restoredWin ?? false,
   );
   return {
     sys,
@@ -45,6 +55,7 @@ function rig(opts: { found?: string[]; at?: { x: number; z: number } } = {}) {
     session,
     reveal,
     onFinaleStart,
+    persistWin,
     player,
     press: () => (interact = true),
     setFound: (ids: string[]) => (found = ids),
@@ -225,5 +236,45 @@ describe("QuestSystem (pivot slice G)", () => {
     expect(r.store.getSnapshot().digProgress).toBeNull();
     expect(r.store.getSnapshot().digOwnsKey).toBe(false);
     expect(r.reveal).toHaveBeenCalledOnce();
+  });
+
+  it("persists the win the instant the dig completes, with the frozen stats", () => {
+    const r = rig({ found: CLUES, at: DIG });
+    r.press();
+    // Right up to the dig's completion (finale start), not the win flip 4.5 s on.
+    run(r, Math.ceil(TUNE.digSeconds * FPS) + 2);
+    expect(r.store.getSnapshot().finaleActive).toBe(true);
+    expect(r.persistWin).toHaveBeenCalledTimes(1);
+    expect(r.persistWin.mock.calls[0][0]).toEqual({
+      playSeconds: Math.floor(r.store.getSnapshot().playSeconds),
+      cluesFound: 6,
+      cluesTotal: 6,
+      deaths: 2,
+      fruitEaten: 7,
+    });
+
+    // The finale ending (treasureFound flip) must NOT save a second time.
+    run(r, Math.ceil(TUNE.finaleSeconds * FPS) + 2);
+    expect(r.store.getSnapshot().treasureFound).toBe(true);
+    expect(r.persistWin).toHaveBeenCalledTimes(1);
+  });
+
+  it("a restored win starts already-won: treasureFound is true from construction, the idol never re-buries, and nothing re-saves", () => {
+    const r = rig({ found: CLUES, at: DIG, restoredWin: true });
+    // Seeded synchronously in the constructor — before any update — so the
+    // React win panel's baseline reads treasureFound=true and never re-pops.
+    expect(r.store.getSnapshot().treasureFound).toBe(true);
+
+    run(r, 5);
+    const s = r.store.getSnapshot();
+    expect(s.treasureFound).toBe(true);
+    expect(s.digOwnsKey).toBe(false); // the dig is spent — no re-dig at the patch
+    expect(s.digProgress).toBeNull();
+    // A press at the patch does not re-arm the (spent) dig.
+    r.press();
+    run(r, 1);
+    expect(r.store.getSnapshot().digProgress).toBeNull();
+    // A restored win was already saved on the original run — never re-persisted.
+    expect(r.persistWin).not.toHaveBeenCalled();
   });
 });

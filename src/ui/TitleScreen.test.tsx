@@ -77,4 +77,28 @@ describe("TitleScreen", () => {
     render(<TitleScreen onStart={() => {}} progress={{ discovered: 0, total: 6 }} />);
     expect(screen.queryByRole("button", { name: /about this game/i })).not.toBeInTheDocument();
   });
+
+  it("recognises a returning winner: shows the completion time and a Return to the island CTA", () => {
+    render(
+      <TitleScreen
+        onStart={() => {}}
+        progress={{ discovered: 6, total: 6 }}
+        win={{ playSeconds: 754, cluesFound: 6, cluesTotal: 6, deaths: 2, fruitEaten: 9 }}
+      />,
+    );
+    expect(screen.getByText("You found the Lost Idol in 12:34")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Return to the island" })).toBeInTheDocument();
+    // A winner is not shown the mid-run "pages found" line.
+    expect(screen.queryByText(/pages found/i)).not.toBeInTheDocument();
+  });
+
+  it("tells a page-reader who never won apart from a winner (progress line, Continue CTA)", () => {
+    render(
+      <TitleScreen onStart={() => {}} progress={{ discovered: 6, total: 6 }} win={null} />,
+    );
+    expect(screen.getByText("6 of 6 pages found")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Continue" })).toBeInTheDocument();
+    expect(screen.queryByText(/You found the Lost Idol/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Return to the island" })).not.toBeInTheDocument();
+  });
 });
