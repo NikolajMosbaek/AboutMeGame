@@ -10,12 +10,12 @@ const FRAME = (dt = 0.05) => {
 
 function rig() {
   const scene = new THREE.Scene();
-  const survival = { thirst: 50 };
+  const survival = { thirst: 50, alive: true };
   const forage = { eaten: 0 };
   const quest = { digProgress: null as number | null };
   const sys = new HandsSystem(
     scene,
-    { getSnapshot: () => ({ thirst: survival.thirst }) },
+    { getSnapshot: () => ({ thirst: survival.thirst, alive: survival.alive }) },
     { getSnapshot: () => ({ eaten: forage.eaten }) },
     { getSnapshot: () => ({ digProgress: quest.digProgress }) },
   );
@@ -93,7 +93,7 @@ describe("HandsSystem", () => {
     const scene = new THREE.Scene();
     const sys = new HandsSystem(
       scene,
-      { getSnapshot: () => ({ thirst: 90 }) },
+      { getSnapshot: () => ({ thirst: 90, alive: true }) },
       { getSnapshot: () => ({ eaten: 7 }) },
       { getSnapshot: () => ({ digProgress: null }) },
     );
@@ -102,23 +102,35 @@ describe("HandsSystem", () => {
     sys.dispose();
   });
 
-  it("holds mid-pose while the session is paused and ignores the respawn thirst refill", () => {
+  it("never cups a phantom hand on the respawn refill, and holds mid-pose while paused", () => {
     const scene = new THREE.Scene();
-    const survival = { thirst: 2 };
+    const survival = { thirst: 45, alive: true };
     const session = { paused: false };
     const sys = new HandsSystem(
       scene,
-      { getSnapshot: () => ({ thirst: survival.thirst }) },
+      { getSnapshot: () => ({ thirst: survival.thirst, alive: survival.alive }) },
       { getSnapshot: () => ({ eaten: 0 }) },
       { getSnapshot: () => ({ digProgress: null }) },
       session,
     );
     sys.update(FRAME());
-    survival.thirst = 75; // the respawn refill — NOT a drink
-    sys.update(FRAME());
     expect(sys.describe().action).toBe("idle");
 
-    survival.thirst = 95; // a real gulp (+20)
+    // Death, then wake: alive flips false→true and thirst refills 45→75 in one
+    // jump. That +30 is small enough a delta heuristic would misread it as a
+    // gulp — the alive edge is what correctly suppresses it. Death pauses the
+    // sim; respawn unpauses.
+    survival.alive = false;
+    session.paused = true;
+    sys.update(FRAME()); // observes alive=false under the pause
+    survival.alive = true;
+    survival.thirst = 75;
+    session.paused = false;
+    sys.update(FRAME());
+    expect(sys.describe().action).toBe("idle"); // respawn refill is NOT a drink
+
+    // A real gulp afterwards still raises the hand.
+    survival.thirst = 95;
     sys.update(FRAME());
     expect(sys.describe().action).toBe("drink");
     session.paused = true;
