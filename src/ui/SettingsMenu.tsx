@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import type { SettingsStore, Quality } from "../settings/settingsStore.ts";
+import {
+  type SettingsStore,
+  type Quality,
+  SENSITIVITY_MIN,
+  SENSITIVITY_MAX,
+} from "../settings/settingsStore.ts";
 import { useFocusTrap } from "./useFocusTrap.ts";
 
 export interface SettingsMenuProps {
@@ -115,6 +120,33 @@ export function SettingsMenu({ settings, onClose, onExit, onResetProgress }: Set
         {/* Resolution + shadows re-apply instantly; the scenery detail level is
             baked at load, so a change there only fully takes effect next time. */}
         <p className="menu__note">Detail level applies on reload.</p>
+
+        <label className="menu__row">
+          <span>Look sensitivity</span>
+          <input
+            type="range"
+            className="menu__slider"
+            min={SENSITIVITY_MIN}
+            max={SENSITIVITY_MAX}
+            step={0.1}
+            value={s.lookSensitivity}
+            aria-label="Look sensitivity"
+            onChange={(e) => settings.set({ lookSensitivity: Number(e.target.value) })}
+          />
+        </label>
+
+        <label className="menu__row">
+          <span>Invert vertical look</span>
+          <button
+            type="button"
+            className="menu__toggle"
+            role="switch"
+            aria-checked={s.invertY}
+            onClick={() => settings.set({ invertY: !s.invertY })}
+          >
+            {s.invertY ? "On" : "Off"}
+          </button>
+        </label>
 
         <label className="menu__row">
           <span>Reduced motion</span>
